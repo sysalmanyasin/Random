@@ -1,0 +1,22 @@
+{
+  "name": "Fazal Din Pharmacy Audit Hub",
+  "short_name": "PharmaAudit",
+  "description": "Inventory Variance and Random Stock Audit Engine",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0F1F3D",
+  "theme_color": "#0F1F3D",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}
