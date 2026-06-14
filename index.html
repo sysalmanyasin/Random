@@ -131,6 +131,14 @@
   .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); padding: 10px 20px; border-radius: 24px; font-size: 13px; font-weight: 700; color: var(--white); z-index: 250; box-shadow: 0 4px 15px rgba(0,0,0,0.15); }
   .toast.success { background: var(--green); }
   .toast.error { background: var(--red); }
+
+  /* ── Filter Toggle Buttons ───────────────────────────────── */
+  .filter-btn { border: 1.5px solid var(--border); background: var(--light); border-radius: 20px; padding: 4px 10px; font-size: 11px; font-weight: 700; color: var(--grey); cursor: pointer; transition: all 0.15s; }
+  .filter-btn-active { background: var(--navy); color: var(--white); border-color: var(--navy); }
+
+  /* ── History sub-entry per date ──────────────────────────── */
+  .history-date-entry { border-left: 3px solid var(--border); padding: 8px 10px; margin-bottom:6px; border-radius:0 6px 6px 0; background: var(--white); }
+  .history-date-entry:last-child { margin-bottom: 0; }
   
   /* ── PDF Report Premium Architecture ────────────────────── */
   #printable-report-canvas { display: none; background: #ffffff; padding: 40px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #111111; }
@@ -151,17 +159,80 @@
     #printable-report-canvas { display: block !important; }
     @page { margin: 1.5cm; }
   }
+
+  /* ── Cloud Sync Status Bar ───────────────────────────────── */
+  #cloud-sync-bar {
+    position: fixed;
+    top: 0; left: 50%; transform: translateX(-50%);
+    width: 100%; max-width: 540px;
+    height: 28px;
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.2px;
+    cursor: pointer; z-index: 200;
+    transition: background 0.3s, color 0.3s;
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #cloud-sync-bar.state-synced  { background: #E6F9F5; color: #00836F; }
+  #cloud-sync-bar.state-syncing { background: #FFF8EC; color: #C88A00; }
+  #cloud-sync-bar.state-error   { background: #FEE9E9; color: #C0392B; }
+  #cloud-sync-bar.state-idle    { background: #F2F4F7; color: #8492A6; }
+  #cloud-sync-bar.state-unlinked { background: #F2F4F7; color: #8492A6; }
+  #cloud-sync-bar .sync-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+  #cloud-sync-bar.state-synced  .sync-dot { background: #00836F; box-shadow: 0 0 5px #00836F88; }
+  #cloud-sync-bar.state-syncing .sync-dot { background: #F5A623; animation: pulse-dot 0.9s infinite; }
+  #cloud-sync-bar.state-error   .sync-dot { background: #C0392B; }
+  #cloud-sync-bar.state-idle    .sync-dot { background: #B0BAC9; }
+  #cloud-sync-bar.state-unlinked .sync-dot { background: #B0BAC9; }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.4; transform: scale(0.7); }
+  }
+  /* Push entire app down by bar height */
+  #app { padding-top: 28px; }
+  .header { top: 28px; }
+  .sticky-controls { top: 96px; }
+
+  /* ── Settings Page ─────────────────────────────────────── */
+  .settings-label { display:block; font-size:11px; font-weight:700; color:var(--grey); margin-bottom:4px; letter-spacing:0.5px; text-transform:uppercase; }
+  .settings-input { width:100%; padding:12px; border:1.5px solid var(--border); border-radius:8px; font-weight:700; font-size:14px; margin-bottom:14px; color:var(--navy); }
+  .settings-row { display:flex; gap:8px; }
+
+  /* ── History date-range & select-all bar ───────────────── */
+  .history-filter-bar { display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+  .history-filter-bar input[type=date] { flex:1; min-width:120px; padding:8px; border:1.5px solid var(--border); border-radius:8px; font-size:12px; font-weight:600; color:var(--navy); }
+  .select-all-row { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:700; color:var(--navy); margin-bottom:10px; }
+
+  /* ── Combined Multi-Audit Print ──────────────────────────── */
+  .pdf-page-section { page-break-after: always; }
+  .pdf-page-section:last-child { page-break-after: auto; }
+
+
 </style>
+<!-- Dropbox SDK -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dropbox.js/10.11.0/Dropbox-sdk.min.js"></script>
+<!-- SheetJS (Excel export) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
 <div id="app">
 
+  <!-- ── Cloud Sync Status Bar ─────────────────────────────── -->
+  <div id="cloud-sync-bar" class="state-unlinked" onclick="cloudBarTapped()" title="Tap to sync">
+    <span class="sync-dot"></span>
+    <span id="cloud-bar-text">☁ Not linked</span>
+  </div>
+
   <div class="header">
     <div class="header-brand-wrap">
       <div class="header-sub">Fazal Din's Pharma Plus</div>
       <div class="header-title">Pharmacy Audit Hub</div>
-      <div class="header-loc">📍 Bahria Town Branch</div>
+      <div class="header-loc">📍 <span id="header-branch-label">Bahria Town Branch</span></div>
     </div>
     <div class="no-print" id="action-header-sync-btn" style="display:none;">
       <button class="btn btn-gold btn-sm" style="padding:5px 12px; font-size:11px;" onclick="invokeNativeHardwareShare()">Share Progress</button>
@@ -182,7 +253,7 @@
     <div class="card" style="border: 1.5px dashed var(--navy); background: #F0F4FA; padding: 16px;">
       <div class="card-title" style="color:var(--navy); margin-bottom:6px;">Unified Wireless Data Sync</div>
       <p style="font-size:12px; color:var(--navy2); margin-bottom:12px; line-height:1.4;">
-        Receive backup files from external devices via **WhatsApp, local networks, Wi-Fi Direct, AirDrop, or Bluetooth**, then load them below to safely merge datasets.
+        Receive backup files from external devices via <strong>WhatsApp, local networks, Wi-Fi Direct, AirDrop, or Bluetooth</strong>, then load them below to safely merge datasets.
       </p>
       <button class="btn btn-primary btn-sm" style="width:100%; border-radius:10px; padding:12px;" onclick="document.getElementById('hardware-sync-receiver').click()">📥 Ingest Shared Session Package (.JSON)</button>
       <input type="file" id="hardware-sync-receiver" accept=".json" style="display:none" onchange="ingestSharedHardwarePackage(this)">
@@ -206,12 +277,33 @@
         <span id="label-active-company" style="font-size:14px; font-weight:800; color:var(--navy); max-width:65%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Target Manufacturer</span>
         <span id="live-net-impact-badge" class="val-badge val-grey">Net Impact: Rs 0</span>
       </div>
+
+      <!-- Progress Bar -->
+      <div style="margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700; color:var(--grey); margin-bottom:4px;">
+          <span id="progress-label">0 / 0 counted (0%)</span>
+          <span id="progress-mark-btn" style="color:var(--gold); cursor:pointer; text-decoration:underline;" onclick="markAllRemainingAsMatch()">Mark Remaining as Match</span>
+        </div>
+        <div style="background:var(--light); border-radius:6px; height:6px; overflow:hidden;">
+          <div id="progress-fill" style="height:100%; background:var(--green); border-radius:6px; width:0%; transition:width 0.3s;"></div>
+        </div>
+      </div>
+
       <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; text-align:center; font-size:11px; font-weight:700; border-top:1px solid var(--border); padding-top:8px;">
-        <div style="color:var(--red);">Short: <span id="metric-short">0</span></div>
-        <div style="color:var(--green);">Over: <span id="metric-over">0</span></div>
+        <div style="color:var(--red);">Short: <span id="metric-short">0</span><div id="metric-short-rs" style="font-size:9px; font-weight:600; color:var(--grey);"></div></div>
+        <div style="color:var(--green);">Over: <span id="metric-over">0</span><div id="metric-over-rs" style="font-size:9px; font-weight:600; color:var(--grey);"></div></div>
         <div style="color:var(--grey);">Match: <span id="metric-match">0</span></div>
         <div style="color:var(--gold);">Rem: <span id="metric-rem">0</span></div>
       </div>
+
+      <!-- Filter Toggle -->
+      <div style="display:flex; gap:4px; margin-top:8px; flex-wrap:wrap;">
+        <button id="filter-btn-all"      class="filter-btn filter-btn-active" onclick="setAuditFilter('all')">All</button>
+        <button id="filter-btn-shorts"   class="filter-btn" onclick="setAuditFilter('shorts')">Shorts ▼</button>
+        <button id="filter-btn-overs"    class="filter-btn" onclick="setAuditFilter('overs')">Overs ▲</button>
+        <button id="filter-btn-unverified" class="filter-btn" onclick="setAuditFilter('unverified')">Unverified</button>
+      </div>
+
       <div class="search-sort-row no-print">
         <input type="text" id="shelf-search-input" class="search-input" placeholder="🔍 Filter product row names..." oninput="renderAuditTableBody()">
         <button class="sort-btn" onclick="toggleRuntimeSortOrder()">↕️ <span id="sort-order-label">A-Z</span></button>
@@ -256,14 +348,66 @@
 
   <div class="page" id="page-history">
     <div class="card-title">Stored Log Files Ledger</div>
-    
+
+    <div class="history-filter-bar">
+      <input type="date" id="history-filter-from" onchange="compileAccordionLedgerInterface(dynamicallyRetainedLogsCache)">
+      <span style="font-size:11px; color:var(--grey); font-weight:700;">to</span>
+      <input type="date" id="history-filter-to" onchange="compileAccordionLedgerInterface(dynamicallyRetainedLogsCache)">
+      <button class="sort-btn" onclick="document.getElementById('history-filter-from').value=''; document.getElementById('history-filter-to').value=''; compileAccordionLedgerInterface(dynamicallyRetainedLogsCache);">Clear</button>
+    </div>
+
+    <div class="select-all-row">
+      <input type="checkbox" class="custom-checkbox" id="history-select-all" onchange="toggleSelectAllHistory(this)">
+      <label for="history-select-all" style="cursor:pointer;">Select All Visible</label>
+    </div>
+
     <div class="bulk-actions-panel">
       <button class="btn btn-gold" style="flex:1; font-size:12px; padding:10px; border-radius:8px;" onclick="dispatchSelectedAuditsViaWhatsApp()">🟢 WhatsApp Pack</button>
       <button class="btn btn-danger" style="flex:1; font-size:12px; padding:10px; border-radius:8px;" onclick="purgeSelectedAuditsFromLedger()">🗑️ Purge Records</button>
     </div>
+    <div class="bulk-actions-panel">
+      <button class="btn btn-primary" style="flex:1; font-size:12px; padding:10px; border-radius:8px;" onclick="printSelectedAuditsCombinedPDF()">🖨️ Combined PDF (Selected)</button>
+      <button class="btn" style="flex:1; font-size:12px; padding:10px; border-radius:8px; background:var(--green); color:var(--white);" onclick="exportAllHistoryXLSX()">📊 Export All (.xlsx)</button>
+    </div>
 
     <div id="history-accordion-container">
       </div>
+  </div>
+
+  <div class="page" id="page-settings">
+    <div class="card-title">Branch & Display</div>
+    <div class="card">
+      <label class="settings-label">Branch Name</label>
+      <input type="text" id="settings-branch-name" class="settings-input" placeholder="e.g. Bahria Town Branch" style="margin-bottom:0;">
+      <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="saveBranchName()">Save Branch Name</button>
+    </div>
+
+    <div class="card-title">Dropbox Cloud Sync</div>
+    <div class="card">
+      <label class="settings-label">Dropbox App Key</label>
+      <input type="text" id="settings-dropbox-key" class="settings-input" placeholder="Paste your Dropbox App Key" style="margin-bottom:0;">
+      <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="saveDropboxAppKey()">Save Dropbox Key</button>
+      <div style="margin-top:10px; font-size:12px; color:var(--grey);">
+        Current link status: <strong id="settings-dropbox-status">Not linked</strong>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button class="btn btn-gold" style="flex:1; font-size:12px; padding:10px;" onclick="cloudBarTapped()">Link / Sync Now</button>
+        <button class="btn btn-danger" style="flex:1; font-size:12px; padding:10px;" onclick="unlinkDropbox()">Unlink</button>
+      </div>
+      <label style="display:flex; align-items:center; gap:10px; font-size:13px; font-weight:700; color:var(--navy); margin-top:14px; cursor:pointer; user-select:none;">
+        <input type="checkbox" id="settings-autosync-toggle" style="width:18px; height:18px; accent-color:var(--navy);" onchange="toggleAutoSync(this)"> Auto-sync to Dropbox every 10s
+      </label>
+    </div>
+
+    <div class="card-title">Backup & Restore</div>
+    <div class="card">
+      <p style="font-size:12px; color:var(--grey); margin-bottom:12px; line-height:1.4;">
+        Export everything (inventory + full audit history) as one JSON file, or restore from a previous backup.
+      </p>
+      <button class="btn btn-block" style="background:var(--green); color:var(--white); margin-bottom:10px;" onclick="exportFullBackup()">⬇️ Backup Everything (.json)</button>
+      <button class="btn btn-primary btn-block" onclick="document.getElementById('restore-backup-input').click()">📥 Restore From Backup</button>
+      <input type="file" id="restore-backup-input" accept=".json" style="display:none" onchange="restoreFullBackup(this)">
+    </div>
   </div>
 
   <div class="tabbar no-print">
@@ -276,24 +420,27 @@
     <button class="tab-btn" id="tab-history" onclick="executeViewNavigation('history')">
       <span class="tab-label">History Ledger</span><div class="tab-dot"></div>
     </button>
+    <button class="tab-btn" id="tab-settings" onclick="executeViewNavigation('settings')">
+      <span class="tab-label">Settings</span><div class="tab-dot"></div>
+    </button>
+
   </div>
 
-  <div id="export-modal-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:300; align-items:center; justify-content:center; padding:16px;">
-    <div style="background:white; padding:20px; border-radius:14px; max-width:420px; width:100%; box-shadow:var(--shadow);">
+
+  <div id="export-modal-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:300; align-items:center; justify-content:center; padding:16px;" onclick="document.getElementById('export-modal-overlay').style.display='none'">
+    <div style="background:white; padding:20px; border-radius:14px; max-width:420px; width:100%; box-shadow:var(--shadow);" onclick="event.stopPropagation()">
       <h3 style="margin-bottom:14px; color:var(--navy); font-size:16px; font-weight:800;">Final Audit Validation</h3>
-      
-      <label style="display:block; font-size:11px; font-weight:700; color:var(--grey); margin-bottom:4px; letter-spacing:0.5px;">SIGN-OFF PHARMACIST IDENTITY</label>
-      <input type="text" id="input-auditor-identity" value="Salman" placeholder="Enter full name" style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:8px; font-weight:700; font-size:14px; margin-bottom:14px; color:var(--navy);">
-      
+
       <label style="display:flex; align-items:center; gap:10px; font-size:13px; font-weight:700; color:var(--navy); margin-bottom:18px; cursor:pointer; user-select:none;">
         <input type="checkbox" id="checkbox-variance-isolation" style="width:18px; height:18px; accent-color:var(--navy);"> Isolate Discrepancy Items Only
       </label>
 
       <div style="display:flex; gap:10px;">
-        <button class="btn btn-primary btn-sm" style="flex:1; padding:12px;" onclick="processFinalSignoffWorkflow('pdf')">Print PDF</button>
-        <button class="btn btn-gold btn-sm" style="flex:1; padding:12px;" onclick="processFinalSignoffWorkflow('whatsapp')">WhatsApp</button>
+        <button class="btn btn-primary btn-sm" style="flex:1; padding:12px;" onclick="guardedSignoff('pdf')">Print PDF</button>
+        <button class="btn btn-gold btn-sm" style="flex:1; padding:12px;" onclick="guardedSignoff('whatsapp')">WhatsApp</button>
       </div>
-      <button class="btn btn-sm" style="width:100%; margin-top:10px; background:var(--light); color:var(--text); padding:10px;" onclick="document.getElementById('export-modal-overlay').style.display='none'">Cancel</button>
+      <button class="btn btn-sm" style="width:100%; margin-top:8px; background:var(--green); color:var(--white); padding:11px; font-weight:700;" onclick="guardedSignoff('save')">💾 Save to History</button>
+      <button class="btn btn-sm" style="width:100%; margin-top:8px; background:var(--light); color:var(--text); padding:10px;" onclick="document.getElementById('export-modal-overlay').style.display='none'">Cancel</button>
     </div>
   </div>
 
@@ -304,7 +451,7 @@
     <div>
       <div class="pdf-brand-title">Fazal Din's Pharma Plus</div>
       <div style="font-size:13px; font-weight:700; color:#475569; margin-top:2px;">Inventory Variance Evaluation Statement</div>
-      <div style="font-size:12px; color:#64748B; margin-top:1px;">Branch Terminal: Bahria Town Branch</div>
+      <div style="font-size:12px; color:#64748B; margin-top:1px;">Branch Terminal: <span id="pdf-branch-label">Bahria Town Branch</span></div>
     </div>
     <div style="text-align:right; font-size:12px; color:#475569; line-height:1.5;">
       <div><strong>Document ID:</strong> <span id="pdf-doc-id">N/A</span></div>
@@ -364,11 +511,12 @@ let userPhysicalVerificationMap = {};
 let targetSelectedManufacturer = '';
 let statusAscendingAlphabetical = true;
 let dynamicallyRetainedLogsCache = [];
+let auditFilterMode = 'all'; // 'all' | 'shorts' | 'overs' | 'unverified'
 
 // ── INDEXEDDB BASE CONFIGURATION ENGINE ─────────────────
 let indexedDatabaseRef = null;
 const DB_NAME = "FazalDinPharmaPlus_AuditEngine";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 (function initializeIndexedDBEngine() {
   const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -381,7 +529,11 @@ const DB_VERSION = 1;
     let db = e.target.result;
     if (!db.objectStoreNames.contains("products")) db.createObjectStore("products", { keyPath: "id", autoIncrement: true });
     if (!db.objectStoreNames.contains("sessionState")) db.createObjectStore("sessionState", { keyPath: "company" });
-    if (!db.objectStoreNames.contains("historyLedger")) db.createObjectStore("historyLedger", { keyPath: "company" });
+    // historyLedger now keyed by composite "company|dateMonth" for time-series tracking
+    if (!db.objectStoreNames.contains("historyLedger")) {
+      const hs = db.createObjectStore("historyLedger", { keyPath: "id" });
+      hs.createIndex("byCompany", "company", { unique: false });
+    }
   };
 })();
 
@@ -405,19 +557,26 @@ function writeRuntimeStateCheckpoint() {
 
 function recordCompletedAuditIntoLedger(ledgerEntry) {
   if (!indexedDatabaseRef) return;
+  // Composite key: company + year-month-day-time for time-series history (unique per save)
+  const now = new Date();
+  const dateMonth = now.toISOString().slice(0, 7); // "YYYY-MM"
+  const uniqueSuffix = now.getTime();
+  const entryWithId = Object.assign({}, ledgerEntry, { id: ledgerEntry.company + '|' + dateMonth + '|' + uniqueSuffix, dateMonth });
   const transaction = indexedDatabaseRef.transaction(["historyLedger"], "readwrite");
-  transaction.objectStore("historyLedger").put(ledgerEntry);
-  
-  const existingIdx = dynamicallyRetainedLogsCache.findIndex(l => l.company === ledgerEntry.company);
-  if(existingIdx > -1) dynamicallyRetainedLogsCache[existingIdx] = ledgerEntry;
-  else dynamicallyRetainedLogsCache.push(ledgerEntry);
-  
+  transaction.objectStore("historyLedger").put(entryWithId);
+
+  // Update in-memory cache
+  const existingIdx = dynamicallyRetainedLogsCache.findIndex(l => l.id === entryWithId.id);
+  if (existingIdx > -1) dynamicallyRetainedLogsCache[existingIdx] = entryWithId;
+  else dynamicallyRetainedLogsCache.push(entryWithId);
+
   compileAccordionLedgerInterface(dynamicallyRetainedLogsCache);
 }
 
 function pullSavedStateFromDB() {
   if (!indexedDatabaseRef) return;
-  
+
+  // Load products first, then check for interrupted session
   const productTx = indexedDatabaseRef.transaction(["products"], "readonly");
   const productList = [];
   productTx.objectStore("products").openCursor().onsuccess = (e) => {
@@ -427,25 +586,71 @@ function pullSavedStateFromDB() {
       globalProductsMemoryStore = productList;
       if (globalProductsMemoryStore.length > 0) {
         processDatasetInterfacePopulation(false);
+        restoreInterruptedSessionFromDB();
       }
     }
   };
 
+  // Load history ledger
   const historyTx = indexedDatabaseRef.transaction(["historyLedger"], "readonly");
   const localizedLedger = [];
   historyTx.objectStore("historyLedger").openCursor().onsuccess = (e) => {
     const cursor = e.target.result;
     if (cursor) { localizedLedger.push(cursor.value); cursor.continue(); }
-    else { 
+    else {
       dynamicallyRetainedLogsCache = localizedLedger;
-      compileAccordionLedgerInterface(localizedLedger); 
+      compileAccordionLedgerInterface(localizedLedger);
+    }
+  };
+}
+
+function restoreInterruptedSessionFromDB() {
+  if (!indexedDatabaseRef) return;
+  const sessionTx = indexedDatabaseRef.transaction(["sessionState"], "readonly");
+  const sessionList = [];
+  sessionTx.objectStore("sessionState").openCursor().onsuccess = (e) => {
+    const cursor = e.target.result;
+    if (cursor) { sessionList.push(cursor.value); cursor.continue(); }
+    else {
+      if (sessionList.length === 0) return;
+      sessionList.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      const saved = sessionList[0];
+      if (!saved || !saved.company || !saved.counts) return;
+
+      const matchingItems = globalProductsMemoryStore.filter(m => m.company === saved.company);
+      if (matchingItems.length === 0) return;
+
+      const countedEntries = Object.keys(saved.counts).length;
+      if (countedEntries === 0) return;
+
+      if (confirm('Recovered interrupted audit for "' + saved.company + '" (' + countedEntries + ' items entered).\n\nRestore session?')) {
+        targetSelectedManufacturer = saved.company;
+        localActiveSessionItems = matchingItems;
+        userPhysicalVerificationMap = {};
+        Object.keys(saved.counts).forEach(k => {
+          userPhysicalVerificationMap[parseInt(k)] = parseFloat(saved.counts[k]);
+        });
+
+        document.getElementById('empty-state-fallback').style.display = 'none';
+        document.getElementById('audit-configuration-wrapper').style.display = 'none';
+        document.getElementById('audit-workspace-area').style.display = 'block';
+        document.getElementById('audit-metrics-bar').style.display = 'block';
+        document.getElementById('action-header-sync-btn').style.display = 'block';
+        document.getElementById('label-active-company').textContent = targetSelectedManufacturer;
+
+        executeViewNavigation('audit');
+        renderAuditTableBody();
+        calculateRuntimeFinancialMetrics();
+        toast('Session restored - ' + countedEntries + ' counts recovered');
+      }
     }
   };
 }
 
 // ── ACCESSIBILITY FONT SCALE MANAGEMENT ──────────────────
 function applyFontScaleAdjustment(scaleValue, buttonElement) {
-  document.documentElement.style.setProperty('--font-scale', scaleValue);
+  const zoomMap = {'100%': 1, '112%': 1.12, '125%': 1.25};
+  document.getElementById('app').style.zoom = zoomMap[scaleValue] || 1;
   document.querySelectorAll('.font-btn').forEach(btn => btn.classList.remove('active'));
   buttonElement.classList.add('active');
 }
@@ -549,7 +754,7 @@ function dispatchSelectedAuditsViaWhatsApp() {
   }
 
   let aggregatedTextPayload = `*📋 FAZAL DIN'S PHARMA PLUS — CONSOLIDATED AUDIT*\n`;
-  aggregatedTextPayload += `*Terminal:* Bahria Town Branch\n`;
+  aggregatedTextPayload += `*Terminal:* ${getBranchName()}\n`;
   aggregatedTextPayload += `*Total Sub-Ledgers Bundled:* ${checkboxes.length}\n`;
   aggregatedTextPayload += `─────────────────────────\n\n`;
 
@@ -571,21 +776,37 @@ function dispatchSelectedAuditsViaWhatsApp() {
 }
 
 function purgeSelectedAuditsFromLedger() {
-  const checkboxes = document.querySelectorAll('.bulk-select-box:checked');
-  if (checkboxes.length === 0) {
+  const entryBoxes = document.querySelectorAll('.bulk-entry-box:checked');
+  const companyBoxes = document.querySelectorAll('.bulk-select-box:checked');
+
+  if (entryBoxes.length === 0 && companyBoxes.length === 0) {
     toast("Select layout lines to drop", "error");
     return;
   }
 
-  if (confirm(`⚠️ Permanently scrub verification records for (${checkboxes.length}) manufacturers from disk?`)) {
+  const totalCount = entryBoxes.length > 0 ? entryBoxes.length : companyBoxes.length;
+  const unitLabel = entryBoxes.length > 0 ? 'audit record(s)' : 'manufacturer(s)';
+
+  if (confirm(`⚠️ Permanently scrub (${totalCount}) ${unitLabel} from disk?`)) {
     const transaction = indexedDatabaseRef.transaction(["historyLedger"], "readwrite");
     const store = transaction.objectStore("historyLedger");
 
-    checkboxes.forEach(box => {
-      const companyKey = box.dataset.companyKey;
-      store.delete(companyKey);
-      dynamicallyRetainedLogsCache = dynamicallyRetainedLogsCache.filter(l => l.company !== companyKey);
-    });
+    if (entryBoxes.length > 0) {
+      entryBoxes.forEach(box => {
+        const entryId = box.dataset.entryId;
+        store.delete(entryId);
+        dynamicallyRetainedLogsCache = dynamicallyRetainedLogsCache.filter(l => l.id !== entryId);
+      });
+    } else {
+      companyBoxes.forEach(box => {
+        const companyKey = box.dataset.companyKey;
+        // Delete all entries for this company
+        dynamicallyRetainedLogsCache
+          .filter(l => l.company === companyKey)
+          .forEach(l => store.delete(l.id || l.company));
+        dynamicallyRetainedLogsCache = dynamicallyRetainedLogsCache.filter(l => l.company !== companyKey);
+      });
+    }
 
     transaction.oncomplete = () => {
       toast("Records cleared from disk cache");
@@ -656,6 +877,10 @@ function handleMasterCSVFile(element) {
       saveMasterDatasetToIndexedDB(globalProductsMemoryStore);
       processDatasetInterfacePopulation(true);
       toast(`Loaded ${globalProductsMemoryStore.length.toLocaleString()} items successfully`);
+      
+      // Bug 7 fix: show CTA to navigate to audit tab after successful load
+      const statusEl = document.getElementById('file-status-report');
+      statusEl.innerHTML += ` <button onclick="executeViewNavigation('audit')" style="margin-left:10px; background:var(--navy); color:white; border:none; border-radius:20px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer;">→ Start Auditing</button>`;
     } catch(err) {
       toast("File interpretation aborted", "error");
     }
@@ -689,62 +914,330 @@ function compileAccordionLedgerInterface(historicalLogs) {
 
   const structuredBrandsList = [...new Set(globalProductsMemoryStore.map(m => m.company))].sort();
   if (structuredBrandsList.length === 0) {
-    targetOutputDiv.innerHTML = `<span style="color:var(--grey); font-style:italic; padding:10px; display:block;">No data matrix cached.</span>`;
+    targetOutputDiv.innerHTML = '<span style="color:var(--grey); font-style:italic; padding:10px; display:block;">No data matrix cached.</span>';
     return;
   }
 
+  // Date-range filter
+  const fromEl = document.getElementById('history-filter-from');
+  const toEl = document.getElementById('history-filter-to');
+  const fromVal = fromEl && fromEl.value ? new Date(fromEl.value + 'T00:00:00').getTime() : null;
+  const toVal = toEl && toEl.value ? new Date(toEl.value + 'T23:59:59').getTime() : null;
+
+  const filteredLogs = historicalLogs.filter(l => {
+    const ts = l.timestamp || 0;
+    if (fromVal !== null && ts < fromVal) return false;
+    if (toVal !== null && ts > toVal) return false;
+    return true;
+  });
+
   targetOutputDiv.innerHTML = '';
   structuredBrandsList.forEach(brandName => {
-    const executionLogMatch = historicalLogs.find(l => l.company === brandName);
-    
-    let displayBadgeElement = `<span class="val-badge val-grey">Pending Check</span>`;
-    let expandedHtmlPayload = `<p style="color:var(--grey); font-style:italic; padding:4px 0;">Shelf run tracking unexecuted.</p>`;
+    // Collect all history entries for this company, sorted newest first
+    const companyLogs = filteredLogs
+      .filter(l => l.company === brandName)
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
-    if (executionLogMatch) {
-      const netValuation = executionLogMatch.netFinancialImpact;
+    const latestLog = companyLogs[0];
+
+    let displayBadgeElement = '<span class="val-badge val-grey">Pending Check</span>';
+    let expandedHtmlPayload = '<p style="color:var(--grey); font-style:italic; padding:4px 0;">Shelf run tracking unexecuted.</p>';
+
+    if (latestLog) {
+      const netValuation = latestLog.netFinancialImpact;
       if (netValuation < 0) {
-        displayBadgeElement = `<span class="val-badge val-red">Rs -${Math.abs(netValuation).toLocaleString()}</span>`;
+        displayBadgeElement = '<span class="val-badge val-red">Rs -' + Math.abs(netValuation).toLocaleString() + '</span>';
       } else if (netValuation > 0) {
-        displayBadgeElement = `<span class="val-badge val-green">Rs +${netValuation.toLocaleString()}</span>`;
+        displayBadgeElement = '<span class="val-badge val-green">Rs +' + netValuation.toLocaleString() + '</span>';
       } else {
-        displayBadgeElement = `<span class="val-badge val-grey">Rs 0</span>`;
+        displayBadgeElement = '<span class="val-badge val-grey">Rs 0</span>';
       }
 
-      expandedHtmlPayload = `
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-bottom:8px; border-bottom:1px solid var(--border); padding-bottom:6px; font-size:12px;">
-          <div><strong>Pharmacist:</strong> ${escapeHTMLMarkup(executionLogMatch.auditor)}</div>
-          <div style="text-align:right;"><strong>Timestamp:</strong> ${executionLogMatch.date} @ ${executionLogMatch.time}</div>
-        </div>
-        <div style="font-weight:700; color:var(--navy); margin-bottom:4px; font-size:12px;">Variance Array Snapshot:</div>
-        <div style="font-size:12px; font-weight:600; color:#4A5568;">${executionLogMatch.metricsLabel}</div>
-      `;
+      // Build timeline of all audit entries, each with its own select checkbox and actions
+      const timelineHtml = companyLogs.map(log => {
+        const sign = log.netFinancialImpact < 0 ? '-' : (log.netFinancialImpact > 0 ? '+' : '');
+        const badgeCls = log.netFinancialImpact < 0 ? 'val-red' : (log.netFinancialImpact > 0 ? 'val-green' : 'val-grey');
+        const dateLabel = (log.date || '') + (log.time ? ' @ ' + log.time : '');
+        const safeId = escapeHTMLMarkup(log.id);
+        return '<div class="history-date-entry">' +
+          '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+            '<label style="display:flex; align-items:center; gap:6px; cursor:pointer;">' +
+              '<input type="checkbox" class="custom-checkbox bulk-entry-box" data-entry-id="' + safeId + '" data-company-key="' + escapeHTMLMarkup(brandName) + '" style="width:15px; height:15px; margin:0;">' +
+              '<span style="font-size:11px; font-weight:700; color:var(--navy);">' + escapeHTMLMarkup(dateLabel) + '</span>' +
+            '</label>' +
+            '<span class="val-badge ' + badgeCls + '" style="font-size:10px;">Rs ' + sign + Math.abs(log.netFinancialImpact).toLocaleString() + '</span>' +
+          '</div>' +
+          '<div style="font-size:11px; color:var(--grey); margin-bottom:2px;">' + escapeHTMLMarkup(log.metricsLabel) + '</div>' +
+          '<div style="font-size:10px; color:var(--grey); margin-bottom:6px;">By ' + escapeHTMLMarkup(log.auditor) + '</div>' +
+          '<div style="display:flex; gap:6px;">' +
+            '<button class="btn btn-primary" style="flex:1; font-size:10px; padding:6px 8px;" onclick="reopenHistoryAudit(\'' + safeId + '\')">👁 View / Reopen</button>' +
+            '<button class="btn" style="flex:1; font-size:10px; padding:6px 8px; background:var(--green); color:var(--white);" onclick="exportHistoryEntryXLSX(\'' + safeId + '\')">📊 Excel</button>' +
+            '<button class="btn btn-gold" style="flex:1; font-size:10px; padding:6px 8px;" onclick="printHistoryEntryPDF(\'' + safeId + '\')">🖨 PDF</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+
+      expandedHtmlPayload = '<div style="font-weight:700; color:var(--navy); margin-bottom:8px; font-size:12px;">Audit History (' + companyLogs.length + ' record' + (companyLogs.length > 1 ? 's' : '') + '):</div>' + timelineHtml;
     }
 
     const parentNode = document.createElement('div');
     parentNode.className = 'history-item';
-    parentNode.innerHTML = `
-      <div class="history-row-layout">
-        <input type="checkbox" class="custom-checkbox bulk-select-box" data-company-key="${escapeHTMLMarkup(brandName)}">
-        <div class="history-header" onclick="this.parentElement.parentElement.classList.toggle('open')">
-          <div style="max-width:65%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-            <span class="arrow-toggle">▶</span>
-            <strong style="color:var(--navy); margin-left:6px; font-size:13px;">${escapeHTMLMarkup(brandName)}</strong>
-          </div>
-          <div>${displayBadgeElement}</div>
-        </div>
-      </div>
-      <div class="history-content">${expandedHtmlPayload}</div>
-    `;
+    parentNode.innerHTML =
+      '<div class="history-row-layout">' +
+        '<input type="checkbox" class="custom-checkbox bulk-select-box" data-company-key="' + escapeHTMLMarkup(brandName) + '">' +
+        '<div class="history-header" onclick="this.parentElement.parentElement.classList.toggle(\'open\')">' +
+          '<div style="max-width:65%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' +
+            '<span class="arrow-toggle">&#9658;</span>' +
+            '<strong style="color:var(--navy); margin-left:6px; font-size:13px;">' + escapeHTMLMarkup(brandName) + '</strong>' +
+          '</div>' +
+          '<div>' + displayBadgeElement + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="history-content">' + expandedHtmlPayload + '</div>';
     targetOutputDiv.appendChild(parentNode);
   });
 }
+
+// ── Select-all visible history entries (per-audit checkboxes) ─
+function toggleSelectAllHistory(masterCheckbox) {
+  document.querySelectorAll('.bulk-entry-box').forEach(box => {
+    box.checked = masterCheckbox.checked;
+  });
+  // Also tick company-level checkboxes for WhatsApp pack / purge consistency
+  document.querySelectorAll('.bulk-select-box').forEach(box => {
+    box.checked = masterCheckbox.checked;
+  });
+}
+
+// ── Reopen a saved audit into the active workspace ────────────
+function reopenHistoryAudit(entryId) {
+  const log = dynamicallyRetainedLogsCache.find(l => l.id === entryId);
+  if (!log) { toast('Record not found', 'error'); return; }
+  if (!log.items || log.items.length === 0) { toast('No item-level data stored for this record', 'error'); return; }
+
+  if (targetSelectedManufacturer && Object.keys(userPhysicalVerificationMap).length > 0) {
+    if (!confirm('This will replace your current active audit session. Continue?')) return;
+  }
+
+  targetSelectedManufacturer = log.company;
+  localActiveSessionItems = log.items.map(it => ({ name: it.name, code: it.code, price: it.price, qty: it.qty }));
+  userPhysicalVerificationMap = {};
+  log.items.forEach((it, i) => {
+    if (it.counted !== null && it.counted !== undefined) userPhysicalVerificationMap[i] = it.counted;
+  });
+
+  document.getElementById('empty-state-fallback').style.display = 'none';
+  document.getElementById('audit-configuration-wrapper').style.display = 'none';
+  document.getElementById('audit-workspace-area').style.display = 'block';
+  document.getElementById('audit-metrics-bar').style.display = 'block';
+  document.getElementById('action-header-sync-btn').style.display = 'block';
+  document.getElementById('label-active-company').textContent = targetSelectedManufacturer + ' (Reopened — ' + log.date + ')';
+
+  executeViewNavigation('audit');
+  renderAuditTableBody();
+  calculateRuntimeFinancialMetrics();
+  toast('Reopened audit: ' + log.company + ' — ' + log.date);
+}
+
+// ── Per-entry Excel export from History ───────────────────────
+function exportHistoryEntryXLSX(entryId) {
+  const log = dynamicallyRetainedLogsCache.find(l => l.id === entryId);
+  if (!log) { toast('Record not found', 'error'); return; }
+  if (!log.items || log.items.length === 0) { toast('No item-level data stored for this record', 'error'); return; }
+
+  const rows = [['Product Name', 'SKU', 'Price (Rs)', 'System Qty', 'Counted Qty', 'Variance', 'Value Impact (Rs)']];
+  log.items.forEach(m => {
+    const counted = m.counted;
+    const variance = (counted !== null && counted !== undefined) ? counted - m.qty : '';
+    const impact = (counted !== null && counted !== undefined) ? ((counted - m.qty) * m.price) : '';
+    rows.push([m.name, m.code || '', m.price, m.qty, counted !== null && counted !== undefined ? counted : '', variance, impact !== '' ? Number(impact.toFixed(2)) : '']);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(log.company));
+  XLSX.writeFile(wb, 'Audit_' + log.company.replace(/\s+/g, '_') + '_' + (log.date || '').replace(/\s+/g, '_') + '.xlsx');
+  toast('Excel file exported successfully');
+}
+
+// ── Per-entry PDF print from History ──────────────────────────
+function printHistoryEntryPDF(entryId) {
+  const log = dynamicallyRetainedLogsCache.find(l => l.id === entryId);
+  if (!log) { toast('Record not found', 'error'); return; }
+  if (!log.items || log.items.length === 0) { toast('No item-level data stored for this record', 'error'); return; }
+
+  renderPrintableReport(log, false);
+  window.print();
+}
+
+// ── Combined multi-page PDF for all selected history entries ──
+let _originalReportCanvasHTML = null;
+
+function printSelectedAuditsCombinedPDF() {
+  const entryBoxes = document.querySelectorAll('.bulk-entry-box:checked');
+  if (entryBoxes.length === 0) {
+    toast('Select audit records first (tick the checkboxes inside each company)', 'error');
+    return;
+  }
+
+  const selectedLogs = [];
+  entryBoxes.forEach(box => {
+    const log = dynamicallyRetainedLogsCache.find(l => l.id === box.dataset.entryId);
+    if (log && log.items && log.items.length > 0) selectedLogs.push(log);
+  });
+
+  if (selectedLogs.length === 0) {
+    toast('No item-level data available for selected records', 'error');
+    return;
+  }
+
+  const canvas = document.getElementById('printable-report-canvas');
+  if (_originalReportCanvasHTML === null) _originalReportCanvasHTML = canvas.innerHTML;
+
+  const sectionsHtml = selectedLogs.map(log => buildReportSectionHTML(log)).join('');
+  canvas.innerHTML = sectionsHtml;
+
+  window.print();
+
+  // Restore the single-record template (with its expected element IDs) after printing
+  setTimeout(() => { canvas.innerHTML = _originalReportCanvasHTML; }, 500);
+}
+
+// Builds a standalone report section (HTML string) for one ledger record.
+// Used by the combined multi-page PDF printer (does not rely on shared element IDs).
+function buildReportSectionHTML(log) {
+  let shorts = 0, overs = 0, matches = 0;
+  (log.items || []).forEach(m => {
+    if (m.counted === null || m.counted === undefined) return;
+    const d = m.counted - m.qty;
+    if (d > 0) overs++; else if (d < 0) shorts++; else matches++;
+  });
+  const netVal = log.netFinancialImpact;
+  const financialSignSymbol = netVal < 0 ? "-" : "";
+  const docId = 'FDPP-BT-' + Math.floor(100000 + Math.random() * 900000);
+
+  const rowsHtml = (log.items || []).map(m => {
+    if (m.counted === null || m.counted === undefined) return '';
+    const discrepancyValue = m.counted - m.qty;
+    return `
+      <tr>
+        <td><strong>${escapeHTMLMarkup(m.name)}</strong><br><span style="font-size:9px; color:#64748B;">${m.code ? escapeHTMLMarkup(m.code) : 'N/A'}</span></td>
+        <td style="text-align:right;">Rs ${m.price.toLocaleString()}</td>
+        <td style="text-align:right;">${m.qty}</td>
+        <td style="text-align:right;">${m.counted}</td>
+        <td style="text-align:right; font-weight:700; color:${discrepancyValue < 0 ? '#C0392B' : (discrepancyValue > 0 ? '#00836F' : '#64748B')};">
+          ${discrepancyValue > 0 ? '+' : ''}${discrepancyValue}
+        </td>
+      </tr>`;
+  }).join('');
+
+  return `
+  <div class="pdf-page-section">
+    <div class="pdf-meta-box">
+      <div>
+        <div class="pdf-brand-title">Fazal Din's Pharma Plus</div>
+        <div style="font-size:13px; font-weight:700; color:#475569; margin-top:2px;">Inventory Variance Evaluation Statement</div>
+        <div style="font-size:12px; color:#64748B; margin-top:1px;">Branch Terminal: ${escapeHTMLMarkup(getBranchName())}</div>
+      </div>
+      <div style="text-align:right; font-size:12px; color:#475569; line-height:1.5;">
+        <div><strong>Document ID:</strong> ${docId}</div>
+        <div><strong>Execution Date:</strong> ${escapeHTMLMarkup(log.date || '')}</div>
+        <div><strong>Execution Time:</strong> ${escapeHTMLMarkup(log.time || '')}</div>
+      </div>
+    </div>
+
+    <div style="margin-bottom:20px; font-size:14px; line-height:1.6;">
+      <div><strong>Target Verification Domain:</strong> <span style="font-weight:700; color:#0F1F3D;">${escapeHTMLMarkup(log.company)}</span></div>
+      <div><strong>Authorizing Registered Pharmacist:</strong> <span style="font-weight:700;">${escapeHTMLMarkup(log.auditor || '')}</span></div>
+    </div>
+
+    <div class="pdf-summary-grid">
+      <div class="pdf-stat-card" style="border-top: 4px solid var(--red);">
+        <div class="pdf-stat-val" style="color:var(--red);">${shorts}</div>
+        <div class="pdf-stat-lbl">Shortage SKUs</div>
+      </div>
+      <div class="pdf-stat-card" style="border-top: 4px solid var(--green);">
+        <div class="pdf-stat-val" style="color:var(--green);">${overs}</div>
+        <div class="pdf-stat-lbl">Surplus SKUs</div>
+      </div>
+      <div class="pdf-stat-card" style="border-top: 4px solid var(--grey);">
+        <div class="pdf-stat-val">${matches}</div>
+        <div class="pdf-stat-lbl">Matched SKUs</div>
+      </div>
+      <div class="pdf-stat-card" style="border-top: 4px solid var(--gold);">
+        <div class="pdf-stat-val" style="color:var(--navy);">Rs ${financialSignSymbol}${Math.abs(netVal).toLocaleString()}</div>
+        <div class="pdf-stat-lbl">Net Financial Delta</div>
+      </div>
+    </div>
+
+    <table class="pdf-table">
+      <thead>
+        <tr>
+          <th style="width:50%;">Medicine Item Designation</th>
+          <th style="text-align:right; width:12%;">Unit Cost</th>
+          <th style="text-align:right; width:12%;">System Qty</th>
+          <th style="text-align:right; width:12%;">Physical Count</th>
+          <th style="text-align:right; width:14%;">Variance Delta</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+
+    <div style="margin-top:70px; display:flex; justify-content:space-between; font-size:12px;">
+      <div style="border-top: 1.5px solid #64748B; width:200px; text-align:center; padding-top:6px;">Floor Stock Controller Signature</div>
+      <div style="border-top: 1.5px solid #64748B; width:200px; text-align:center; padding-top:6px;">In-Charge Pharmacist Endorsement</div>
+    </div>
+  </div>`;
+}
+
+// ── Export all history (every audit, all companies/dates) as one workbook ──
+// One sheet per audit record, sheet name = Company + Date.
+function exportAllHistoryXLSX() {
+  if (dynamicallyRetainedLogsCache.length === 0) { toast('No history records to export', 'error'); return; }
+
+  const wb = XLSX.utils.book_new();
+  const usedNames = {};
+
+  dynamicallyRetainedLogsCache
+    .slice()
+    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+    .forEach(log => {
+      const rows = [['Product Name', 'SKU', 'Price (Rs)', 'System Qty', 'Counted Qty', 'Variance', 'Value Impact (Rs)']];
+      (log.items || []).forEach(m => {
+        const counted = m.counted;
+        const variance = (counted !== null && counted !== undefined) ? counted - m.qty : '';
+        const impact = (counted !== null && counted !== undefined) ? ((counted - m.qty) * m.price) : '';
+        rows.push([m.name, m.code || '', m.price, m.qty, counted !== null && counted !== undefined ? counted : '', variance, impact !== '' ? Number(impact.toFixed(2)) : '']);
+      });
+      if ((log.items || []).length === 0) {
+        rows.push(['(No item-level data stored for this record)', '', '', '', '', '', '']);
+        rows.push(['Summary:', log.metricsLabel || '', '', '', '', '', '']);
+        rows.push(['Net Impact (Rs):', log.netFinancialImpact, '', '', '', '', '']);
+      }
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      let baseName = sanitizeSheetName(log.company + ' ' + (log.date || ''));
+      let finalName = baseName;
+      let counter = 2;
+      while (usedNames[finalName]) {
+        finalName = sanitizeSheetName(baseName.slice(0, 28) + '_' + counter);
+        counter++;
+      }
+      usedNames[finalName] = true;
+      XLSX.utils.book_append_sheet(wb, ws, finalName);
+    });
+
+  XLSX.writeFile(wb, 'AllAudits_Combined_' + new Date().toISOString().slice(0,10) + '.xlsx');
+  toast('Combined Excel workbook exported');
+}
+
 
 // ── NAVIGATION MANAGEMENT WORKSPACE ───────────────────────
 function executeViewNavigation(viewIdentifierToken) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('page-' + viewIdentifierToken).classList.add('active');
-  document.getElementById('tab-' + viewIdentifierToken).classList.add('active');
+  const tabNode = document.getElementById('tab-' + viewIdentifierToken);
+  if (tabNode) tabNode.classList.add('active');
   
   if (viewIdentifierToken === 'audit') {
     const memoryIsPopulated = globalProductsMemoryStore.length > 0;
@@ -781,6 +1274,68 @@ function toggleRuntimeSortOrder() {
 }
 
 // ── FIXED: OPERATIONAL RENDERING & LIVE VARIANCE TRACKER ──
+function setAuditFilter(mode) {
+  auditFilterMode = mode;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('filter-btn-active'));
+  const btn = document.getElementById('filter-btn-' + mode);
+  if (btn) btn.classList.add('filter-btn-active');
+  renderAuditTableBody();
+}
+
+function handleAuditInputKeydown(event, inputEl) {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    const allInputs = Array.from(document.querySelectorAll('#table-body-runtime-rows input[type="number"]'));
+    const idx = allInputs.indexOf(inputEl);
+    if (idx >= 0 && idx < allInputs.length - 1) {
+      allInputs[idx + 1].focus();
+      allInputs[idx + 1].select();
+    }
+  }
+}
+
+function markAllRemainingAsMatch() {
+  if (!confirm('Stamp all unverified items as matching system quantity?')) return;
+  localActiveSessionItems.forEach((med, i) => {
+    if (userPhysicalVerificationMap[i] === undefined) {
+      userPhysicalVerificationMap[i] = med.qty;
+    }
+  });
+  writeRuntimeStateCheckpoint();
+  renderAuditTableBody();
+  calculateRuntimeFinancialMetrics();
+  toast('Remaining items marked as match');
+}
+
+function exportAuditXLSX() {
+  if (localActiveSessionItems.length === 0) { toast('No active audit to export', 'error'); return; }
+  const rows = [['Product Name', 'SKU', 'Price (Rs)', 'System Qty', 'Counted Qty', 'Variance', 'Value Impact (Rs)']];
+  localActiveSessionItems.forEach((med, i) => {
+    const counted = userPhysicalVerificationMap[i];
+    const variance = counted !== undefined ? counted - med.qty : '';
+    const impact = counted !== undefined ? ((counted - med.qty) * med.price) : '';
+    rows.push([
+      med.name,
+      med.code || '',
+      med.price,
+      med.qty,
+      counted !== undefined ? counted : '',
+      variance,
+      impact !== '' ? Number(impact.toFixed(2)) : ''
+    ]);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(targetSelectedManufacturer));
+  XLSX.writeFile(wb, 'Audit_' + targetSelectedManufacturer.replace(/\s+/g, '_') + '_' + new Date().toISOString().slice(0,10) + '.xlsx');
+  toast('Excel file exported successfully');
+}
+
+// Excel sheet names: max 31 chars, no : \ / ? * [ ]
+function sanitizeSheetName(name) {
+  return String(name || 'Sheet').replace(/[:\\\/\?\*\[\]]/g, '').slice(0, 31) || 'Sheet';
+}
+
 function renderAuditTableBody() {
   const clearSearchFilterToken = document.getElementById('shelf-search-input').value.toLowerCase().trim();
   const outputTableNode = document.getElementById('table-body-runtime-rows');
@@ -789,11 +1344,25 @@ function renderAuditTableBody() {
   // Store references explicitly mapping directly to array indices
   let structuralMappingSequence = localActiveSessionItems.map((product, innerIndexValue) => ({ product, innerIndexValue }));
 
+  // Apply search filter
   if (clearSearchFilterToken) {
     structuralMappingSequence = structuralMappingSequence.filter(wrapper => 
       wrapper.product.name.toLowerCase().includes(clearSearchFilterToken) || 
       (wrapper.product.code && wrapper.product.code.toLowerCase().includes(clearSearchFilterToken))
     );
+  }
+
+  // Apply audit status filter
+  if (auditFilterMode !== 'all') {
+    structuralMappingSequence = structuralMappingSequence.filter(wrapper => {
+      const counted = userPhysicalVerificationMap[wrapper.innerIndexValue];
+      if (auditFilterMode === 'unverified') return counted === undefined;
+      if (counted === undefined) return false;
+      const delta = counted - wrapper.product.qty;
+      if (auditFilterMode === 'shorts') return delta < 0;
+      if (auditFilterMode === 'overs') return delta > 0;
+      return true;
+    });
   }
 
   structuralMappingSequence.sort((alpha, beta) => {
@@ -816,10 +1385,14 @@ function renderAuditTableBody() {
     let textVarianceDesignBox = '<span class="diff-zero">—</span>';
     if (systemVerificationValue !== '') {
       const mathematicalVarianceValue = parseFloat(systemVerificationValue) - med.qty;
-      if (mathematicalVarianceValue > 0) {
-        textVarianceDesignBox = `<span class="diff-pos">+${mathematicalVarianceValue}</span>`;
-      } else if (mathematicalVarianceValue < 0) {
-        textVarianceDesignBox = `<span class="diff-neg">${mathematicalVarianceValue}</span>`;
+      if (mathematicalVarianceValue !== 0) {
+        const rupeeDelta = mathematicalVarianceValue * med.price;
+        const sign = mathematicalVarianceValue > 0 ? '+' : '';
+        const cls = mathematicalVarianceValue > 0 ? 'diff-pos' : 'diff-neg';
+        textVarianceDesignBox = `
+          <span class="${cls}">${sign}${mathematicalVarianceValue}</span>
+          <div style="font-size:10px; color:var(--grey); margin-top:2px;">${sign}Rs ${Math.abs(rupeeDelta).toLocaleString()}</div>
+        `;
       } else {
         textVarianceDesignBox = `<span class="diff-zero">0</span>`;
       }
@@ -829,11 +1402,11 @@ function renderAuditTableBody() {
     generatedRow.innerHTML = `
       <td style="padding-left:10px;">
         <div style="font-size:13px; font-weight:700; color:var(--navy); line-height:1.3;">${escapeHTMLMarkup(med.name)}</div>
-        <div style="font-size:10px; color:var(--grey); margin-top:2px;">${med.code ? escapeHTMLMarkup(med.code) : 'No SKU'} · Rs ${med.price}</div>
+        <div style="font-size:10px; color:var(--grey); margin-top:2px;">${med.code ? escapeHTMLMarkup(med.code) : 'No SKU'} · Rs ${med.price.toLocaleString()}</div>
       </td>
       <td style="text-align:right; font-weight:700; color:var(--navy); font-size:14px;">${med.qty}</td>
       <td style="text-align:right;">
-        <input type="number" min="0" step="1" value="${systemVerificationValue}" placeholder="-" data-item-index-token="${trackingKey}" oninput="processKeyboardInputRegistration(this)">
+        <input type="number" min="0" step="1" value="${systemVerificationValue}" placeholder="-" data-item-index-token="${trackingKey}" inputmode="decimal" enterkeyhint="next" oninput="processKeyboardInputRegistration(this)" onkeydown="handleAuditInputKeydown(event, this)">
       </td>
       <td style="text-align:right; padding-right:10px; font-weight:800;">${textVarianceDesignBox}</td>
     `;
@@ -860,10 +1433,11 @@ function processKeyboardInputRegistration(inputFieldNode) {
     varianceColumnCell.innerHTML = '<span class="diff-zero">—</span>';
   } else {
     const rawVarianceCalculatedValue = parseFloat(clearTextPayload) - targetMedicineRecord.qty;
-    if (rawVarianceCalculatedValue > 0) {
-      varianceColumnCell.innerHTML = `<span class="diff-pos">+${rawVarianceCalculatedValue}</span>`;
-    } else if (rawVarianceCalculatedValue < 0) {
-      varianceColumnCell.innerHTML = `<span class="diff-neg">${rawVarianceCalculatedValue}</span>`;
+    if (rawVarianceCalculatedValue !== 0) {
+      const rupeeDelta = rawVarianceCalculatedValue * targetMedicineRecord.price;
+      const sign = rawVarianceCalculatedValue > 0 ? '+' : '';
+      const cls = rawVarianceCalculatedValue > 0 ? 'diff-pos' : 'diff-neg';
+      varianceColumnCell.innerHTML = `<span class="${cls}">${sign}${rawVarianceCalculatedValue}</span><div style="font-size:10px;color:var(--grey);margin-top:2px;">${sign}Rs ${Math.abs(rupeeDelta).toLocaleString()}</div>`;
     } else {
       varianceColumnCell.innerHTML = '<span class="diff-zero">0</span>';
     }
@@ -876,6 +1450,7 @@ function processKeyboardInputRegistration(inputFieldNode) {
 function calculateRuntimeFinancialMetrics() {
   let shortCount = 0, overCount = 0, matchingCount = 0, remainingCount = 0;
   let accumulatedFinancialNetWorth = 0;
+  let rsShort = 0, rsOver = 0;
 
   localActiveSessionItems.forEach((medicineItem, indexValueKey) => {
     const currentInputVal = userPhysicalVerificationMap[indexValueKey];
@@ -884,8 +1459,8 @@ function calculateRuntimeFinancialMetrics() {
     const structuralDeltaValue = currentInputVal - medicineItem.qty;
     accumulatedFinancialNetWorth += (structuralDeltaValue * medicineItem.price);
 
-    if (structuralDeltaValue > 0) overCount++;
-    else if (structuralDeltaValue < 0) shortCount++;
+    if (structuralDeltaValue > 0) { overCount++; rsOver += structuralDeltaValue * medicineItem.price; }
+    else if (structuralDeltaValue < 0) { shortCount++; rsShort += Math.abs(structuralDeltaValue * medicineItem.price); }
     else matchingCount++;
   });
 
@@ -893,19 +1468,37 @@ function calculateRuntimeFinancialMetrics() {
   document.getElementById('metric-over').textContent = overCount;
   document.getElementById('metric-match').textContent = matchingCount;
   document.getElementById('metric-rem').textContent = remainingCount;
+  document.getElementById('metric-short-rs').textContent = rsShort > 0 ? `Rs ${rsShort.toLocaleString()}` : '';
+  document.getElementById('metric-over-rs').textContent = rsOver > 0 ? `Rs ${rsOver.toLocaleString()}` : '';
 
   const runningBadge = document.getElementById('live-net-impact-badge');
   const currencyPrefixSymbol = accumulatedFinancialNetWorth < 0 ? "-" : "";
   runningBadge.textContent = `Net Impact: Rs ${currencyPrefixSymbol}${Math.abs(accumulatedFinancialNetWorth).toLocaleString()}`;
   runningBadge.className = "val-badge " + (accumulatedFinancialNetWorth < 0 ? "val-red" : (accumulatedFinancialNetWorth > 0 ? "val-green" : "val-grey"));
+
+  // Progress bar update
+  const totalItems = localActiveSessionItems.length;
+  const countedItems = totalItems - remainingCount;
+  const pct = totalItems > 0 ? Math.round((countedItems / totalItems) * 100) : 0;
+  document.getElementById('progress-label').textContent = `${countedItems} / ${totalItems} counted (${pct}%)`;
+  document.getElementById('progress-fill').style.width = pct + '%';
 }
 
 function openExportConfigOverlay() {
   document.getElementById('export-modal-overlay').style.display = 'flex';
 }
 
+// UX #5: Warn if items are still unverified before signing off
+function guardedSignoff(channelId) {
+  const remaining = localActiveSessionItems.filter((_, i) => userPhysicalVerificationMap[i] === undefined).length;
+  if (remaining > 0) {
+    if (!confirm(`⚠️ ${remaining} item${remaining > 1 ? 's' : ''} still unverified.\n\nProceed with partial audit anyway?`)) return;
+  }
+  processFinalSignoffWorkflow(channelId);
+}
+
 function processFinalSignoffWorkflow(channelId) {
-  const processingAuditorName = document.getElementById('input-auditor-identity').value.trim() || 'Duty Pharmacist';
+  const processingAuditorName = (prompt('Staff Name (for this record):', '') || '').trim() || 'Duty Pharmacist';
   const isolateDiscrepanciesOnly = document.getElementById('checkbox-variance-isolation').checked;
   document.getElementById('export-modal-overlay').style.display = 'none';
 
@@ -919,78 +1512,135 @@ function processFinalSignoffWorkflow(channelId) {
     if (inputVal === undefined) return;
     const deltaValue = inputVal - m.qty;
     calculationNetValue += (deltaValue * m.price);
-    if (deltaValue > 0) calculationOvers++; else if (deltaValue < 0) calculationShorts++; else matchingCount++;
+    if (deltaValue > 0) calculationOvers++; else if (deltaValue < 0) calculationShorts++; else calculationMatches++;
   });
+
+  // Full item-level snapshot so this audit can be reopened later from History
+  const itemsSnapshot = localActiveSessionItems.map((m, i) => ({
+    name: m.name, code: m.code || '', price: m.price, qty: m.qty,
+    counted: userPhysicalVerificationMap[i] !== undefined ? userPhysicalVerificationMap[i] : null
+  }));
 
   const transactionLedgerRecord = {
     company: targetSelectedManufacturer,
     auditor: processingAuditorName,
     date: pkStringDate,
     time: pkStringTime,
+    timestamp: dateExecutionObject.getTime(),
     netFinancialImpact: calculationNetValue,
-    metricsLabel: `▲ Surplus: ${calculationOvers} | ▼ Shortage: ${calculationShorts} | = Match: ${calculationMatches}`
+    metricsLabel: `▲ Surplus: ${calculationOvers} | ▼ Shortage: ${calculationShorts} | = Match: ${calculationMatches}`,
+    items: itemsSnapshot
   };
 
   recordCompletedAuditIntoLedger(transactionLedgerRecord);
 
+  if (channelId === 'save') {
+    toast('Saved to History — ' + targetSelectedManufacturer);
+    postAuditWorkflowAutoProgression();
+    return;
+  }
+
   if (channelId === 'pdf') {
-    document.getElementById('pdf-doc-id').textContent = 'FDPP-BT-' + Math.floor(100000 + Math.random() * 900000);
-    document.getElementById('pdf-timestamp-date').textContent = pkStringDate;
-    document.getElementById('pdf-timestamp-time').textContent = pkStringTime;
-    document.getElementById('pdf-target-company').textContent = targetSelectedManufacturer;
-    document.getElementById('pdf-signoff-pharmacist').textContent = processingAuditorName;
-    
-    document.getElementById('pdf-stat-short').textContent = calculationShorts;
-    document.getElementById('pdf-stat-over').textContent = calculationOvers;
-    document.getElementById('pdf-stat-match').textContent = calculationMatches;
-    
-    const financialSignSymbol = calculationNetValue < 0 ? "-" : "";
-    document.getElementById('pdf-stat-impact').textContent = `Rs ${financialSignSymbol}${Math.abs(calculationNetValue).toLocaleString()}`;
-
-    const tableInjectorNode = document.getElementById('pdf-table-body-injector');
-    tableInjectorNode.innerHTML = '';
-
-    localActiveSessionItems.forEach((m, i) => {
-      const recordedVal = userPhysicalVerificationMap[i];
-      if (recordedVal === undefined) return;
-      const discrepancyValue = recordedVal - m.qty;
-
-      if (isolateDiscrepanciesOnly && discrepancyValue === 0) return;
-
-      const inlineRowElement = document.createElement('tr');
-      inlineRowElement.innerHTML = `
-        <td><strong>${escapeHTMLMarkup(m.name)}</strong><br><span style="font-size:9px; color:#64748B;">${m.code ? escapeHTMLMarkup(m.code) : 'N/A'}</span></td>
-        <td style="text-align:right;">Rs ${m.price.toLocaleString()}</td>
-        <td style="text-align:right;">${m.qty}</td>
-        <td style="text-align:right;">${recordedVal}</td>
-        <td style="text-align:right; font-weight:700; color:${discrepancyValue < 0 ? '#C0392B' : (discrepancyValue > 0 ? '#00836F' : '#64748B')};">
-          ${discrepancyValue > 0 ? '+' : ''}${discrepancyValue}
-        </td>
-      `;
-      tableInjectorNode.appendChild(inlineRowElement);
-    });
-
+    renderPrintableReport(transactionLedgerRecord, isolateDiscrepanciesOnly);
     window.print();
     postAuditWorkflowAutoProgression();
   } else if (channelId === 'whatsapp') {
     const finalCalculationSignSymbol = calculationNetValue < 0 ? "-" : "";
-    let systemTemplateMessage = `*Fazal Din's Pharma Plus (Bahria Town)*\n*Stock Verification Statement Summary*\n\n*🏢 Brand Domain:* ${targetSelectedManufacturer}\n*👤 Authorized By:* ${processingAuditorName}\n*🕒 Time execution:* ${pkStringDate} @ ${pkStringTime}\n*💰 Balance Shift evaluation:* Rs ${finalCalculationSignSymbol}${Math.abs(calculationNetValue).toLocaleString()}\n*📈 Status Metrics:* ${transactionLedgerRecord.metricsLabel}\n─────────────────────────\n`;
-    
+    let systemTemplateMessage = `*Fazal Din's Pharma Plus (${getBranchName()})*\n*Stock Verification Statement Summary*\n\n*🏢 Brand Domain:* ${targetSelectedManufacturer}\n*👤 Authorized By:* ${processingAuditorName}\n*🕒 Time execution:* ${pkStringDate} @ ${pkStringTime}\n*💰 Balance Shift evaluation:* Rs ${finalCalculationSignSymbol}${Math.abs(calculationNetValue).toLocaleString()}\n*📈 Status Metrics:* ${transactionLedgerRecord.metricsLabel}\n─────────────────────────\n`;
+
     localActiveSessionItems.forEach((m, i) => {
       const verifiedInputUnits = userPhysicalVerificationMap[i];
       if (verifiedInputUnits === undefined) return;
       const variationQuantityValue = verifiedInputUnits - m.qty;
-      
+
       if (isolateDiscrepanciesOnly && variationQuantityValue === 0) return;
-      
+
       const textSignMarker = variationQuantityValue > 0 ? '+' : '';
       systemTemplateMessage += `• *${m.name}*\n  Sys Val: ${m.qty} | Verified Count: ${verifiedInputUnits} [Variance Delta: ${textSignMarker}${variationQuantityValue}]\n`;
     });
-    
-    window.open(`https://wa.me/?text=${encodeURIComponent(systemTemplateMessage)}`, '_blank');
+
+    shareAuditPDFToWhatsApp(transactionLedgerRecord, isolateDiscrepanciesOnly, systemTemplateMessage);
     postAuditWorkflowAutoProgression();
   }
 }
+
+// Renders the printable report DOM (#printable-report-canvas) for a given ledger record.
+function renderPrintableReport(transactionLedgerRecord, isolateDiscrepanciesOnly) {
+  let shorts = 0, overs = 0, matches = 0;
+  (transactionLedgerRecord.items || []).forEach(m => {
+    if (m.counted === null || m.counted === undefined) return;
+    const d = m.counted - m.qty;
+    if (d > 0) overs++; else if (d < 0) shorts++; else matches++;
+  });
+
+  document.getElementById('pdf-doc-id').textContent = 'FDPP-BT-' + Math.floor(100000 + Math.random() * 900000);
+  document.getElementById('pdf-branch-label').textContent = getBranchName();
+  document.getElementById('pdf-timestamp-date').textContent = transactionLedgerRecord.date;
+  document.getElementById('pdf-timestamp-time').textContent = transactionLedgerRecord.time;
+  document.getElementById('pdf-target-company').textContent = transactionLedgerRecord.company;
+  document.getElementById('pdf-signoff-pharmacist').textContent = transactionLedgerRecord.auditor;
+
+  document.getElementById('pdf-stat-short').textContent = shorts;
+  document.getElementById('pdf-stat-over').textContent = overs;
+  document.getElementById('pdf-stat-match').textContent = matches;
+
+  const netVal = transactionLedgerRecord.netFinancialImpact;
+  const financialSignSymbol = netVal < 0 ? "-" : "";
+  document.getElementById('pdf-stat-impact').textContent = `Rs ${financialSignSymbol}${Math.abs(netVal).toLocaleString()}`;
+
+  const tableInjectorNode = document.getElementById('pdf-table-body-injector');
+  tableInjectorNode.innerHTML = '';
+
+  (transactionLedgerRecord.items || []).forEach(m => {
+    if (m.counted === null || m.counted === undefined) return;
+    const discrepancyValue = m.counted - m.qty;
+    if (isolateDiscrepanciesOnly && discrepancyValue === 0) return;
+
+    const inlineRowElement = document.createElement('tr');
+    inlineRowElement.innerHTML = `
+      <td><strong>${escapeHTMLMarkup(m.name)}</strong><br><span style="font-size:9px; color:#64748B;">${m.code ? escapeHTMLMarkup(m.code) : 'N/A'}</span></td>
+      <td style="text-align:right;">Rs ${m.price.toLocaleString()}</td>
+      <td style="text-align:right;">${m.qty}</td>
+      <td style="text-align:right;">${m.counted}</td>
+      <td style="text-align:right; font-weight:700; color:${discrepancyValue < 0 ? '#C0392B' : (discrepancyValue > 0 ? '#00836F' : '#64748B')};">
+        ${discrepancyValue > 0 ? '+' : ''}${discrepancyValue}
+      </td>
+    `;
+    tableInjectorNode.appendChild(inlineRowElement);
+  });
+}
+
+// Generates the report PDF as a Blob using the browser print-to-canvas isn't directly possible;
+// instead we share the printable HTML as a PDF via a hidden iframe + print, falling back to text share.
+async function shareAuditPDFToWhatsApp(transactionLedgerRecord, isolateDiscrepanciesOnly, textMessage) {
+  renderPrintableReport(transactionLedgerRecord, isolateDiscrepanciesOnly);
+
+  // Try Web Share API with the report rendered as a simple text-based "PDF-like" file is not
+  // reliably possible without a PDF library. We attempt navigator.share with files only if
+  // the browser supports generating a PDF blob via print; otherwise fall back to opening
+  // the print dialog (user can "Save as PDF" then share manually) plus WhatsApp text.
+  if (navigator.canShare && navigator.share) {
+    try {
+      const reportHtml = document.getElementById('printable-report-canvas').outerHTML;
+      const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Audit Report</title></head><body>${reportHtml}</body></html>`;
+      const blob = new Blob([fullHtml], { type: 'text/html' });
+      const file = new File([blob], `Audit_${transactionLedgerRecord.company.replace(/\s+/g,'_')}_${transactionLedgerRecord.date.replace(/\s+/g,'_')}.html`, { type: 'text/html' });
+
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Audit Report', text: textMessage });
+        return;
+      }
+    } catch (err) {
+      // fall through to text share
+    }
+  }
+
+  // Fallback: open WhatsApp with text summary, and trigger print dialog so user can save/share PDF separately
+  window.open(`https://wa.me/?text=${encodeURIComponent(textMessage)}`, '_blank');
+  toast('Tip: use Print PDF then share the saved PDF file for an attachment.');
+}
+
+
 
 function postAuditWorkflowAutoProgression() {
   const selectElement = document.getElementById('manufacturer-dropdown-selector');
@@ -1021,18 +1671,221 @@ function abandonActiveWorkspaceSession() {
   }
 
   localActiveSessionItems = []; userPhysicalVerificationMap = {}; targetSelectedManufacturer = '';
+  auditFilterMode = 'all';
   document.getElementById('audit-workspace-area').style.display = 'none';
   document.getElementById('audit-metrics-bar').style.display = 'none';
   document.getElementById('action-header-sync-btn').style.display = 'none';
   document.getElementById('audit-configuration-wrapper').style.display = 'block';
   document.getElementById('manufacturer-dropdown-selector').value = '';
   document.getElementById('shelf-search-input').value = '';
+  // Reset filter buttons
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('filter-btn-active'));
+  const allBtn = document.getElementById('filter-btn-all');
+  if (allBtn) allBtn.classList.add('filter-btn-active');
   executeViewNavigation('audit');
 }
 
 function escapeHTMLMarkup(stringContent) {
   return String(stringContent || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+
+// ════════════════════════════════════════════════════════
+// SETTINGS PAGE — Branch Name, Dropbox Key, Backup/Restore
+// ════════════════════════════════════════════════════════
+const SETTINGS_BRANCH_KEY = 'app_branch_name';
+const SETTINGS_DROPBOX_KEY_OVERRIDE = 'app_dropbox_app_key';
+const SETTINGS_AUTOSYNC_KEY = 'app_autosync_enabled';
+const DEFAULT_BRANCH_NAME = 'Bahria Town Branch';
+
+function getBranchName() {
+  return localStorage.getItem(SETTINGS_BRANCH_KEY) || DEFAULT_BRANCH_NAME;
+}
+
+function applyBranchNameToUI() {
+  const name = getBranchName();
+  const headerEl = document.getElementById('header-branch-label');
+  const pdfEl = document.getElementById('pdf-branch-label');
+  const settingsInput = document.getElementById('settings-branch-name');
+  if (headerEl) headerEl.textContent = '📍 ' + name;
+  if (pdfEl) pdfEl.textContent = name;
+  if (settingsInput) settingsInput.value = name;
+}
+
+function saveBranchName() {
+  const val = document.getElementById('settings-branch-name').value.trim();
+  if (!val) { toast('Branch name cannot be empty', 'error'); return; }
+  localStorage.setItem(SETTINGS_BRANCH_KEY, val);
+  applyBranchNameToUI();
+  toast('Branch name saved');
+}
+
+// ── Dropbox App Key override (settable from within the app) ──
+function getEffectiveDropboxAppKey() {
+  return localStorage.getItem(SETTINGS_DROPBOX_KEY_OVERRIDE) || DROPBOX_APP_KEY;
+}
+
+function saveDropboxAppKey() {
+  const val = document.getElementById('settings-dropbox-key').value.trim();
+  if (!val) { toast('Enter a Dropbox App Key first', 'error'); return; }
+  localStorage.setItem(SETTINGS_DROPBOX_KEY_OVERRIDE, val);
+  toast('Dropbox App Key saved. Tap "Link / Sync Now" to connect.');
+  updateSettingsDropboxStatus();
+}
+
+function unlinkDropbox() {
+  if (!confirm('Unlink Dropbox? You will need to reconnect to resume cloud sync.')) return;
+  cloudClearToken();
+  dbxClient = null;
+  stopAutoSyncInterval();
+  cloudBarSet('unlinked', '☁ Tap to link Dropbox');
+  updateSettingsDropboxStatus();
+  toast('Dropbox unlinked');
+}
+
+function updateSettingsDropboxStatus() {
+  const el = document.getElementById('settings-dropbox-status');
+  if (!el) return;
+  const keyInput = document.getElementById('settings-dropbox-key');
+  if (keyInput) keyInput.value = localStorage.getItem(SETTINGS_DROPBOX_KEY_OVERRIDE) || '';
+
+  if (cloudGetToken()) {
+    el.textContent = 'Linked';
+    el.style.color = 'var(--green)';
+  } else {
+    el.textContent = 'Not linked';
+    el.style.color = 'var(--grey)';
+  }
+
+  const autosyncToggle = document.getElementById('settings-autosync-toggle');
+  if (autosyncToggle) autosyncToggle.checked = localStorage.getItem(SETTINGS_AUTOSYNC_KEY) === '1';
+}
+
+// ── Auto-sync every 10s (only pushes if data changed since last push) ──
+let _autoSyncIntervalRef = null;
+let _lastSyncedPayloadHash = null;
+
+function simpleHashString(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return hash;
+}
+
+function startAutoSyncInterval() {
+  if (_autoSyncIntervalRef) return;
+  _autoSyncIntervalRef = setInterval(() => {
+    if (!dbxClient) return;
+    const payload = cloudBuildPayload();
+    const hash = simpleHashString(payload);
+    if (hash === _lastSyncedPayloadHash) return; // no changes since last sync
+    _lastSyncedPayloadHash = hash;
+    syncPushToCloud(true);
+  }, 10000);
+}
+
+function stopAutoSyncInterval() {
+  if (_autoSyncIntervalRef) {
+    clearInterval(_autoSyncIntervalRef);
+    _autoSyncIntervalRef = null;
+  }
+}
+
+function toggleAutoSync(checkboxEl) {
+  if (checkboxEl.checked) {
+    if (!cloudGetToken()) {
+      toast('Link Dropbox first', 'error');
+      checkboxEl.checked = false;
+      return;
+    }
+    localStorage.setItem(SETTINGS_AUTOSYNC_KEY, '1');
+    startAutoSyncInterval();
+    toast('Auto-sync enabled (every 10s, only when changed)');
+  } else {
+    localStorage.setItem(SETTINGS_AUTOSYNC_KEY, '0');
+    stopAutoSyncInterval();
+    toast('Auto-sync disabled');
+  }
+}
+
+// ── Full Backup (products + complete history with item snapshots) ──
+function exportFullBackup() {
+  const payload = {
+    backupSignature: 'FAZAL_DIN_FULL_BACKUP',
+    schemaVersion: 3,
+    exportedAt: new Date().toISOString(),
+    branchName: getBranchName(),
+    products: globalProductsMemoryStore,
+    historyLedger: dynamicallyRetainedLogsCache
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'FullBackup_' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  toast('Full backup downloaded');
+}
+
+function restoreFullBackup(inputElement) {
+  const file = inputElement.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      if (parsed.backupSignature !== 'FAZAL_DIN_FULL_BACKUP') {
+        toast('Invalid backup file signature', 'error');
+        return;
+      }
+
+      const productCount = Array.isArray(parsed.products) ? parsed.products.length : 0;
+      const historyCount = Array.isArray(parsed.historyLedger) ? parsed.historyLedger.length : 0;
+
+      if (!confirm(`Restore backup?\n\nThis will REPLACE current data with:\n• ${productCount.toLocaleString()} inventory items\n• ${historyCount.toLocaleString()} audit history records\n\nCurrent local data will be overwritten.`)) return;
+
+      if (Array.isArray(parsed.products)) {
+        globalProductsMemoryStore = parsed.products;
+        saveMasterDatasetToIndexedDB(globalProductsMemoryStore);
+        processDatasetInterfacePopulation(true);
+      }
+
+      if (Array.isArray(parsed.historyLedger)) {
+        dynamicallyRetainedLogsCache = parsed.historyLedger;
+        if (indexedDatabaseRef) {
+          const tx = indexedDatabaseRef.transaction(['historyLedger'], 'readwrite');
+          const st = tx.objectStore('historyLedger');
+          st.clear();
+          parsed.historyLedger.forEach(entry => st.put(entry));
+        }
+        compileAccordionLedgerInterface(dynamicallyRetainedLogsCache);
+      }
+
+      if (parsed.branchName) {
+        localStorage.setItem(SETTINGS_BRANCH_KEY, parsed.branchName);
+        applyBranchNameToUI();
+      }
+
+      toast('Backup restored successfully');
+    } catch (err) {
+      toast('Failed to parse backup file', 'error');
+    }
+  };
+  reader.readAsText(file);
+  inputElement.value = '';
+}
+
+// ── Boot: apply saved settings on load ────────────────────────
+(function settingsBoot() {
+  applyBranchNameToUI();
+  updateSettingsDropboxStatus();
+  if (localStorage.getItem(SETTINGS_AUTOSYNC_KEY) === '1') {
+    // Will only actually start pushing once dbxClient is initialized in cloudBoot()
+    setTimeout(() => {
+      if (cloudGetToken()) startAutoSyncInterval();
+    }, 1500);
+  }
+})();
 
 // REGISTER PWA SERVICE WORKER OBJECT CAPABILITY
 if ("serviceWorker" in navigator) {
@@ -1042,6 +1895,234 @@ if ("serviceWorker" in navigator) {
       .catch(err => console.error("PWA Initialization rejected:", err));
   });
 }
+
+// ════════════════════════════════════════════════════════
+// CLOUD SYNC ENGINE  —  Dropbox OAuth2 + Slim Status Bar
+// ════════════════════════════════════════════════════════
+
+const DROPBOX_APP_KEY      = 'YOUR_DROPBOX_APP_KEY'; // ← replace with your key
+const DROPBOX_SYNC_PATH    = '/pharma_audit_sync.json';
+const DROPBOX_TOKEN_KEY    = 'dropbox_access_token';
+
+let dbxClient = null;
+
+// ── Token helpers ─────────────────────────────────────
+function cloudGetToken()       { return localStorage.getItem(DROPBOX_TOKEN_KEY); }
+function cloudSaveToken(t)     { localStorage.setItem(DROPBOX_TOKEN_KEY, t); }
+function cloudClearToken()     { localStorage.removeItem(DROPBOX_TOKEN_KEY); }
+
+function cloudBuildClient(token) {
+  if (typeof Dropbox === 'undefined') return null;
+  return new Dropbox.Dropbox({ accessToken: token });
+}
+
+// ── Status bar state machine ──────────────────────────
+// States: 'unlinked' | 'syncing' | 'synced' | 'error' | 'idle'
+function cloudBarSet(state, text) {
+  const bar = document.getElementById('cloud-sync-bar');
+  const lbl = document.getElementById('cloud-bar-text');
+  if (!bar || !lbl) return;
+  bar.className = 'state-' + state;
+  lbl.textContent = text;
+}
+
+// ── Bar tap handler ───────────────────────────────────
+function cloudBarTapped() {
+  if (!cloudGetToken()) {
+    // Not linked — start OAuth
+    initiateDropboxOAuthFlow();
+    return;
+  }
+  // Linked — manual pull then push
+  syncPullFromCloud(false);
+}
+
+// ── OAuth2 Implicit Grant ─────────────────────────────
+function initiateDropboxOAuthFlow() {
+  const effectiveKey = getEffectiveDropboxAppKey();
+  if (!effectiveKey || effectiveKey === 'YOUR_DROPBOX_APP_KEY') {
+    toast('Set your Dropbox App Key in Settings first.', 'error');
+    executeViewNavigation('settings');
+    return;
+  }
+  const redirectUri = window.location.href.split('#')[0];
+  const url = 'https://www.dropbox.com/oauth2/authorize'
+    + '?client_id='    + encodeURIComponent(effectiveKey)
+    + '&response_type=token'
+    + '&redirect_uri=' + encodeURIComponent(redirectUri);
+  window.location.href = url;
+}
+
+function cloudParseOAuthToken() {
+  const hash = window.location.hash;
+  if (!hash || !hash.includes('access_token')) return false;
+  const params = {};
+  hash.substring(1).split('&').forEach(pair => {
+    const [k, v] = pair.split('=');
+    params[decodeURIComponent(k)] = decodeURIComponent(v || '');
+  });
+  if (params.access_token) {
+    cloudSaveToken(params.access_token);
+    window.history.replaceState({}, document.title,
+      window.location.pathname + window.location.search);
+    return true;
+  }
+  return false;
+}
+
+// ── Payload serialiser ────────────────────────────────
+function cloudBuildPayload() {
+  return JSON.stringify({
+    schemaVersion: 3,
+    exportedAt: new Date().toISOString(),
+    branchName: getBranchName(),
+    products: globalProductsMemoryStore,
+    historyLedger: dynamicallyRetainedLogsCache
+  });
+}
+
+function cloudCountEntries(parsed) {
+  return {
+    products: Array.isArray(parsed.products)      ? parsed.products.length      : 0,
+    history:  Array.isArray(parsed.historyLedger) ? parsed.historyLedger.length : 0
+  };
+}
+
+// ── PUSH: local → cloud ───────────────────────────────
+async function syncPushToCloud(silent) {
+  if (!dbxClient) return;
+  try {
+    if (!silent) cloudBarSet('syncing', '⟳ Syncing…');
+    const payload = cloudBuildPayload();
+    const blob    = new Blob([payload], { type: 'application/json' });
+    const file    = new File([blob], 'pharma_audit_sync.json');
+    await dbxClient.filesUpload({
+      path:       DROPBOX_SYNC_PATH,
+      contents:   file,
+      mode:       { '.tag': 'overwrite' },
+      autorename: false
+    });
+    const t = new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
+    cloudBarSet('synced', '☁ Synced at ' + t);
+    if (!silent) toast('Pushed to Dropbox');
+  } catch (err) {
+    cloudBarSet('error', '✕ Sync failed');
+    if (!silent) toast('Push failed', 'error');
+    console.error('[CloudSync] push:', err);
+  }
+}
+
+// ── PULL: cloud → local ───────────────────────────────
+async function syncPullFromCloud(silent) {
+  if (!dbxClient) return;
+  try {
+    cloudBarSet('syncing', '⟳ Syncing…');
+
+    let cloudText;
+    try {
+      const res = await dbxClient.filesDownload({ path: DROPBOX_SYNC_PATH });
+      cloudText = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload  = e => resolve(e.target.result);
+        reader.onerror = reject;
+        reader.readAsText(res.result.fileBlob);
+      });
+    } catch (dlErr) {
+      const tag = dlErr && dlErr.error && dlErr.error.error
+        ? dlErr.error.error['.tag'] : '';
+      if (tag === 'path' || String(dlErr).includes('not_found') || String(dlErr).includes('409')) {
+        // No cloud file yet — seed from local
+        cloudBarSet('syncing', '⟳ Seeding cloud…');
+        await syncPushToCloud(true);
+        return;
+      }
+      throw dlErr;
+    }
+
+    const cloudParsed = JSON.parse(cloudText);
+    const cc = cloudCountEntries(cloudParsed);
+    const lc = cloudCountEntries({
+      products: globalProductsMemoryStore,
+      historyLedger: dynamicallyRetainedLogsCache
+    });
+
+    const cloudWins = cc.products >= lc.products && cc.history >= lc.history;
+    if (cloudWins) {
+      if (Array.isArray(cloudParsed.products) && cloudParsed.products.length > 0) {
+        globalProductsMemoryStore = cloudParsed.products;
+        saveMasterDatasetToIndexedDB(globalProductsMemoryStore);
+        processDatasetInterfacePopulation(false);
+      }
+      if (Array.isArray(cloudParsed.historyLedger) && cloudParsed.historyLedger.length > 0) {
+        dynamicallyRetainedLogsCache = cloudParsed.historyLedger;
+        if (indexedDatabaseRef) {
+          const tx = indexedDatabaseRef.transaction(['historyLedger'], 'readwrite');
+          const st = tx.objectStore('historyLedger');
+          st.clear();
+          cloudParsed.historyLedger.forEach(e => st.put(e));
+        }
+        compileAccordionLedgerInterface(dynamicallyRetainedLogsCache);
+      }
+      if (cloudParsed.branchName) {
+        localStorage.setItem(SETTINGS_BRANCH_KEY, cloudParsed.branchName);
+        applyBranchNameToUI();
+      }
+      const t = new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
+      cloudBarSet('synced', '☁ Synced at ' + t);
+      if (!silent) toast('Pulled from cloud');
+    } else {
+      await syncPushToCloud(true);
+    }
+  } catch (err) {
+    cloudBarSet('error', '✕ Sync failed — tap to retry');
+    if (!silent) toast('Sync failed', 'error');
+    console.error('[CloudSync] pull:', err);
+  }
+}
+
+// ── Lifecycle hooks ───────────────────────────────────
+const _origSave = saveMasterDatasetToIndexedDB;
+saveMasterDatasetToIndexedDB = function(items) {
+  _origSave(items);
+  if (dbxClient) setTimeout(() => syncPushToCloud(true), 300);
+};
+
+const _origRecord = recordCompletedAuditIntoLedger;
+recordCompletedAuditIntoLedger = function(entry) {
+  _origRecord(entry);
+  if (dbxClient) setTimeout(() => syncPushToCloud(true), 300);
+};
+
+// ── Boot ──────────────────────────────────────────────
+(function cloudBoot() {
+  const freshOAuth = cloudParseOAuthToken();
+  const token = cloudGetToken();
+
+  if (!token) {
+    cloudBarSet('unlinked', '☁ Tap to link Dropbox');
+    return;
+  }
+
+  dbxClient = cloudBuildClient(token);
+  if (!dbxClient) {
+    cloudBarSet('error', '✕ SDK not ready');
+    return;
+  }
+
+  cloudBarSet('syncing', '⟳ Syncing…');
+  setTimeout(() => syncPullFromCloud(true), 1400);
+
+  if (freshOAuth) toast('Dropbox linked!');
+
+  if (localStorage.getItem(SETTINGS_AUTOSYNC_KEY) === '1') {
+    setTimeout(() => startAutoSyncInterval(), 1600);
+  }
+
+  updateSettingsDropboxStatus();
+})();
+// ════════════════════════════════════════════════════════
+// END CLOUD SYNC ENGINE
+// ════════════════════════════════════════════════════════
 </script>
 </body>
 </html>
