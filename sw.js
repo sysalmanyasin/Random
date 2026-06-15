@@ -1,4 +1,4 @@
-const CACHE_NAME = "fazal-din-audit-v1.3";
+const CACHE_NAME = "fazal-din-audit-v1.4";
 const ASSETS = [
   "./",
   "./index.html",
