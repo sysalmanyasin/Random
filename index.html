@@ -1981,7 +1981,7 @@ async function initiateDropboxOAuthFlow() {
     + '&response_type=code'
     + '&code_challenge='        + encodeURIComponent(challenge)
     + '&code_challenge_method=S256'
-    + '&token_access_type=legacy'
+    + '&token_access_type=online'
     + '&state='                 + encodeURIComponent(state)
     + '&redirect_uri='          + encodeURIComponent(redirectUri);
   window.location.href = url;
