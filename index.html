@@ -1709,7 +1709,7 @@ function applyBranchNameToUI() {
   const headerEl = document.getElementById('header-branch-label');
   const pdfEl = document.getElementById('pdf-branch-label');
   const settingsInput = document.getElementById('settings-branch-name');
-  if (headerEl) headerEl.textContent = '📍 ' + name;
+  if (headerEl) headerEl.textContent = name;
   if (pdfEl) pdfEl.textContent = name;
   if (settingsInput) settingsInput.value = name;
 }
@@ -1906,7 +1906,7 @@ if ("serviceWorker" in navigator) {
 // CLOUD SYNC ENGINE  —  Dropbox OAuth2 + Slim Status Bar
 // ════════════════════════════════════════════════════════
 
-const DROPBOX_APP_KEY      = 'YOUR_DROPBOX_APP_KEY'; // ← replace with your key
+const DROPBOX_APP_KEY      = '92yfgz2auvmgu3a';
 const DROPBOX_SYNC_PATH    = '/pharma_audit_sync.json';
 const DROPBOX_TOKEN_KEY    = 'dropbox_access_token';
 
@@ -1981,7 +1981,7 @@ async function initiateDropboxOAuthFlow() {
     + '&response_type=code'
     + '&code_challenge='        + encodeURIComponent(challenge)
     + '&code_challenge_method=S256'
-    + '&token_access_type=offline'
+    + '&token_access_type=legacy'
     + '&state='                 + encodeURIComponent(state)
     + '&redirect_uri='          + encodeURIComponent(redirectUri);
   window.location.href = url;
@@ -2030,10 +2030,6 @@ async function cloudParseOAuthToken() {
     const tokenData = await _exchangePkceCode(code, savedVerifier);
     if (tokenData.access_token) {
       cloudSaveToken(tokenData.access_token);
-      // Also persist refresh token if provided
-      if (tokenData.refresh_token) {
-        localStorage.setItem('dropbox_refresh_token', tokenData.refresh_token);
-      }
       // Clean the URL
       window.history.replaceState({}, document.title,
         window.location.pathname);
@@ -2082,6 +2078,14 @@ async function syncPushToCloud(silent) {
     cloudBarSet('synced', '☁ Synced at ' + t);
     if (!silent) toast('Pushed to Dropbox');
   } catch (err) {
+    const isAuthErr = err && (err.status === 401 || String(err).includes('401') || String(err).includes('invalid_access_token') || String(err).includes('expired_access_token'));
+    if (isAuthErr) {
+      cloudClearToken(); dbxClient = null;
+      cloudBarSet('unlinked', '☁ Session expired — tap to relink');
+      updateSettingsDropboxStatus();
+      if (!silent) toast('Dropbox session expired — tap bar to relink', 'error');
+      return;
+    }
     cloudBarSet('error', '✕ Sync failed');
     if (!silent) toast('Push failed', 'error');
     console.error('[CloudSync] push:', err);
@@ -2150,6 +2154,14 @@ async function syncPullFromCloud(silent) {
       await syncPushToCloud(true);
     }
   } catch (err) {
+    const isAuthErr = err && (err.status === 401 || String(err).includes('401') || String(err).includes('invalid_access_token') || String(err).includes('expired_access_token'));
+    if (isAuthErr) {
+      cloudClearToken(); dbxClient = null;
+      cloudBarSet('unlinked', '☁ Session expired — tap to relink');
+      updateSettingsDropboxStatus();
+      if (!silent) toast('Dropbox session expired — tap bar to relink', 'error');
+      return;
+    }
     cloudBarSet('error', '✕ Sync failed — tap to retry');
     if (!silent) toast('Sync failed', 'error');
     console.error('[CloudSync] pull:', err);
