@@ -1881,6 +1881,21 @@ function restoreFullBackup(inputElement) {
   inputElement.value = '';
 }
 
+// ════════════════════════════════════════════════════════
+// CLOUD SYNC ENGINE  —  Dropbox OAuth2 + Slim Status Bar
+// ════════════════════════════════════════════════════════
+
+const DROPBOX_APP_KEY      = '92yfgz2auvmgu3a';
+const DROPBOX_SYNC_PATH    = '/pharma_audit_sync.json';
+const DROPBOX_TOKEN_KEY    = 'dropbox_access_token';
+
+let dbxClient = null;
+
+// ── Token helpers ─────────────────────────────────────
+function cloudGetToken()       { return localStorage.getItem(DROPBOX_TOKEN_KEY); }
+function cloudSaveToken(t)     { localStorage.setItem(DROPBOX_TOKEN_KEY, t); }
+function cloudClearToken()     { localStorage.removeItem(DROPBOX_TOKEN_KEY); }
+
 // ── Boot: apply saved settings on load ────────────────────────
 (function settingsBoot() {
   applyBranchNameToUI();
@@ -1901,21 +1916,6 @@ if ("serviceWorker" in navigator) {
       .catch(err => console.error("PWA Initialization rejected:", err));
   });
 }
-
-// ════════════════════════════════════════════════════════
-// CLOUD SYNC ENGINE  —  Dropbox OAuth2 + Slim Status Bar
-// ════════════════════════════════════════════════════════
-
-const DROPBOX_APP_KEY      = '92yfgz2auvmgu3a';
-const DROPBOX_SYNC_PATH    = '/pharma_audit_sync.json';
-const DROPBOX_TOKEN_KEY    = 'dropbox_access_token';
-
-let dbxClient = null;
-
-// ── Token helpers ─────────────────────────────────────
-function cloudGetToken()       { return localStorage.getItem(DROPBOX_TOKEN_KEY); }
-function cloudSaveToken(t)     { localStorage.setItem(DROPBOX_TOKEN_KEY, t); }
-function cloudClearToken()     { localStorage.removeItem(DROPBOX_TOKEN_KEY); }
 
 function cloudBuildClient(token) {
   if (typeof Dropbox === 'undefined') return null;
