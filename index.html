@@ -214,7 +214,7 @@
 
 </style>
 <!-- Dropbox SDK -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/dropbox.js/10.11.0/Dropbox-sdk.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dropbox.js/10.34.0/Dropbox-sdk.min.js"></script>
 <!-- SheetJS (Excel export) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
@@ -2101,18 +2101,32 @@ async function syncPullFromCloud(silent) {
     let cloudText;
     try {
       const res = await dbxClient.filesDownload({ path: DROPBOX_SYNC_PATH });
+      // SDK v10 wraps result in res.result; fileBlob is the Blob
+      const fileBlob = (res.result && res.result.fileBlob) || res.fileBlob;
       cloudText = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload  = e => resolve(e.target.result);
         reader.onerror = reject;
-        reader.readAsText(res.result.fileBlob);
+        reader.readAsText(fileBlob);
       });
     } catch (dlErr) {
-      const tag = dlErr && dlErr.error && dlErr.error.error
-        ? dlErr.error.error['.tag'] : '';
-      if (tag === 'path' || String(dlErr).includes('not_found') || String(dlErr).includes('409')) {
+      // Dropbox SDK wraps errors differently across versions — check all shapes
+      const errStr = String(dlErr);
+      const status = dlErr && (dlErr.status || (dlErr.error && dlErr.error.status));
+      const tag    = (dlErr && dlErr.error && dlErr.error.error && dlErr.error.error['.tag'])
+                  || (dlErr && dlErr.error && dlErr.error['.tag'])
+                  || '';
+
+      const isNotFound = tag === 'path'
+        || errStr.includes('not_found')
+        || errStr.includes('path/not_found')
+        || errStr.includes('409')
+        || status === 409
+        || status === 404;
+
+      if (isNotFound) {
         // No cloud file yet — seed from local
-        cloudBarSet('syncing', '⟳ Seeding cloud…');
+        cloudBarSet('syncing', '\u29d7 Seeding cloud\u2026');
         await syncPushToCloud(true);
         return;
       }
