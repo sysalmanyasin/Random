@@ -211,6 +211,48 @@
   .pdf-page-section { page-break-after: always; }
   .pdf-page-section:last-child { page-break-after: auto; }
 
+  /* ── Company Card List (Verify Stock) ──────────────────── */
+  .company-card {
+    background: var(--white); border-radius: 12px; box-shadow: var(--shadow);
+    padding: 14px 16px; margin-bottom: 10px; cursor: pointer;
+    border: 1.5px solid var(--border); display: flex; align-items: center; justify-content: space-between;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .company-card:active { border-color: var(--gold); box-shadow: 0 2px 10px rgba(245,166,35,0.2); }
+  .company-card-name { font-size: 14px; font-weight: 800; color: var(--navy); margin-bottom: 3px; line-height: 1.2; }
+  .company-card-meta { font-size: 11px; color: var(--grey); font-weight: 600; }
+  .company-card-badges { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; margin-left: 10px; }
+  .company-items-badge { font-size: 11px; font-weight: 800; background: var(--light); color: var(--navy); border-radius: 10px; padding: 3px 9px; }
+  .company-value-badge { font-size: 10px; font-weight: 700; background: var(--gold-bg); color: var(--gold); border-radius: 10px; padding: 3px 9px; }
+
+  /* ── Audit row cursor highlight ─────────────────────────── */
+  .audit-row-focused { background: #FFF8EC !important; }
+  .audit-row-focused td { background: #FFF8EC !important; }
+
+  /* ── History search bar ─────────────────────────────────── */
+  #history-search-input { width:100%; padding:10px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; font-weight:600; margin-bottom:10px; }
+
+  /* ── PIN Gate overlay ───────────────────────────────────── */
+  #pin-gate-overlay {
+    position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15,31,61,0.96);
+    z-index:500; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px;
+  }
+  .pin-title { color:var(--white); font-size:17px; font-weight:800; letter-spacing:0.5px; }
+  .pin-sub { color:rgba(255,255,255,0.55); font-size:12px; font-weight:600; }
+  .pin-dots { display:flex; gap:14px; }
+  .pin-dot-circle {
+    width:18px; height:18px; border-radius:50%; border:2px solid rgba(255,255,255,0.4);
+    background:transparent; transition:background 0.15s;
+  }
+  .pin-dot-circle.filled { background:var(--gold); border-color:var(--gold); }
+  .pin-keypad { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; width:220px; }
+  .pin-key {
+    background:rgba(255,255,255,0.1); border:none; color:var(--white); font-size:20px; font-weight:700;
+    border-radius:12px; padding:16px 0; cursor:pointer; font-family:inherit; transition:background 0.1s;
+  }
+  .pin-key:active { background:var(--gold); }
+  .pin-key.wide { grid-column:span 2; font-size:14px; }
+  .pin-error-msg { color:var(--red); font-size:12px; font-weight:700; min-height:18px; }
 
 </style>
 <!-- Dropbox SDK -->
@@ -250,14 +292,7 @@
       </div>
     </div>
 
-    <div class="card" style="border: 1.5px dashed var(--navy); background: #F0F4FA; padding: 16px;">
-      <div class="card-title" style="color:var(--navy); margin-bottom:6px;">Unified Wireless Data Sync</div>
-      <p style="font-size:12px; color:var(--navy2); margin-bottom:12px; line-height:1.4;">
-        Receive backup files from external devices via <strong>WhatsApp, local networks, Wi-Fi Direct, AirDrop, or Bluetooth</strong>, then load them below to safely merge datasets.
-      </p>
-      <button class="btn btn-primary btn-sm" style="width:100%; border-radius:10px; padding:12px;" onclick="document.getElementById('hardware-sync-receiver').click()">📥 Ingest Shared Session Package (.JSON)</button>
-      <input type="file" id="hardware-sync-receiver" accept=".json" style="display:none" onchange="ingestSharedHardwarePackage(this)">
-    </div>
+    <input type="file" id="hardware-sync-receiver" accept=".json" style="display:none" onchange="ingestSharedHardwarePackage(this)">
 
     <div class="card">
       <div class="card-title">Ingest Master System CSV</div>
@@ -317,11 +352,18 @@
     </div>
 
     <div id="audit-configuration-wrapper" style="display:none;">
-      <div class="card-title">Select Targeted Stock Audit Domain</div>
-      <select id="manufacturer-dropdown-selector" class="search-input" style="width:100%; margin-bottom:12px; font-weight:700; height:46px; border-radius:12px; color:var(--navy); background: #ffffff;">
+      <div class="sticky-controls" id="company-list-controls" style="top:96px; margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span style="font-size:13px; font-weight:800; color:var(--navy);">Select Manufacturer</span>
+          <button class="sort-btn" id="company-sort-btn" onclick="toggleCompanySortOrder()" style="font-size:11px; padding:6px 12px;">↕️ <span id="company-sort-label">A-Z</span></button>
+        </div>
+        <input type="text" id="company-search-input" class="search-input" placeholder="🔍 Search company..." oninput="renderCompanyList()" style="margin:0;">
+      </div>
+      <!-- Hidden select kept for JS compatibility -->
+      <select id="manufacturer-dropdown-selector" style="display:none;">
         <option value="">— Select Manufacturer Brand —</option>
       </select>
-      <button class="btn btn-gold btn-block" onclick="launchActiveAuditSession()">Launch Verification Grid</button>
+      <div id="company-cards-list"></div>
     </div>
 
     <div id="audit-workspace-area" style="display:none;">
@@ -348,6 +390,8 @@
 
   <div class="page" id="page-history">
     <div class="card-title">Stored Log Files Ledger</div>
+
+    <input type="text" id="history-search-input" placeholder="🔍 Search company..." oninput="compileAccordionLedgerInterface(dynamicallyRetainedLogsCache)">
 
     <div class="history-filter-bar">
       <input type="date" id="history-filter-from" onchange="compileAccordionLedgerInterface(dynamicallyRetainedLogsCache)">
@@ -420,12 +464,39 @@
     <button class="tab-btn" id="tab-history" onclick="executeViewNavigation('history')">
       <span class="tab-label">History Ledger</span><div class="tab-dot"></div>
     </button>
-    <button class="tab-btn" id="tab-settings" onclick="executeViewNavigation('settings')">
+    <button class="tab-btn" id="tab-settings" onclick="openSettingsPinGate()">
       <span class="tab-label">Settings</span><div class="tab-dot"></div>
     </button>
 
   </div>
 
+
+  <!-- ── PIN Gate for Settings ──────────────────────────────── -->
+  <div id="pin-gate-overlay" style="display:none;">
+    <div class="pin-title">🔒 Settings Access</div>
+    <div class="pin-sub">Enter 4-digit PIN to continue</div>
+    <div class="pin-dots">
+      <div class="pin-dot-circle" id="pd0"></div>
+      <div class="pin-dot-circle" id="pd1"></div>
+      <div class="pin-dot-circle" id="pd2"></div>
+      <div class="pin-dot-circle" id="pd3"></div>
+    </div>
+    <div class="pin-error-msg" id="pin-error"></div>
+    <div class="pin-keypad">
+      <button class="pin-key" onclick="pinKeyPress('1')">1</button>
+      <button class="pin-key" onclick="pinKeyPress('2')">2</button>
+      <button class="pin-key" onclick="pinKeyPress('3')">3</button>
+      <button class="pin-key" onclick="pinKeyPress('4')">4</button>
+      <button class="pin-key" onclick="pinKeyPress('5')">5</button>
+      <button class="pin-key" onclick="pinKeyPress('6')">6</button>
+      <button class="pin-key" onclick="pinKeyPress('7')">7</button>
+      <button class="pin-key" onclick="pinKeyPress('8')">8</button>
+      <button class="pin-key" onclick="pinKeyPress('9')">9</button>
+      <button class="pin-key" onclick="pinKeyPress('back')" style="font-size:16px;">⌫</button>
+      <button class="pin-key" onclick="pinKeyPress('0')">0</button>
+      <button class="pin-key" onclick="closePinGate()" style="font-size:13px; color:rgba(255,255,255,0.55);">✕</button>
+    </div>
+  </div>
 
   <div id="export-modal-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:300; align-items:center; justify-content:center; padding:16px;" onclick="document.getElementById('export-modal-overlay').style.display='none'">
     <div style="background:white; padding:20px; border-radius:14px; max-width:420px; width:100%; box-shadow:var(--shadow);" onclick="event.stopPropagation()">
@@ -894,6 +965,7 @@ function processDatasetInterfacePopulation(shouldTriggerUIRefresh = true) {
   document.getElementById('file-status-report').style.display = 'block';
   document.getElementById('file-status-report').innerHTML = `✅ Dataset Storage Online: ${globalProductsMemoryStore.length.toLocaleString()} Operational Items`;
   
+  // Keep hidden select in sync for JS compatibility
   const selectionMenu = document.getElementById('manufacturer-dropdown-selector');
   selectionMenu.innerHTML = '<option value="">— Select Manufacturer Brand —</option>';
   uniqueCompanies.forEach(companyName => {
@@ -901,6 +973,8 @@ function processDatasetInterfacePopulation(shouldTriggerUIRefresh = true) {
     elementOption.value = companyName; elementOption.textContent = companyName;
     selectionMenu.appendChild(elementOption);
   });
+
+  renderCompanyList();
 
   if (shouldTriggerUIRefresh) {
     compileAccordionLedgerInterface(dynamicallyRetainedLogsCache);
@@ -925,6 +999,9 @@ function compileAccordionLedgerInterface(historicalLogs) {
     return;
   }
 
+  // Company text search filter
+  const historySearch = (document.getElementById('history-search-input')?.value || '').toLowerCase().trim();
+
   // Date-range filter
   const fromEl = document.getElementById('history-filter-from');
   const toEl = document.getElementById('history-filter-to');
@@ -939,7 +1016,16 @@ function compileAccordionLedgerInterface(historicalLogs) {
   });
 
   targetOutputDiv.innerHTML = '';
-  structuredBrandsList.forEach(brandName => {
+  const filteredBrandsList = historySearch
+    ? structuredBrandsList.filter(b => b.toLowerCase().includes(historySearch))
+    : structuredBrandsList;
+
+  if (filteredBrandsList.length === 0) {
+    targetOutputDiv.innerHTML = '<span style="color:var(--grey); font-style:italic; padding:10px; display:block;">No results match your search.</span>';
+    return;
+  }
+
+  filteredBrandsList.forEach(brandName => {
     // Collect all history entries for this company, sorted newest first
     const companyLogs = filteredLogs
       .filter(l => l.company === brandName)
@@ -1247,6 +1333,7 @@ function executeViewNavigation(viewIdentifierToken) {
     document.getElementById('empty-state-fallback').style.display = memoryIsPopulated ? 'none' : 'block';
     document.getElementById('audit-configuration-wrapper').style.display = (memoryIsPopulated && !targetSelectedManufacturer) ? 'block' : 'none';
     document.getElementById('action-header-sync-btn').style.display = (targetSelectedManufacturer) ? 'block' : 'none';
+    if (memoryIsPopulated && !targetSelectedManufacturer) renderCompanyList();
   } else {
     document.getElementById('action-header-sync-btn').style.display = 'none';
   }
@@ -1276,6 +1363,114 @@ function toggleRuntimeSortOrder() {
   renderAuditTableBody();
 }
 
+// ════════════════════════════════════════════════════
+// COMPANY CARD LIST — Verify Stock tab
+// ════════════════════════════════════════════════════
+let companySortAscending = true;
+
+function toggleCompanySortOrder() {
+  companySortAscending = !companySortAscending;
+  const btn = document.getElementById('company-sort-label');
+  if (btn) btn.textContent = companySortAscending ? 'A-Z' : 'Z-A';
+  renderCompanyList();
+}
+
+function renderCompanyList() {
+  const container = document.getElementById('company-cards-list');
+  if (!container) return;
+
+  const query = (document.getElementById('company-search-input')?.value || '').toLowerCase().trim();
+  let companies = [...new Set(globalProductsMemoryStore.map(m => m.company))];
+
+  if (query) {
+    companies = companies.filter(c => c.toLowerCase().includes(query));
+  }
+
+  companies.sort((a, b) => companySortAscending ? a.localeCompare(b) : b.localeCompare(a));
+
+  if (companies.length === 0) {
+    container.innerHTML = '<div style="text-align:center; color:var(--grey); padding:30px 0; font-size:13px; font-style:italic;">No companies found.</div>';
+    return;
+  }
+
+  container.innerHTML = '';
+  companies.forEach(company => {
+    const items = globalProductsMemoryStore.filter(m => m.company === company);
+    const totalQty = items.reduce((s, m) => s + m.qty, 0);
+    const totalValue = items.reduce((s, m) => s + (m.qty * m.price), 0);
+
+    const card = document.createElement('div');
+    card.className = 'company-card';
+    card.onclick = () => {
+      document.getElementById('manufacturer-dropdown-selector').value = company;
+      launchActiveAuditSession();
+    };
+    card.innerHTML = `
+      <div style="flex:1; min-width:0;">
+        <div class="company-card-name">${escapeHTMLMarkup(company)}</div>
+        <div class="company-card-meta">${items.length} SKU${items.length !== 1 ? 's' : ''} · ${totalQty.toLocaleString()} units</div>
+      </div>
+      <div class="company-card-badges">
+        <span class="company-items-badge">${items.length} items</span>
+        <span class="company-value-badge">Rs ${totalValue.toLocaleString()}</span>
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+// ════════════════════════════════════════════════════
+// PIN GATE — Settings tab
+// ════════════════════════════════════════════════════
+const SETTINGS_PIN = '1218';
+let pinBuffer = '';
+
+function openSettingsPinGate() {
+  pinBuffer = '';
+  updatePinDots();
+  document.getElementById('pin-error').textContent = '';
+  document.getElementById('pin-gate-overlay').style.display = 'flex';
+}
+
+function closePinGate() {
+  pinBuffer = '';
+  updatePinDots();
+  document.getElementById('pin-gate-overlay').style.display = 'none';
+}
+
+function pinKeyPress(key) {
+  if (key === 'back') {
+    pinBuffer = pinBuffer.slice(0, -1);
+    updatePinDots();
+    document.getElementById('pin-error').textContent = '';
+    return;
+  }
+  if (pinBuffer.length >= 4) return;
+  pinBuffer += key;
+  updatePinDots();
+
+  if (pinBuffer.length === 4) {
+    if (pinBuffer === SETTINGS_PIN) {
+      closePinGate();
+      executeViewNavigation('settings');
+    } else {
+      document.getElementById('pin-error').textContent = '❌ Incorrect PIN';
+      setTimeout(() => {
+        pinBuffer = '';
+        updatePinDots();
+        document.getElementById('pin-error').textContent = '';
+      }, 900);
+    }
+  }
+}
+
+function updatePinDots() {
+  for (let i = 0; i < 4; i++) {
+    const dot = document.getElementById('pd' + i);
+    if (dot) dot.classList.toggle('filled', i < pinBuffer.length);
+  }
+}
+
 // ── FIXED: OPERATIONAL RENDERING & LIVE VARIANCE TRACKER ──
 function setAuditFilter(mode) {
   auditFilterMode = mode;
@@ -1295,6 +1490,21 @@ function handleAuditInputKeydown(event, inputEl) {
       allInputs[idx + 1].select();
     }
   }
+}
+
+function highlightAuditRow(inputEl) {
+  // Remove highlight from any previously focused row
+  document.querySelectorAll('.audit-row-focused').forEach(r => r.classList.remove('audit-row-focused'));
+  const row = inputEl.closest('tr');
+  if (row) {
+    row.classList.add('audit-row-focused');
+    row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+}
+
+function unhighlightAuditRow(inputEl) {
+  const row = inputEl.closest('tr');
+  if (row) row.classList.remove('audit-row-focused');
 }
 
 function markAllRemainingAsMatch() {
@@ -1409,7 +1619,7 @@ function renderAuditTableBody() {
       </td>
       <td style="text-align:right; font-weight:700; color:var(--navy); font-size:14px;">${med.qty}</td>
       <td style="text-align:right;">
-        <input type="number" min="0" step="1" value="${systemVerificationValue}" placeholder="-" data-item-index-token="${trackingKey}" inputmode="decimal" enterkeyhint="next" oninput="processKeyboardInputRegistration(this)" onkeydown="handleAuditInputKeydown(event, this)">
+        <input type="number" min="0" step="1" value="${systemVerificationValue}" placeholder="-" data-item-index-token="${trackingKey}" inputmode="decimal" enterkeyhint="next" oninput="processKeyboardInputRegistration(this)" onkeydown="handleAuditInputKeydown(event, this)" onfocus="highlightAuditRow(this)" onblur="unhighlightAuditRow(this)">
       </td>
       <td style="text-align:right; padding-right:10px; font-weight:800;">${textVarianceDesignBox}</td>
     `;
