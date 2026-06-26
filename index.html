@@ -226,8 +226,8 @@
   .company-value-badge { font-size: 10px; font-weight: 700; background: var(--gold-bg); color: var(--gold); border-radius: 10px; padding: 3px 9px; }
 
   /* ── Audit row cursor highlight ─────────────────────────── */
-  .audit-row-focused { background: #FFF8EC !important; }
-  .audit-row-focused td { background: #FFF8EC !important; }
+  .audit-row-focused { background: #FFE8B2 !important; }
+  .audit-row-focused td { background: #FFE8B2 !important; }
 
   /* ── History search bar ─────────────────────────────────── */
   #history-search-input { width:100%; padding:10px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; font-weight:600; margin-bottom:10px; }
@@ -294,11 +294,39 @@
 
     <input type="file" id="hardware-sync-receiver" accept=".json" style="display:none" onchange="ingestSharedHardwarePackage(this)">
 
+    <!-- Dropbox Inventory Fetch (primary) -->
     <div class="card">
-      <div class="card-title">Ingest Master System CSV</div>
-      <div style="border: 2px dashed var(--border); padding: 24px; text-align: center; border-radius: var(--radius); cursor: pointer; background: #FAFBFD;" onclick="document.getElementById('csv-file-input').click()">
-        <span style="font-size:32px;">📂</span>
-        <div style="font-size:13px; font-weight:700; color:var(--navy); margin-top:6px;">Upload Inventory Baseline Report</div>
+      <div class="card-title">Live Inventory — Dropbox Sync</div>
+
+      <!-- Not linked state -->
+      <div id="inv-not-linked" style="text-align:center; padding:10px 0;">
+        <div style="font-size:12px; color:var(--grey); margin-bottom:12px; line-height:1.5;">
+          Link your Dropbox account in <strong>Settings</strong> to load inventory automatically.
+        </div>
+        <button class="btn btn-primary btn-block" onclick="executeViewNavigation('settings'); openSettingsPinGate();">⚙ Go to Settings → Link Dropbox</button>
+      </div>
+
+      <!-- Linked state -->
+      <div id="inv-linked" style="display:none;">
+        <button class="btn btn-primary btn-block" id="dbx-fetch-btn" onclick="fetchInventoryFromDropbox()">
+          ☁ Load Latest Inventory
+        </button>
+        <div id="dbx-fetch-status" style="margin-top:10px; font-size:12px; font-weight:700; color:var(--grey); text-align:center; min-height:18px;"></div>
+        <div id="dbx-bar-bg" style="width:100%; height:3px; background:var(--light); border-radius:99px; overflow:hidden; margin-top:8px; display:none;">
+          <div id="dbx-bar-fill" style="height:100%; width:0%; background:var(--navy); border-radius:99px; transition:width .4s ease;"></div>
+        </div>
+        <div id="dbx-last-fetched" style="margin-top:10px; font-size:11px; color:var(--grey); text-align:center; display:none;">
+          Last fetched: <strong id="dbx-last-fetched-time">—</strong>
+        </div>
+      </div>
+    </div>
+
+    <!-- Manual CSV fallback -->
+    <div class="card">
+      <div class="card-title" style="color:#B0BAC9;">Manual CSV Upload (Fallback)</div>
+      <div style="border: 2px dashed var(--border); padding: 20px; text-align: center; border-radius: var(--radius); cursor: pointer; background: #FAFBFD;" onclick="document.getElementById('csv-file-input').click()">
+        <span style="font-size:26px;">📂</span>
+        <div style="font-size:12px; font-weight:700; color:var(--grey); margin-top:6px;">Upload CSV manually if GitHub is unavailable</div>
       </div>
       <input type="file" id="csv-file-input" accept=".csv" style="display:none" onchange="handleMasterCSVFile(this)">
       <div id="file-status-report" style="margin-top:12px; font-size:13px; font-weight:700; color:var(--green); display:none;"></div>
@@ -426,21 +454,59 @@
       <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="saveBranchName()">Save Branch Name</button>
     </div>
 
-    <div class="card-title">Dropbox Cloud Sync</div>
+    <div class="card-title">Cloud Sync — Dropbox</div>
     <div class="card">
-      <label class="settings-label">Dropbox App Key</label>
-      <input type="text" id="settings-dropbox-key" class="settings-input" placeholder="Paste your Dropbox App Key" style="margin-bottom:0;">
-      <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="saveDropboxAppKey()">Save Dropbox Key</button>
-      <div style="margin-top:10px; font-size:12px; color:var(--grey);">
-        Current link status: <strong id="settings-dropbox-status">Not linked</strong>
+      <!-- Status row -->
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span id="conn-dot" style="width:10px; height:10px; border-radius:50%; background:var(--grey); display:inline-block;"></span>
+          <strong id="settings-dropbox-status" style="font-size:13px; color:var(--grey);">Not linked</strong>
+        </div>
+        <button class="btn btn-danger" style="font-size:11px; padding:6px 12px;" onclick="unlinkDropbox()">Disconnect</button>
       </div>
-      <div style="display:flex; gap:8px; margin-top:10px;">
-        <button class="btn btn-gold" style="flex:1; font-size:12px; padding:10px;" onclick="cloudBarTapped()">Link / Sync Now</button>
-        <button class="btn btn-danger" style="flex:1; font-size:12px; padding:10px;" onclick="unlinkDropbox()">Unlink</button>
+
+      <!-- App Key entry (always visible, pre-fills if saved) -->
+      <div id="conn-key-row" style="margin-bottom:12px;">
+        <label class="settings-label">Dropbox App Key</label>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="settings-dropbox-key" class="settings-input"
+            placeholder="Enter Dropbox App Key from POS-SYNC"
+            style="margin-bottom:0; font-family:monospace; font-size:12px; flex:1;">
+          <button class="btn btn-primary" style="padding:10px 14px; font-size:12px; white-space:nowrap;" onclick="saveDropboxAppKey()">Save</button>
+        </div>
+        <div style="font-size:10px; color:var(--grey); margin-top:5px;">
+          Find this key in POS-SYNC.html → same key used there
+        </div>
       </div>
-      <label style="display:flex; align-items:center; gap:10px; font-size:13px; font-weight:700; color:var(--navy); margin-top:14px; cursor:pointer; user-select:none;">
-        <input type="checkbox" id="settings-autosync-toggle" style="width:18px; height:18px; accent-color:var(--navy);" onchange="toggleAutoSync(this)"> Auto-sync to Dropbox every 10s
-      </label>
+
+      <!-- Link button (shown when not linked) -->
+      <div id="conn-link-row">
+        <button class="btn btn-primary btn-block" onclick="cloudBarTapped()">🔗 Link Dropbox Account</button>
+        <div style="margin-top:10px; text-align:center; font-size:11px; color:var(--grey);">— or authorise via token from another device —</div>
+        <button class="btn btn-block" style="margin-top:8px; background:var(--light); color:var(--navy); font-size:12px; padding:10px;" onclick="importConnectionToken()">📥 Import Connection Token</button>
+      </div>
+
+      <!-- Export / Import Connection (shown when linked) -->
+      <div id="conn-token-row" style="display:none; margin-top:4px;">
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary" style="flex:1; font-size:12px; padding:11px;" onclick="exportConnectionToken()">📤 Export Connection</button>
+          <button class="btn btn-gold" style="flex:1; font-size:12px; padding:11px;" onclick="importConnectionToken()">📥 Import Connection</button>
+        </div>
+        <button class="btn btn-block" style="margin-top:8px; background:var(--green); color:var(--white); padding:11px; font-size:12px;" onclick="cloudBarTapped()">↓ Pull From Cloud</button>
+        <label style="display:flex; align-items:center; gap:10px; font-size:13px; font-weight:700; color:var(--navy); margin-top:14px; cursor:pointer; user-select:none;">
+          <input type="checkbox" id="settings-autosync-toggle" style="width:18px; height:18px; accent-color:var(--navy);" onchange="toggleAutoSync(this)"> Auto-sync every 10s
+        </label>
+      </div>
+
+      <!-- Import token input -->
+      <div id="conn-import-row" style="display:none; margin-top:10px;">
+        <label class="settings-label">Paste Connection Token</label>
+        <textarea id="conn-token-input" class="settings-input" rows="3" placeholder="Paste token from another device…" style="font-size:11px; font-family:monospace; resize:none;"></textarea>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary" style="flex:1; font-size:12px; padding:10px;" onclick="applyImportedToken()">✓ Connect</button>
+          <button class="btn" style="flex:1; font-size:12px; padding:10px; background:var(--light); color:var(--text);" onclick="cancelImportToken()">Cancel</button>
+        </div>
+      </div>
     </div>
 
     <div class="card-title">Backup & Restore</div>
@@ -1934,14 +2000,15 @@ function saveBranchName() {
 
 // ── Dropbox App Key override (settable from within the app) ──
 function getEffectiveDropboxAppKey() {
-  return localStorage.getItem(SETTINGS_DROPBOX_KEY_OVERRIDE) || DROPBOX_APP_KEY;
+  // Key must be entered by the user in Settings — no baked fallback
+  return localStorage.getItem(SETTINGS_DROPBOX_KEY_OVERRIDE) || '';
 }
 
 function saveDropboxAppKey() {
   const val = document.getElementById('settings-dropbox-key').value.trim();
   if (!val) { toast('Enter a Dropbox App Key first', 'error'); return; }
   localStorage.setItem(SETTINGS_DROPBOX_KEY_OVERRIDE, val);
-  toast('Dropbox App Key saved. Tap "Link / Sync Now" to connect.');
+  toast('App Key saved — tap Link Dropbox to connect');
   updateSettingsDropboxStatus();
 }
 
@@ -1959,21 +2026,41 @@ function unlinkDropbox() {
 }
 
 function updateSettingsDropboxStatus() {
-  const el = document.getElementById('settings-dropbox-status');
+  const el  = document.getElementById('settings-dropbox-status');
+  const dot = document.getElementById('conn-dot');
   if (!el) return;
+
+  // Restore saved App Key into the input field
   const keyInput = document.getElementById('settings-dropbox-key');
-  if (keyInput) keyInput.value = localStorage.getItem(SETTINGS_DROPBOX_KEY_OVERRIDE) || '';
+  if (keyInput) {
+    const savedKey = localStorage.getItem(SETTINGS_DROPBOX_KEY_OVERRIDE) || '';
+    keyInput.value = savedKey;
+  }
 
   if (cloudGetToken()) {
-    el.textContent = 'Linked';
+    el.textContent = 'Connected securely';
     el.style.color = 'var(--green)';
+    if (dot) { dot.style.background = 'var(--green)'; dot.style.boxShadow = '0 0 5px var(--green)'; }
   } else {
     el.textContent = 'Not linked';
     el.style.color = 'var(--grey)';
+    if (dot) { dot.style.background = 'var(--grey)'; dot.style.boxShadow = 'none'; }
   }
 
   const autosyncToggle = document.getElementById('settings-autosync-toggle');
   if (autosyncToggle) autosyncToggle.checked = localStorage.getItem(SETTINGS_AUTOSYNC_KEY) === '1';
+  updateSettingsConnectionTokenUI();
+}
+
+function updateSettingsConnectionTokenUI() {
+  const linked    = !!cloudGetToken();
+  const linkRow   = document.getElementById('conn-link-row');
+  const tokenRow  = document.getElementById('conn-token-row');
+  const importRow = document.getElementById('conn-import-row');
+  if (linkRow)   linkRow.style.display   = linked ? 'none'  : 'block';
+  if (tokenRow)  tokenRow.style.display  = linked ? 'block' : 'none';
+  if (importRow) importRow.style.display = 'none';
+  updateInventorySyncHubState();
 }
 
 // ── Auto-sync every 10s (only pushes if data changed since last push) ──
@@ -2095,7 +2182,7 @@ function restoreFullBackup(inputElement) {
 // CLOUD SYNC ENGINE  —  Dropbox OAuth2 + Slim Status Bar
 // ════════════════════════════════════════════════════════
 
-const DROPBOX_APP_KEY      = '92yfgz2auvmgu3a';
+const DROPBOX_APP_KEY      = ''; // No baked key — enter via Settings
 const DROPBOX_SYNC_PATH    = '/pharma_audit_sync.json';
 const DROPBOX_TOKEN_KEY    = 'dropbox_access_token';
 
@@ -2432,10 +2519,190 @@ recordCompletedAuditIntoLedger = function(entry) {
   }
 
   updateSettingsDropboxStatus();
+  updateInventorySyncHubState();
+  updateSettingsConnectionTokenUI();
 })();
 // ════════════════════════════════════════════════════════
 // END CLOUD SYNC ENGINE
 // ════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════
+// CONNECTION TOKEN SYSTEM
+// ════════════════════════════════════════════════════════
+const CONN_TOKEN_VERSION = 'FDPP-CONN-V1';
+
+async function _deriveKey(pin) {
+  const raw = new TextEncoder().encode(pin.padEnd(16, '0').slice(0, 16));
+  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+async function exportConnectionToken() {
+  const token = cloudGetToken();
+  if (!token) { toast('No active Dropbox connection to export', 'error'); return; }
+  const pin = prompt('Set a 4-digit PIN to protect this token:\n(Receiving device will need this PIN)');
+  if (!pin || pin.length < 4) { toast('PIN must be at least 4 digits', 'error'); return; }
+  try {
+    const key  = await _deriveKey(pin);
+    const iv   = crypto.getRandomValues(new Uint8Array(12));
+    const data = new TextEncoder().encode(JSON.stringify({ v: CONN_TOKEN_VERSION, t: token }));
+    const enc  = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data);
+    const combined = new Uint8Array(iv.length + enc.byteLength);
+    combined.set(iv, 0);
+    combined.set(new Uint8Array(enc), iv.length);
+    const b64 = btoa(String.fromCharCode(...combined));
+    await navigator.clipboard.writeText(b64).catch(() => {});
+    prompt('Connection token (also copied to clipboard):\nShare this + your PIN with the other device.', b64);
+    toast('Connection token copied to clipboard');
+  } catch (e) { toast('Export failed: ' + e.message, 'error'); }
+}
+
+function importConnectionToken() {
+  document.getElementById('conn-import-row').style.display = 'block';
+  document.getElementById('conn-link-row').style.display   = 'none';
+  document.getElementById('conn-token-row').style.display  = 'none';
+  document.getElementById('conn-token-input').value = '';
+  setTimeout(() => document.getElementById('conn-token-input').focus(), 100);
+}
+
+function cancelImportToken() {
+  document.getElementById('conn-import-row').style.display = 'none';
+  const linked = !!cloudGetToken();
+  document.getElementById('conn-link-row').style.display  = linked ? 'none'  : 'block';
+  document.getElementById('conn-token-row').style.display = linked ? 'block' : 'none';
+}
+
+async function applyImportedToken() {
+  const b64 = document.getElementById('conn-token-input').value.trim();
+  if (!b64) { toast('Paste a connection token first', 'error'); return; }
+  const pin = prompt('Enter the PIN set by the exporting device:');
+  if (!pin) return;
+  try {
+    const raw    = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const iv     = raw.slice(0, 12);
+    const cipher = raw.slice(12);
+    const key    = await _deriveKey(pin);
+    const decBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
+    const payload = JSON.parse(new TextDecoder().decode(decBuf));
+    if (!payload.v || !payload.v.startsWith('FDPP-CONN') || !payload.t) throw new Error('Invalid token format');
+    cloudSaveToken(payload.t);
+    dbxClient = cloudBuildClient(payload.t);
+    document.getElementById('conn-token-input').value = '';
+    cancelImportToken();
+    updateSettingsDropboxStatus();
+    updateInventorySyncHubState();
+    cloudBarSet('syncing', '⧗ Verifying…');
+    setTimeout(() => syncPullFromCloud(true), 600);
+    toast('Dropbox connected via imported token!');
+  } catch (e) { toast('Invalid token or wrong PIN', 'error'); }
+}
+
+// ════════════════════════════════════════════════════════
+// DROPBOX INVENTORY FETCH ENGINE
+// Reads /inventory.json written by POS-SYNC.html
+// ════════════════════════════════════════════════════════
+const DBX_INVENTORY_PATH = '/inventory.json';
+const DBX_LAST_FETCH_KEY = 'dbx_inv_last_fetched';
+
+function _dbxInvStatusSet(msg, color) {
+  const el = document.getElementById('dbx-fetch-status');
+  if (el) { el.textContent = msg; el.style.color = color || 'var(--grey)'; }
+}
+
+function _dbxInvBarSet(pct) {
+  const bg   = document.getElementById('dbx-bar-bg');
+  const fill = document.getElementById('dbx-bar-fill');
+  if (!bg || !fill) return;
+  bg.style.display      = pct > 0 ? 'block' : 'none';
+  fill.style.width      = pct + '%';
+  fill.style.background = pct === 100 ? 'var(--green)' : 'var(--navy)';
+}
+
+function _dbxInvUpdateLastFetched(ts) {
+  const el  = document.getElementById('dbx-last-fetched');
+  const lbl = document.getElementById('dbx-last-fetched-time');
+  if (!el || !lbl) return;
+  const d = new Date(ts);
+  lbl.textContent = d.toLocaleDateString('en-PK', { day:'2-digit', month:'short' })
+    + ' @ ' + d.toLocaleTimeString('en-PK', { hour:'2-digit', minute:'2-digit' });
+  el.style.display = 'block';
+}
+
+function updateInventorySyncHubState() {
+  const linked = !!(cloudGetToken() && dbxClient);
+  const notEl  = document.getElementById('inv-not-linked');
+  const yesEl  = document.getElementById('inv-linked');
+  if (notEl) notEl.style.display = linked ? 'none'  : 'block';
+  if (yesEl) yesEl.style.display = linked ? 'block' : 'none';
+  const lastFetch = localStorage.getItem(DBX_LAST_FETCH_KEY);
+  if (lastFetch) _dbxInvUpdateLastFetched(parseInt(lastFetch));
+}
+
+async function fetchInventoryFromDropbox(silent) {
+  if (!dbxClient) { if (!silent) toast('Link Dropbox first in Settings', 'error'); return; }
+  const btn = document.getElementById('dbx-fetch-btn');
+  if (btn) btn.disabled = true;
+  if (!silent) { _dbxInvStatusSet('Connecting to Dropbox…', 'var(--grey)'); _dbxInvBarSet(20); }
+  try {
+    const res      = await dbxClient.filesDownload({ path: DBX_INVENTORY_PATH });
+    const fileBlob = (res.result && res.result.fileBlob) || res.fileBlob;
+    if (!silent) _dbxInvBarSet(60);
+    const text = await new Promise((resolve, reject) => {
+      const r = new FileReader(); r.onload = e => resolve(e.target.result); r.onerror = reject; r.readAsText(fileBlob);
+    });
+    const json = JSON.parse(text);
+    if (!Array.isArray(json) || json.length === 0) throw new Error('Inventory file is empty.');
+    if (!silent) _dbxInvBarSet(85);
+    globalProductsMemoryStore = json
+      .filter(item => item.name && item.stock > 0)
+      .map(item => ({
+        code:    item.code      || '',
+        name:    item.name      || '',
+        qty:     item.stock     || 0,
+        price:   item.unitPrice || 0,
+        company: item.company   || 'Unassigned Manufacturer',
+        generic: item.generic   || '',
+      }));
+    saveMasterDatasetToIndexedDB(globalProductsMemoryStore);
+    processDatasetInterfacePopulation(true);
+    const now = Date.now();
+    localStorage.setItem(DBX_LAST_FETCH_KEY, String(now));
+    _dbxInvUpdateLastFetched(now);
+    _dbxInvBarSet(100);
+    if (!silent) {
+      _dbxInvStatusSet('✓ ' + globalProductsMemoryStore.length.toLocaleString() + ' products loaded', 'var(--green)');
+      toast('Inventory loaded — ' + globalProductsMemoryStore.length.toLocaleString() + ' products');
+    }
+    const statusEl = document.getElementById('file-status-report');
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      statusEl.innerHTML = '✅ ' + globalProductsMemoryStore.length.toLocaleString() + ' products ready'
+        + ' <button onclick="executeViewNavigation('audit')" style="margin-left:10px;background:var(--navy);color:white;border:none;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;">→ Start Auditing</button>';
+    }
+    setTimeout(() => _dbxInvBarSet(0), 1800);
+  } catch (err) {
+    _dbxInvBarSet(0);
+    const msg = String(err.message || err);
+    if (msg.includes('not_found') || msg.includes('409') || msg.includes('404')) {
+      _dbxInvStatusSet('✗ No inventory on Dropbox yet — run POS-SYNC first', 'var(--red)');
+    } else {
+      _dbxInvStatusSet('✗ ' + msg, 'var(--red)');
+    }
+    if (!silent) toast('Fetch failed: ' + msg, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+(function dbxInvAutoFetchOnBoot() {
+  const lastFetch = localStorage.getItem(DBX_LAST_FETCH_KEY);
+  if (!lastFetch) return;
+  _dbxInvUpdateLastFetched(parseInt(lastFetch));
+  _dbxInvStatusSet('Refreshing from Dropbox…', 'var(--grey)');
+  setTimeout(() => { if (dbxClient) fetchInventoryFromDropbox(true); }, 2200);
+})();
+// ════════════════════════════════════════════════════════
+// END DROPBOX INVENTORY + CONNECTION TOKEN ENGINE
+// ════════════════════════════════════════════════════════
+
 </script>
 </body>
 </html>
