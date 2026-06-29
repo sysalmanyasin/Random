@@ -2675,7 +2675,7 @@ async function fetchInventoryFromDropbox(silent) {
     if (statusEl) {
       statusEl.style.display = 'block';
       statusEl.innerHTML = '✅ ' + globalProductsMemoryStore.length.toLocaleString() + ' products ready'
-        + ' <button onclick="executeViewNavigation('audit')" style="margin-left:10px;background:var(--navy);color:white;border:none;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;">→ Start Auditing</button>';
+        + ` <button onclick="executeViewNavigation('audit')" style="margin-left:10px;background:var(--navy);color:white;border:none;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;">→ Start Auditing</button>`;
     }
     setTimeout(() => _dbxInvBarSet(0), 1800);
   } catch (err) {
