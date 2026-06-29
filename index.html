@@ -462,7 +462,7 @@
           <span id="conn-dot" style="width:10px; height:10px; border-radius:50%; background:var(--grey); display:inline-block;"></span>
           <strong id="settings-dropbox-status" style="font-size:13px; color:var(--grey);">Not linked</strong>
         </div>
-        <button class="btn btn-danger" style="font-size:11px; padding:6px 12px;" onclick="unlinkDropbox()">Disconnect</button>
+        <button id="conn-disconnect-btn" class="btn btn-danger" style="font-size:11px; padding:6px 12px; display:none;" onclick="unlinkDropbox()">Disconnect</button>
       </div>
 
       <!-- App Key entry (always visible, pre-fills if saved) -->
@@ -2017,7 +2017,6 @@ function unlinkDropbox() {
   cloudClearToken();
   localStorage.removeItem('dropbox_refresh_token');
   sessionStorage.removeItem(DROPBOX_PKCE_VERIFIER_KEY);
-  sessionStorage.removeItem(DROPBOX_PKCE_STATE_KEY);
   dbxClient = null;
   stopAutoSyncInterval();
   cloudBarSet('unlinked', '☁ Tap to link Dropbox');
@@ -2060,6 +2059,8 @@ function updateSettingsConnectionTokenUI() {
   if (linkRow)   linkRow.style.display   = linked ? 'none'  : 'block';
   if (tokenRow)  tokenRow.style.display  = linked ? 'block' : 'none';
   if (importRow) importRow.style.display = 'none';
+  const disconnectBtn = document.getElementById('conn-disconnect-btn');
+  if (disconnectBtn) disconnectBtn.style.display = linked ? 'inline-block' : 'none';
   updateInventorySyncHubState();
 }
 
@@ -2242,12 +2243,6 @@ function cloudBarTapped() {
 
 // ── OAuth2 PKCE Flow (replaces deprecated implicit grant) ──
 const DROPBOX_PKCE_VERIFIER_KEY = 'dbx_pkce_verifier';
-const DROPBOX_PKCE_STATE_KEY    = 'dbx_pkce_state';
-
-function _b64url(buf) {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
 
 async function initiateDropboxOAuthFlow() {
   const effectiveKey = getEffectiveDropboxAppKey();
@@ -2256,85 +2251,47 @@ async function initiateDropboxOAuthFlow() {
     executeViewNavigation('settings');
     return;
   }
-
-  // Generate PKCE code verifier (43–128 random chars)
-  const verifierBytes = crypto.getRandomValues(new Uint8Array(48));
-  const verifier = _b64url(verifierBytes);
-
-  // Generate code challenge: BASE64URL(SHA-256(verifier))
-  const challengeBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-  const challenge = _b64url(challengeBytes);
-
-  // Random state param to guard against CSRF
-  const state = _b64url(crypto.getRandomValues(new Uint8Array(12)));
-
-  // Persist verifier & state so we can use them after redirect returns
-  sessionStorage.setItem(DROPBOX_PKCE_VERIFIER_KEY, verifier);
-  sessionStorage.setItem(DROPBOX_PKCE_STATE_KEY, state);
-
-  const redirectUri = window.location.href.split('?')[0].split('#')[0];
-  const url = 'https://www.dropbox.com/oauth2/authorize'
-    + '?client_id='             + encodeURIComponent(effectiveKey)
-    + '&response_type=code'
-    + '&code_challenge='        + encodeURIComponent(challenge)
-    + '&code_challenge_method=S256'
-    + '&token_access_type=online'
-    + '&state='                 + encodeURIComponent(state)
-    + '&redirect_uri='          + encodeURIComponent(redirectUri);
-  window.location.href = url;
-}
-
-// Exchange the authorization code for an access token (PKCE — no client secret needed)
-async function _exchangePkceCode(code, verifier) {
-  const effectiveKey = getEffectiveDropboxAppKey();
-  const redirectUri  = window.location.href.split('?')[0].split('#')[0];
-  const body = new URLSearchParams({
-    code,
-    grant_type:    'authorization_code',
-    client_id:     effectiveKey,
-    code_verifier: verifier,
-    redirect_uri:  redirectUri,
-  });
-  const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
-  });
-  if (!res.ok) throw new Error('Token exchange failed: ' + res.status);
-  return res.json(); // { access_token, refresh_token, … }
+  try {
+    const redirectUri = window.location.href.split('?')[0].split('#')[0];
+    const dbxAuth = new Dropbox.DropboxAuth({ clientId: effectiveKey });
+    const url = await dbxAuth.getAuthenticationUrl(
+      redirectUri, undefined, 'code', 'offline', undefined, undefined, true
+    );
+    sessionStorage.setItem(DROPBOX_PKCE_VERIFIER_KEY, dbxAuth.getCodeVerifier());
+    window.location.href = url.toString();
+  } catch (err) {
+    console.error('[CloudSync] OAuth initiation failed:', err);
+    toast('Failed to start Dropbox auth — check App Key.', 'error');
+  }
 }
 
 async function cloudParseOAuthToken() {
-  // Handle PKCE redirect: ?code=…&state=…
   const params = new URLSearchParams(window.location.search);
-  const code    = params.get('code');
-  const state   = params.get('state');
-
+  const code   = params.get('code');
   if (!code) return false;
 
-  // Validate state
-  const savedState    = sessionStorage.getItem(DROPBOX_PKCE_STATE_KEY);
   const savedVerifier = sessionStorage.getItem(DROPBOX_PKCE_VERIFIER_KEY);
-  sessionStorage.removeItem(DROPBOX_PKCE_STATE_KEY);
   sessionStorage.removeItem(DROPBOX_PKCE_VERIFIER_KEY);
-
-  if (!savedVerifier || (savedState && state !== savedState)) {
-    toast('OAuth state mismatch — please try linking again.', 'error');
-    return false;
-  }
+  if (!savedVerifier) { toast('OAuth session expired — please try again.', 'error'); return false; }
 
   try {
-    const tokenData = await _exchangePkceCode(code, savedVerifier);
+    const effectiveKey = getEffectiveDropboxAppKey();
+    const redirectUri  = window.location.href.split('?')[0].split('#')[0];
+    const dbxAuth = new Dropbox.DropboxAuth({ clientId: effectiveKey });
+    dbxAuth.setCodeVerifier(savedVerifier);
+    const resp = await dbxAuth.getAccessTokenFromCode(redirectUri, code);
+    const tokenData = resp.result || resp;
     if (tokenData.access_token) {
       cloudSaveToken(tokenData.access_token);
-      // Clean the URL
-      window.history.replaceState({}, document.title,
-        window.location.pathname);
+      if (tokenData.refresh_token) {
+        localStorage.setItem('dropbox_refresh_token', tokenData.refresh_token);
+      }
+      window.history.replaceState({}, document.title, window.location.pathname);
       return true;
     }
   } catch (err) {
-    console.error('[CloudSync] PKCE exchange failed:', err);
-    toast('Dropbox auth failed — check App Key and redirect URI.', 'error');
+    console.error('[CloudSync] Token exchange failed:', err);
+    toast('Dropbox auth failed — check App Key and redirect URI in Dropbox console.', 'error');
   }
   return false;
 }
