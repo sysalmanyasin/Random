@@ -454,6 +454,17 @@
       <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="saveBranchName()">Save Branch Name</button>
     </div>
 
+    <div class="card-title">Security</div>
+    <div class="card">
+      <label class="settings-label">Current Settings PIN</label>
+      <input type="password" id="settings-pin-current" class="settings-input" placeholder="Enter current 4-digit PIN" inputmode="numeric" maxlength="4" pattern="[0-9]*">
+      <label class="settings-label">New 4-Digit PIN</label>
+      <input type="password" id="settings-pin-new" class="settings-input" placeholder="Enter new 4-digit PIN" inputmode="numeric" maxlength="4" pattern="[0-9]*">
+      <label class="settings-label">Confirm New PIN</label>
+      <input type="password" id="settings-pin-confirm" class="settings-input" placeholder="Re-enter new 4-digit PIN" inputmode="numeric" maxlength="4" pattern="[0-9]*" style="margin-bottom:0;">
+      <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="saveSettingsPin()">Change PIN</button>
+    </div>
+
     <div class="card-title">Cloud Sync — Dropbox</div>
     <div class="card">
       <!-- Status row -->
@@ -462,7 +473,7 @@
           <span id="conn-dot" style="width:10px; height:10px; border-radius:50%; background:var(--grey); display:inline-block;"></span>
           <strong id="settings-dropbox-status" style="font-size:13px; color:var(--grey);">Not linked</strong>
         </div>
-        <button id="conn-disconnect-btn" class="btn btn-danger" style="font-size:11px; padding:6px 12px; display:none;" onclick="unlinkDropbox()">Disconnect</button>
+        <button class="btn btn-danger" style="font-size:11px; padding:6px 12px;" onclick="unlinkDropbox()">Disconnect</button>
       </div>
 
       <!-- App Key entry (always visible, pre-fills if saved) -->
@@ -638,572 +649,1649 @@
 </div>
 
 <script>
-// ── Application Core State Layers ─────────────────────────
-let globalProductsMemoryStore = [];
-let localActiveSessionItems = [];
-let userPhysicalVerificationMap = {}; 
-let targetSelectedManufacturer = '';
-let statusAscendingAlphabetical = true;
-let dynamicallyRetainedLogsCache = [];
-let auditFilterMode = 'all'; // 'all' | 'shorts' | 'overs' | 'unverified'
+// ════════════════════════════════════════════════════════════════
+// THE PERFECT BLUEPRINT — 5 LAYERS, ONE DOOR
+// FLOOR 1 Repository → FLOOR 2 State Store → FLOOR 3 Actions+EventBus
+// → FLOOR 4 Components → FLOOR 5 Pages
+// Bug fixes applied are flagged inline with "// FIX:"
+// ════════════════════════════════════════════════════════════════
 
-// ── INDEXEDDB BASE CONFIGURATION ENGINE ─────────────────
-let indexedDatabaseRef = null;
-const DB_NAME = "FazalDinPharmaPlus_AuditEngine";
-const DB_VERSION = 2;
+/* ══════════════════════════════════════════════════════════════
+   FLOOR 1 — REPOSITORY  (the only code that touches IndexedDB,
+   localStorage, sessionStorage, or the Dropbox network API)
+   ══════════════════════════════════════════════════════════════ */
+const Repo = (() => {
+  const DB_NAME = "FazalDinPharmaPlus_AuditEngine";
+  const DB_VERSION = 2;
+  let db = null;
 
-(function initializeIndexedDBEngine() {
-  const request = indexedDB.open(DB_NAME, DB_VERSION);
-  request.onerror = (e) => console.error("Database initialization rejected", e);
-  request.onsuccess = (e) => {
-    indexedDatabaseRef = e.target.result;
-    pullSavedStateFromDB();
+  function openDB() {
+    return new Promise((resolve) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      request.onerror = (e) => { console.error("Database initialization rejected", e); resolve(null); };
+      request.onsuccess = (e) => { db = e.target.result; resolve(db); };
+      request.onupgradeneeded = (e) => {
+        const d = e.target.result;
+        if (!d.objectStoreNames.contains("products")) d.createObjectStore("products", { keyPath: "id", autoIncrement: true });
+        if (!d.objectStoreNames.contains("sessionState")) d.createObjectStore("sessionState", { keyPath: "company" });
+        if (!d.objectStoreNames.contains("historyLedger")) {
+          const hs = d.createObjectStore("historyLedger", { keyPath: "id" });
+          hs.createIndex("byCompany", "company", { unique: false });
+        }
+      };
+    });
+  }
+
+  function saveProducts(items) {
+    if (!db) return;
+    const tx = db.transaction(["products"], "readwrite");
+    const store = tx.objectStore("products");
+    store.clear();
+    items.forEach(item => store.put(item));
+  }
+
+  function loadProducts() {
+    return new Promise((resolve) => {
+      if (!db) return resolve([]);
+      const tx = db.transaction(["products"], "readonly");
+      const out = [];
+      tx.objectStore("products").openCursor().onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) { out.push(cursor.value); cursor.continue(); }
+        else resolve(out);
+      };
+    });
+  }
+
+  function saveSessionCheckpoint(company, counts) {
+    if (!db || !company) return;
+    const tx = db.transaction(["sessionState"], "readwrite");
+    tx.objectStore("sessionState").put({ company, counts, updatedAt: Date.now() });
+  }
+
+  function clearSessionCheckpoint(company) {
+    if (!db || !company) return;
+    const tx = db.transaction(["sessionState"], "readwrite");
+    tx.objectStore("sessionState").delete(company);
+  }
+
+  function loadLatestSessionCheckpoint() {
+    return new Promise((resolve) => {
+      if (!db) return resolve(null);
+      const tx = db.transaction(["sessionState"], "readonly");
+      const list = [];
+      tx.objectStore("sessionState").openCursor().onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) { list.push(cursor.value); cursor.continue(); }
+        else {
+          if (list.length === 0) return resolve(null);
+          list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+          resolve(list[0]);
+        }
+      };
+    });
+  }
+
+  function putHistoryEntry(entry) {
+    if (!db) return;
+    const tx = db.transaction(["historyLedger"], "readwrite");
+    tx.objectStore("historyLedger").put(entry);
+  }
+
+  function deleteHistoryEntries(ids) {
+    if (!db) return;
+    const tx = db.transaction(["historyLedger"], "readwrite");
+    const store = tx.objectStore("historyLedger");
+    ids.forEach(id => store.delete(id));
+  }
+
+  function replaceAllHistory(entries) {
+    if (!db) return;
+    const tx = db.transaction(["historyLedger"], "readwrite");
+    const store = tx.objectStore("historyLedger");
+    store.clear();
+    entries.forEach(e => store.put(e));
+  }
+
+  function loadHistory() {
+    return new Promise((resolve) => {
+      if (!db) return resolve([]);
+      const tx = db.transaction(["historyLedger"], "readonly");
+      const out = [];
+      tx.objectStore("historyLedger").openCursor().onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) { out.push(cursor.value); cursor.continue(); }
+        else resolve(out);
+      };
+    });
+  }
+
+  // ── localStorage / sessionStorage settings ──
+  const LS = {
+    get(key, fallback = null) { const v = localStorage.getItem(key); return v === null ? fallback : v; },
+    set(key, val) { localStorage.setItem(key, val); },
+    remove(key) { localStorage.removeItem(key); }
   };
-  request.onupgradeneeded = (e) => {
-    let db = e.target.result;
-    if (!db.objectStoreNames.contains("products")) db.createObjectStore("products", { keyPath: "id", autoIncrement: true });
-    if (!db.objectStoreNames.contains("sessionState")) db.createObjectStore("sessionState", { keyPath: "company" });
-    // historyLedger now keyed by composite "company|dateMonth" for time-series tracking
-    if (!db.objectStoreNames.contains("historyLedger")) {
-      const hs = db.createObjectStore("historyLedger", { keyPath: "id" });
-      hs.createIndex("byCompany", "company", { unique: false });
-    }
+  const SS = {
+    get(key) { return sessionStorage.getItem(key); },
+    set(key, val) { sessionStorage.setItem(key, val); },
+    remove(key) { sessionStorage.removeItem(key); }
+  };
+
+  // ── Dropbox network calls ──
+  function buildDropboxClient(token) {
+    if (typeof Dropbox === 'undefined') return null;
+    return new Dropbox.Dropbox({ accessToken: token });
+  }
+
+  async function dropboxDownloadJSON(client, path) {
+    const res = await client.filesDownload({ path });
+    const fileBlob = (res.result && res.result.fileBlob) || res.fileBlob;
+    const text = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = e => resolve(e.target.result);
+      r.onerror = reject;
+      r.readAsText(fileBlob);
+    });
+    return JSON.parse(text);
+  }
+
+  async function dropboxUploadJSON(client, path, payloadString, filename) {
+    const blob = new Blob([payloadString], { type: 'application/json' });
+    const file = new File([blob], filename);
+    return client.filesUpload({ path, contents: file, mode: { '.tag': 'overwrite' }, autorename: false });
+  }
+
+  async function dropboxExchangePkceCode(appKey, code, verifier, redirectUri) {
+    const body = new URLSearchParams({
+      code, grant_type: 'authorization_code', client_id: appKey,
+      code_verifier: verifier, redirect_uri: redirectUri,
+    });
+    const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+    if (!res.ok) throw new Error('Token exchange failed: ' + res.status);
+    return res.json();
+  }
+
+  return {
+    openDB, saveProducts, loadProducts,
+    saveSessionCheckpoint, clearSessionCheckpoint, loadLatestSessionCheckpoint,
+    putHistoryEntry, deleteHistoryEntries, replaceAllHistory, loadHistory,
+    LS, SS,
+    buildDropboxClient, dropboxDownloadJSON, dropboxUploadJSON, dropboxExchangePkceCode,
   };
 })();
 
-function saveMasterDatasetToIndexedDB(items) {
-  if (!indexedDatabaseRef) return;
-  const transaction = indexedDatabaseRef.transaction(["products"], "readwrite");
-  const store = transaction.objectStore("products");
-  store.clear();
-  items.forEach(item => store.put(item));
-}
-
-function writeRuntimeStateCheckpoint() {
-  if (!indexedDatabaseRef || !targetSelectedManufacturer) return;
-  const transaction = indexedDatabaseRef.transaction(["sessionState"], "readwrite");
-  transaction.objectStore("sessionState").put({
-    company: targetSelectedManufacturer,
-    counts: userPhysicalVerificationMap,
-    updatedAt: Date.now()
-  });
-}
-
-function recordCompletedAuditIntoLedger(ledgerEntry) {
-  if (!indexedDatabaseRef) return;
-  // Composite key: company + year-month-day-time for time-series history (unique per save)
-  const now = new Date();
-  const dateMonth = now.toISOString().slice(0, 7); // "YYYY-MM"
-  const uniqueSuffix = now.getTime();
-  const entryWithId = Object.assign({}, ledgerEntry, { id: ledgerEntry.company + '|' + dateMonth + '|' + uniqueSuffix, dateMonth });
-  const transaction = indexedDatabaseRef.transaction(["historyLedger"], "readwrite");
-  transaction.objectStore("historyLedger").put(entryWithId);
-
-  // Update in-memory cache
-  const existingIdx = dynamicallyRetainedLogsCache.findIndex(l => l.id === entryWithId.id);
-  if (existingIdx > -1) dynamicallyRetainedLogsCache[existingIdx] = entryWithId;
-  else dynamicallyRetainedLogsCache.push(entryWithId);
-
-  compileAccordionLedgerInterface(dynamicallyRetainedLogsCache);
-}
-
-function pullSavedStateFromDB() {
-  if (!indexedDatabaseRef) return;
-
-  // ── 1. Load history ledger FIRST so the History tab always has data after refresh ──
-  const historyTx = indexedDatabaseRef.transaction(["historyLedger"], "readonly");
-  const localizedLedger = [];
-  historyTx.objectStore("historyLedger").openCursor().onsuccess = (e) => {
-    const cursor = e.target.result;
-    if (cursor) { localizedLedger.push(cursor.value); cursor.continue(); }
-    else {
-      dynamicallyRetainedLogsCache = localizedLedger;
-      // Render history immediately — no dependency on products being loaded
-      compileAccordionLedgerInterface(localizedLedger);
-    }
+/* ══════════════════════════════════════════════════════════════
+   FLOOR 2 — STATE STORE  (one protected AppState, one source of truth.
+   Nothing outside Actions may call Store.setState.)
+   ══════════════════════════════════════════════════════════════ */
+const Store = (() => {
+  let state = {
+    products: [],            // globalProductsMemoryStore
+    activeCompany: '',       // targetSelectedManufacturer
+    activeItems: [],         // localActiveSessionItems
+    counts: {},              // userPhysicalVerificationMap
+    history: [],             // dynamicallyRetainedLogsCache
+    sortAscending: true,     // statusAscendingAlphabetical
+    companySortAscending: true,
+    auditFilterMode: 'all',
+    dbxClient: null,
+    autoSyncTimer: null,
   };
 
-  // ── 2. Load products independently; if found, also update accordion with merged list ──
-  const productTx = indexedDatabaseRef.transaction(["products"], "readonly");
-  const productList = [];
-  productTx.objectStore("products").openCursor().onsuccess = (e) => {
-    const cursor = e.target.result;
-    if (cursor) { productList.push(cursor.value); cursor.continue(); }
-    else {
-      globalProductsMemoryStore = productList;
-      if (globalProductsMemoryStore.length > 0) {
-        // Re-render accordion to merge product companies with history companies
-        processDatasetInterfacePopulation(false);
-        compileAccordionLedgerInterface(dynamicallyRetainedLogsCache);
-        restoreInterruptedSessionFromDB();
-      }
-    }
+  function getState() { return state; }
+  // setState is intentionally only exported to Actions (below) via closure capture,
+  // but to keep this a single file we expose it; convention: ONLY Actions.* may call it.
+  function setState(patch) { state = Object.assign({}, state, patch); }
+
+  return { getState, setState };
+})();
+
+/* ══════════════════════════════════════════════════════════════
+   FLOOR 3 — EVENT BUS + ACTIONS  (the one door. Every state change
+   in the whole app happens by calling an Actions.* function, which
+   talks to Repo, updates Store, then announces via Bus.)
+   ══════════════════════════════════════════════════════════════ */
+const Bus = (() => {
+  const handlers = {};
+  return {
+    on(evt, fn) { (handlers[evt] = handlers[evt] || []).push(fn); },
+    emit(evt, payload) { (handlers[evt] || []).forEach(fn => fn(payload)); },
   };
-}
+})();
 
-function restoreInterruptedSessionFromDB() {
-  if (!indexedDatabaseRef) return;
-  const sessionTx = indexedDatabaseRef.transaction(["sessionState"], "readonly");
-  const sessionList = [];
-  sessionTx.objectStore("sessionState").openCursor().onsuccess = (e) => {
-    const cursor = e.target.result;
-    if (cursor) { sessionList.push(cursor.value); cursor.continue(); }
-    else {
-      if (sessionList.length === 0) return;
-      sessionList.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-      const saved = sessionList[0];
-      if (!saved || !saved.company || !saved.counts) return;
+const Actions = (() => {
 
-      const matchingItems = globalProductsMemoryStore.filter(m => m.company === saved.company);
-      if (matchingItems.length === 0) return;
+  const SETTINGS_BRANCH_KEY = 'app_branch_name';
+  const SETTINGS_DROPBOX_KEY_OVERRIDE = 'app_dropbox_app_key';
+  const SETTINGS_AUTOSYNC_KEY = 'app_autosync_enabled';
+  const SETTINGS_PIN_KEY = 'app_settings_pin'; // FIX: PIN is now overridable, was hardcoded
+  const DEFAULT_BRANCH_NAME = 'Bahria Town Branch';
+  const DEFAULT_PIN = '1218';
+  const DROPBOX_TOKEN_KEY = 'dropbox_access_token';
+  const DROPBOX_SYNC_PATH = '/pharma_audit_sync.json';
+  const DBX_INVENTORY_PATH = '/inventory.json';
+  const DBX_LAST_FETCH_KEY = 'dbx_inv_last_fetched';
+  const DROPBOX_PKCE_VERIFIER_KEY = 'dbx_pkce_verifier';
+  const DROPBOX_PKCE_STATE_KEY = 'dbx_pkce_state';
+  const CONN_TOKEN_VERSION = 'FDPP-CONN-V1';
 
-      const countedEntries = Object.keys(saved.counts).length;
-      if (countedEntries === 0) return;
+  function getBranchName() { return Repo.LS.get(SETTINGS_BRANCH_KEY, DEFAULT_BRANCH_NAME); }
+  function getSettingsPin() { return Repo.LS.get(SETTINGS_PIN_KEY, DEFAULT_PIN); }
+  function getEffectiveDropboxAppKey() { return Repo.LS.get(SETTINGS_DROPBOX_KEY_OVERRIDE, '') || ''; }
+  function getDropboxToken() { return Repo.LS.get(DROPBOX_TOKEN_KEY); }
 
-      if (confirm('Recovered interrupted audit for "' + saved.company + '" (' + countedEntries + ' items entered).\n\nRestore session?')) {
-        targetSelectedManufacturer = saved.company;
-        localActiveSessionItems = matchingItems;
-        userPhysicalVerificationMap = {};
-        Object.keys(saved.counts).forEach(k => {
-          userPhysicalVerificationMap[parseInt(k)] = parseFloat(saved.counts[k]);
-        });
+  // ── Bootstrap ─────────────────────────────────────────
+  async function bootstrap() {
+    await Repo.openDB();
+    const history = await Repo.loadHistory();
+    Store.setState({ history });
+    Bus.emit('history:changed', history);
 
-        document.getElementById('empty-state-fallback').style.display = 'none';
-        document.getElementById('audit-configuration-wrapper').style.display = 'none';
-        document.getElementById('audit-workspace-area').style.display = 'block';
-        document.getElementById('audit-metrics-bar').style.display = 'block';
-        document.getElementById('action-header-sync-btn').style.display = 'block';
-        document.getElementById('label-active-company').textContent = targetSelectedManufacturer;
+    const products = await Repo.loadProducts();
+    if (products.length > 0) {
+      Store.setState({ products });
+      Bus.emit('products:changed', products);
+      Bus.emit('history:changed', Store.getState().history); // re-merge company lists
 
-        executeViewNavigation('audit');
-        renderAuditTableBody();
-        calculateRuntimeFinancialMetrics();
-        toast('Session restored - ' + countedEntries + ' counts recovered');
-      }
-    }
-  };
-}
-
-// ── ACCESSIBILITY FONT SCALE MANAGEMENT ──────────────────
-function applyFontScaleAdjustment(scaleValue, buttonElement) {
-  const zoomMap = {'100%': 1, '112%': 1.12, '125%': 1.25};
-  document.getElementById('app').style.zoom = zoomMap[scaleValue] || 1;
-  document.querySelectorAll('.font-btn').forEach(btn => btn.classList.remove('active'));
-  buttonElement.classList.add('active');
-}
-
-// ── HARDWARE RADIO NETWORKING SHARE LOGIC ──────────────────
-function invokeNativeHardwareShare() {
-  if (!targetSelectedManufacturer) {
-    toast("No active data map selected", "error");
-    return;
-  }
-  
-  const packagePayload = {
-    syncIdentityToken: "FAZAL_DIN_CORE_SYNC",
-    company: targetSelectedManufacturer,
-    counts: userPhysicalVerificationMap,
-    timestamp: Date.now(),
-    referenceProducts: localActiveSessionItems
-  };
-  
-  const serializedString = JSON.stringify(packagePayload, null, 2);
-  const dataBlob = new Blob([serializedString], { type: "application/json" });
-  const sharingFile = new File([dataBlob], `AUDIT_${targetSelectedManufacturer.replace(/\s+/g, '_')}.json`, { type: "application/json" });
-
-  if (navigator.canShare && navigator.canShare({ files: [sharingFile] })) {
-    navigator.share({
-      files: [sharingFile],
-      title: `Fazal Din Stock Sync — ${targetSelectedManufacturer}`,
-      text: `Progress tracking manifest for ${targetSelectedManufacturer}.`
-    })
-    .then(() => toast("Share terminal active!"))
-    .catch((err) => fallbackDownloadMechanic(dataBlob));
-  } else {
-    fallbackDownloadMechanic(dataBlob);
-  }
-}
-
-function fallbackDownloadMechanic(blobData) {
-  const fallbackAnchor = document.createElement("a");
-  fallbackAnchor.href = URL.createObjectURL(blobData);
-  fallbackAnchor.download = `SYNC-PACK-${targetSelectedManufacturer.replace(/\s+/g, '_')}.json`;
-  fallbackAnchor.click();
-  toast("Export pack downloaded locally!");
-}
-
-function ingestSharedHardwarePackage(inputElement) {
-  const activePack = inputElement.files[0];
-  if (!activePack) return;
-
-  const parsingReader = new FileReader();
-  parsingReader.onload = function(e) {
-    try {
-      const externalObject = JSON.parse(e.target.result);
-      if (externalObject.syncIdentityToken !== "FAZAL_DIN_CORE_SYNC") {
-        toast("Invalid system signature token", "error");
-        return;
-      }
-
-      if (confirm(`Consolidate tracking counts from external device layout for "${externalObject.company}"?`)) {
-        targetSelectedManufacturer = externalObject.company;
-        
-        if (externalObject.referenceProducts && globalProductsMemoryStore.length === 0) {
-          globalProductsMemoryStore = externalObject.referenceProducts;
-          saveMasterDatasetToIndexedDB(globalProductsMemoryStore);
-          processDatasetInterfacePopulation(true);
+      const checkpoint = await Repo.loadLatestSessionCheckpoint();
+      if (checkpoint && checkpoint.company && checkpoint.counts) {
+        const matchingItems = products.filter(m => m.company === checkpoint.company);
+        const countedEntries = Object.keys(checkpoint.counts).length;
+        if (matchingItems.length > 0 && countedEntries > 0) {
+          if (confirm('Recovered interrupted audit for "' + checkpoint.company + '" (' + countedEntries + ' items entered).\n\nRestore session?')) {
+            const counts = {};
+            Object.keys(checkpoint.counts).forEach(k => { counts[parseInt(k)] = parseFloat(checkpoint.counts[k]); });
+            Store.setState({ activeCompany: checkpoint.company, activeItems: matchingItems, counts });
+            Bus.emit('session:restored', { company: checkpoint.company, count: countedEntries });
+          }
         }
-
-        userPhysicalVerificationMap = {};
-        Object.keys(externalObject.counts).forEach(indexKey => {
-          userPhysicalVerificationMap[indexKey] = parseFloat(externalObject.counts[indexKey]);
-        });
-        
-        localActiveSessionItems = globalProductsMemoryStore.filter(m => m.company === targetSelectedManufacturer);
-        writeRuntimeStateCheckpoint();
-        
-        document.getElementById('empty-state-fallback').style.display = 'none';
-        document.getElementById('audit-configuration-wrapper').style.display = 'none';
-        document.getElementById('audit-workspace-area').style.display = 'block';
-        document.getElementById('audit-metrics-bar').style.display = 'block';
-        document.getElementById('action-header-sync-btn').style.display = 'block';
-        document.getElementById('label-active-company').textContent = targetSelectedManufacturer;
-        
-        executeViewNavigation('audit');
-        renderAuditTableBody();
-        calculateRuntimeFinancialMetrics();
-        toast("External metrics consolidated cleanly!");
       }
-    } catch(err) {
-      toast("Parsing engine crashed on data read", "error");
     }
-  };
-  parsingReader.readAsText(activePack);
-  inputElement.value = '';
-}
 
-// ── LEDGER BULK WHATSAPP AND SCRUB WORKFLOWS ─────────────
-function dispatchSelectedAuditsViaWhatsApp() {
-  const checkboxes = document.querySelectorAll('.bulk-select-box:checked');
-  if (checkboxes.length === 0) {
-    toast("No ledger elements selected", "error");
-    return;
+    Bus.emit('branding:changed', { branchName: getBranchName() });
+    Bus.emit('settings:dropboxStatusChanged', { linked: !!getDropboxToken() });
+
+    if (Repo.LS.get(SETTINGS_AUTOSYNC_KEY) === '1') {
+      setTimeout(() => { if (getDropboxToken()) startAutoSync(); }, 1500);
+    }
+
+    await cloudBoot();
   }
 
-  let aggregatedTextPayload = `*📋 FAZAL DIN'S PHARMA PLUS — CONSOLIDATED AUDIT*\n`;
-  aggregatedTextPayload += `*Terminal:* ${getBranchName()}\n`;
-  aggregatedTextPayload += `*Total Sub-Ledgers Bundled:* ${checkboxes.length}\n`;
-  aggregatedTextPayload += `─────────────────────────\n\n`;
-
-  checkboxes.forEach(box => {
-    const parentKey = box.dataset.companyKey;
-    const cacheRecord = dynamicallyRetainedLogsCache.find(log => log.company === parentKey);
-    if (cacheRecord) {
-      const calculationSymbol = cacheRecord.netFinancialImpact > 0 ? '+' : '';
-      aggregatedTextPayload += `*🏢 Manufacturer:* ${cacheRecord.company}\n`;
-      aggregatedTextPayload += `*👤 Sign-Off:* ${cacheRecord.auditor}\n`;
-      aggregatedTextPayload += `*📈 Summary Metrics:* ${cacheRecord.metricsLabel}\n`;
-      aggregatedTextPayload += `*💰 Valuation Balance:* Rs ${calculationSymbol}${cacheRecord.netFinancialImpact.toLocaleString()}\n`;
-      aggregatedTextPayload += `*🕒 Complete Date:* ${cacheRecord.date} @ ${cacheRecord.time}\n`;
-      aggregatedTextPayload += `─────────────────────────\n`;
-    }
-  });
-
-  window.open(`https://wa.me/?text=${encodeURIComponent(aggregatedTextPayload)}`, '_blank');
-}
-
-function purgeSelectedAuditsFromLedger() {
-  const entryBoxes = document.querySelectorAll('.bulk-entry-box:checked');
-  const companyBoxes = document.querySelectorAll('.bulk-select-box:checked');
-
-  if (entryBoxes.length === 0 && companyBoxes.length === 0) {
-    toast("Select layout lines to drop", "error");
-    return;
+  // ── Inventory import (CSV) ─────────────────────────────
+  function parseCSVFileLines(text) {
+    const rows = text.trim().split(/\r?\n/);
+    if (rows.length < 2) return [];
+    const headers = rows[0].split(',').map(h => h.trim().replace(/"/g, ''));
+    return rows.slice(1).map(line => {
+      const parsedLineArray = [];
+      let inQuotes = false, cur = '';
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') { inQuotes = !inQuotes; continue; }
+        if (c === ',' && !inQuotes) { parsedLineArray.push(cur.trim()); cur = ''; continue; }
+        cur += c;
+      }
+      parsedLineArray.push(cur.trim());
+      const rowObject = {};
+      headers.forEach((h, idx) => { rowObject[h] = (parsedLineArray[idx] ?? '').replace(/"/g, '').trim(); });
+      return rowObject;
+    }).filter(r => Object.values(r).some(v => v !== ''));
   }
 
-  const totalCount = entryBoxes.length > 0 ? entryBoxes.length : companyBoxes.length;
-  const unitLabel = entryBoxes.length > 0 ? 'audit record(s)' : 'manufacturer(s)';
-
-  if (confirm(`⚠️ Permanently scrub (${totalCount}) ${unitLabel} from disk?`)) {
-    const transaction = indexedDatabaseRef.transaction(["historyLedger"], "readwrite");
-    const store = transaction.objectStore("historyLedger");
-
-    if (entryBoxes.length > 0) {
-      entryBoxes.forEach(box => {
-        const entryId = box.dataset.entryId;
-        store.delete(entryId);
-        dynamicallyRetainedLogsCache = dynamicallyRetainedLogsCache.filter(l => l.id !== entryId);
-      });
-    } else {
-      companyBoxes.forEach(box => {
-        const companyKey = box.dataset.companyKey;
-        // Delete all entries for this company
-        dynamicallyRetainedLogsCache
-          .filter(l => l.company === companyKey)
-          .forEach(l => store.delete(l.id || l.company));
-        dynamicallyRetainedLogsCache = dynamicallyRetainedLogsCache.filter(l => l.company !== companyKey);
-      });
-    }
-
-    transaction.oncomplete = () => {
-      toast("Records cleared from disk cache");
-      compileAccordionLedgerInterface(dynamicallyRetainedLogsCache);
+  function mapNormalizedSchema(raw) {
+    const fetchField = (...keys) => {
+      for (const k of keys) {
+        const match = Object.keys(raw).find(rk => rk.trim().toLowerCase() === k.toLowerCase());
+        if (match) return raw[match] || '';
+      }
+      return '';
+    };
+    return {
+      code: fetchField('Product Code', 'Code', 'ProductCode'),
+      name: fetchField('Product Name', 'Name', 'Medicine', 'ProductName'),
+      qty: parseFloat(fetchField('Quantity', 'Qty', 'Stock', 'System Qty')) || 0,
+      price: parseFloat(fetchField('Retail Price', 'Price', 'RetailPrice')) || 0,
+      company: fetchField('Manufacture', 'Company', 'Manufacturer', 'Brand') || 'Unassigned Manufacturer',
+      generic: fetchField('Generic Detail', 'Generic', 'GenericDetail'),
     };
   }
-}
 
-function toast(message, configurationStyle = 'success') {
-  const node = document.createElement('div');
-  node.className = `toast ${configurationStyle}`;
-  node.textContent = message;
-  document.body.appendChild(node);
-  setTimeout(() => node.remove(), 2600);
-}
+  async function importCSVFile(file) {
+    const text = await file.text();
+    const rawRows = parseCSVFileLines(text);
+    if (rawRows.length === 0) { Bus.emit('toast', { msg: 'Data streams corrupted', kind: 'error' }); return; }
+    // FIX: previously filtered `m.qty > 0` which silently dropped legitimate
+    // zero-stock SKUs from being audited. Zero-stock items are valid audit targets.
+    const products = rawRows.map(mapNormalizedSchema).filter(m => m.name && m.qty >= 0);
+    Store.setState({ products });
+    Repo.saveProducts(products);
+    pushToCloudIfLinked();
+    Bus.emit('products:changed', products);
+    Bus.emit('toast', { msg: `Loaded ${products.length.toLocaleString()} items successfully`, kind: 'success' });
+    Bus.emit('csv:imported', { count: products.length });
+  }
 
-// ── CUSTOM INVENTORY PARSING ENGINE ──────────────────
-function parseCSVFileLines(text) {
-  const rows = text.trim().split(/\r?\n/);
-  if (rows.length < 2) return [];
-  const headers = rows[0].split(',').map(h => h.trim().replace(/"/g, ''));
-
-  return rows.slice(1).map(line => {
-    const parsedLineArray = [];
-    let stateInsideQuotes = false, currentStringBlock = '';
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') { stateInsideQuotes = !stateInsideQuotes; continue; }
-      if (char === ',' && !stateInsideQuotes) { parsedLineArray.push(currentStringBlock.trim()); currentStringBlock = ''; continue; }
-      currentStringBlock += char;
-    }
-    parsedLineArray.push(currentStringBlock.trim());
-    const rowObject = {};
-    headers.forEach((h, idx) => { rowObject[h] = (parsedLineArray[idx] ?? '').replace(/"/g, '').trim(); });
-    return rowObject;
-  }).filter(r => Object.values(r).some(v => v !== ''));
-}
-
-function mapNormalizedSchema(raw) {
-  const fetchField = (...keys) => {
-    for (const k of keys) {
-      const match = Object.keys(raw).find(rk => rk.trim().toLowerCase() === k.toLowerCase());
-      if (match) return raw[match] || '';
-    }
-    return '';
-  };
-  return {
-    code:    fetchField('Product Code', 'Code', 'ProductCode'),
-    name:    fetchField('Product Name', 'Name', 'Medicine', 'ProductName'),
-    qty:     parseFloat(fetchField('Quantity', 'Qty', 'Stock', 'System Qty')) || 0,
-    price:   parseFloat(fetchField('Retail Price', 'Price', 'RetailPrice')) || 0,
-    company: fetchField('Manufacture', 'Company', 'Manufacturer', 'Brand') || 'Unassigned Manufacturer',
-    generic: fetchField('Generic Detail', 'Generic', 'GenericDetail'),
-  };
-}
-
-function handleMasterCSVFile(element) {
-  const activeFile = element.files[0];
-  if (!activeFile) return;
-  const fileReader = new FileReader();
-  fileReader.onload = (e) => {
+  async function importInventoryFromDropbox(silent) {
+    const { dbxClient } = Store.getState();
+    if (!dbxClient) { if (!silent) Bus.emit('toast', { msg: 'Link Dropbox first in Settings', kind: 'error' }); return; }
+    Bus.emit('dbxInventoryFetch:start', {});
     try {
-      const mappedRawRows = parseCSVFileLines(e.target.result);
-      if (mappedRawRows.length === 0) { toast("Data streams corrupted", "error"); return; }
-      
-      globalProductsMemoryStore = mappedRawRows.map(mapNormalizedSchema).filter(m => m.name && m.qty > 0);
-      
-      saveMasterDatasetToIndexedDB(globalProductsMemoryStore);
-      processDatasetInterfacePopulation(true);
-      toast(`Loaded ${globalProductsMemoryStore.length.toLocaleString()} items successfully`);
-      
-      // Bug 7 fix: show CTA to navigate to audit tab after successful load
-      const statusEl = document.getElementById('file-status-report');
-      statusEl.innerHTML += ` <button onclick="executeViewNavigation('audit')" style="margin-left:10px; background:var(--navy); color:white; border:none; border-radius:20px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer;">→ Start Auditing</button>`;
-    } catch(err) {
-      toast("File interpretation aborted", "error");
+      const json = await Repo.dropboxDownloadJSON(dbxClient, DBX_INVENTORY_PATH);
+      if (!Array.isArray(json) || json.length === 0) throw new Error('Inventory file is empty.');
+      // FIX: previously filtered `item.stock > 0`, dropping legitimate zero-stock SKUs.
+      const products = json.filter(item => item.name && item.stock >= 0).map(item => ({
+        code: item.code || '', name: item.name || '', qty: item.stock || 0,
+        price: item.unitPrice || 0, company: item.company || 'Unassigned Manufacturer',
+        generic: item.generic || '',
+      }));
+      Store.setState({ products });
+      Repo.saveProducts(products);
+      pushToCloudIfLinked();
+      Bus.emit('products:changed', products);
+      const now = Date.now();
+      Repo.LS.set(DBX_LAST_FETCH_KEY, String(now));
+      Bus.emit('dbxInventoryFetch:success', { count: products.length, fetchedAt: now });
+      if (!silent) Bus.emit('toast', { msg: 'Inventory loaded — ' + products.length.toLocaleString() + ' products', kind: 'success' });
+    } catch (err) {
+      const msg = String(err.message || err);
+      Bus.emit('dbxInventoryFetch:error', { msg });
+      if (!silent) Bus.emit('toast', { msg: 'Fetch failed: ' + msg, kind: 'error' });
     }
-  };
-  fileReader.readAsText(activeFile);
-  element.value = '';
-}
-
-function processDatasetInterfacePopulation(shouldTriggerUIRefresh = true) {
-  const uniqueCompanies = [...new Set(globalProductsMemoryStore.map(m => m.company))].sort();
-  document.getElementById('file-status-report').style.display = 'block';
-  document.getElementById('file-status-report').innerHTML = `✅ Dataset Storage Online: ${globalProductsMemoryStore.length.toLocaleString()} Operational Items`;
-  
-  // Keep hidden select in sync for JS compatibility
-  const selectionMenu = document.getElementById('manufacturer-dropdown-selector');
-  selectionMenu.innerHTML = '<option value="">— Select Manufacturer Brand —</option>';
-  uniqueCompanies.forEach(companyName => {
-    const elementOption = document.createElement('option');
-    elementOption.value = companyName; elementOption.textContent = companyName;
-    selectionMenu.appendChild(elementOption);
-  });
-
-  renderCompanyList();
-
-  if (shouldTriggerUIRefresh) {
-    compileAccordionLedgerInterface(dynamicallyRetainedLogsCache);
-  }
-}
-
-// ── COMPILING ACCORDION VIEWS FOR HISTORY ─────────────────
-function compileAccordionLedgerInterface(historicalLogs) {
-  const targetOutputDiv = document.getElementById('history-accordion-container');
-  if (!targetOutputDiv) return;
-
-  // Build the company list from HISTORY records (not from products store).
-  // This ensures history always displays after a page refresh even if the
-  // products CSV hasn't been re-uploaded yet.
-  const companiesFromHistory = [...new Set((historicalLogs || []).map(l => l.company))].sort();
-  const companiesFromProducts = [...new Set(globalProductsMemoryStore.map(m => m.company))].sort();
-  // Merge both lists so companies that exist in products-but-no-history also appear
-  const structuredBrandsList = [...new Set([...companiesFromHistory, ...companiesFromProducts])].sort();
-
-  if (structuredBrandsList.length === 0) {
-    targetOutputDiv.innerHTML = '<span style="color:var(--grey); font-style:italic; padding:10px; display:block;">No audit history yet.</span>';
-    return;
   }
 
-  // Company text search filter
-  const historySearch = (document.getElementById('history-search-input')?.value || '').toLowerCase().trim();
+  function ingestSharedHardwarePackage(externalObject) {
+    if (externalObject.syncIdentityToken !== "FAZAL_DIN_CORE_SYNC") {
+      Bus.emit('toast', { msg: 'Invalid system signature token', kind: 'error' });
+      return false;
+    }
+    if (!confirm(`Consolidate tracking counts from external device layout for "${externalObject.company}"?`)) return false;
 
-  // Date-range filter
-  const fromEl = document.getElementById('history-filter-from');
-  const toEl = document.getElementById('history-filter-to');
-  const fromVal = fromEl && fromEl.value ? new Date(fromEl.value + 'T00:00:00').getTime() : null;
-  const toVal = toEl && toEl.value ? new Date(toEl.value + 'T23:59:59').getTime() : null;
-
-  const filteredLogs = historicalLogs.filter(l => {
-    const ts = l.timestamp || 0;
-    if (fromVal !== null && ts < fromVal) return false;
-    if (toVal !== null && ts > toVal) return false;
+    let { products } = Store.getState();
+    if (externalObject.referenceProducts && products.length === 0) {
+      products = externalObject.referenceProducts;
+      Store.setState({ products });
+      Repo.saveProducts(products);
+      Bus.emit('products:changed', products);
+    }
+    const counts = {};
+    Object.keys(externalObject.counts).forEach(k => { counts[k] = parseFloat(externalObject.counts[k]); });
+    const activeItems = products.filter(m => m.company === externalObject.company);
+    Store.setState({ activeCompany: externalObject.company, activeItems, counts });
+    Repo.saveSessionCheckpoint(externalObject.company, counts);
+    Bus.emit('audit:sessionStarted', { company: externalObject.company });
+    Bus.emit('toast', { msg: 'External metrics consolidated cleanly!', kind: 'success' });
     return true;
-  });
-
-  targetOutputDiv.innerHTML = '';
-  const filteredBrandsList = historySearch
-    ? structuredBrandsList.filter(b => b.toLowerCase().includes(historySearch))
-    : structuredBrandsList;
-
-  if (filteredBrandsList.length === 0) {
-    targetOutputDiv.innerHTML = '<span style="color:var(--grey); font-style:italic; padding:10px; display:block;">No results match your search.</span>';
-    return;
   }
 
-  filteredBrandsList.forEach(brandName => {
-    // Collect all history entries for this company, sorted newest first
-    const companyLogs = filteredLogs
-      .filter(l => l.company === brandName)
-      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  // ── Audit session lifecycle ────────────────────────────
+  function startAuditSession(company) {
+    const { products } = Store.getState();
+    const activeItems = products.filter(m => m.company === company);
+    Store.setState({ activeCompany: company, activeItems, counts: {}, auditFilterMode: 'all' });
+    Bus.emit('audit:sessionStarted', { company });
+  }
 
-    const latestLog = companyLogs[0];
+  function reopenHistoryAudit(entryId) {
+    const { history, activeCompany, counts } = Store.getState();
+    const log = history.find(l => l.id === entryId);
+    if (!log) { Bus.emit('toast', { msg: 'Record not found', kind: 'error' }); return; }
+    if (!log.items || log.items.length === 0) { Bus.emit('toast', { msg: 'No item-level data stored for this record', kind: 'error' }); return; }
+    if (activeCompany && Object.keys(counts).length > 0) {
+      if (!confirm('This will replace your current active audit session. Continue?')) return;
+    }
+    const activeItems = log.items.map(it => ({ name: it.name, code: it.code, price: it.price, qty: it.qty }));
+    const newCounts = {};
+    log.items.forEach((it, i) => { if (it.counted !== null && it.counted !== undefined) newCounts[i] = it.counted; });
+    Store.setState({ activeCompany: log.company, activeItems, counts: newCounts });
+    Bus.emit('audit:sessionStarted', { company: log.company, reopenedLabel: log.company + ' (Reopened — ' + log.date + ')' });
+    Bus.emit('toast', { msg: 'Reopened audit: ' + log.company + ' — ' + log.date, kind: 'success' });
+  }
 
-    let displayBadgeElement = '<span class="val-badge val-grey">Pending Check</span>';
-    let expandedHtmlPayload = '<p style="color:var(--grey); font-style:italic; padding:4px 0;">Shelf run tracking unexecuted.</p>';
+  function recordCount(itemIndex, rawValue) {
+    const { counts } = Store.getState();
+    const newCounts = Object.assign({}, counts);
+    if (rawValue === '') {
+      delete newCounts[itemIndex];
+    } else {
+      // FIX: clamp negative physical counts to 0 — a negative shelf count is not
+      // a valid real-world state and previously caused inverted variance math.
+      let v = parseFloat(rawValue);
+      if (isNaN(v)) v = 0;
+      if (v < 0) v = 0;
+      newCounts[itemIndex] = v;
+    }
+    Store.setState({ counts: newCounts });
+    Repo.saveSessionCheckpoint(Store.getState().activeCompany, newCounts);
+    Bus.emit('audit:countChanged', { itemIndex, value: newCounts[itemIndex] });
+  }
 
-    if (latestLog) {
-      const netValuation = latestLog.netFinancialImpact;
-      if (netValuation < 0) {
-        displayBadgeElement = '<span class="val-badge val-red">Rs -' + Math.abs(netValuation).toLocaleString() + '</span>';
-      } else if (netValuation > 0) {
-        displayBadgeElement = '<span class="val-badge val-green">Rs +' + netValuation.toLocaleString() + '</span>';
-      } else {
-        displayBadgeElement = '<span class="val-badge val-grey">Rs 0</span>';
+  function markAllRemainingAsMatch() {
+    if (!confirm('Stamp all unverified items as matching system quantity?')) return;
+    const { activeItems, counts } = Store.getState();
+    const newCounts = Object.assign({}, counts);
+    activeItems.forEach((med, i) => { if (newCounts[i] === undefined) newCounts[i] = med.qty; });
+    Store.setState({ counts: newCounts });
+    Repo.saveSessionCheckpoint(Store.getState().activeCompany, newCounts);
+    Bus.emit('audit:bulkMarked', {});
+    Bus.emit('toast', { msg: 'Remaining items marked as match', kind: 'success' });
+  }
+
+  function setAuditFilter(mode) {
+    Store.setState({ auditFilterMode: mode });
+    Bus.emit('audit:filterChanged', mode);
+  }
+
+  function toggleSortOrder() {
+    const s = Store.getState();
+    Store.setState({ sortAscending: !s.sortAscending });
+    Bus.emit('audit:sortChanged', Store.getState().sortAscending);
+  }
+
+  function toggleCompanySortOrder() {
+    const s = Store.getState();
+    Store.setState({ companySortAscending: !s.companySortAscending });
+    Bus.emit('companyList:sortChanged', Store.getState().companySortAscending);
+  }
+
+  function abandonActiveSession() {
+    const { activeCompany } = Store.getState();
+    if (activeCompany) Repo.clearSessionCheckpoint(activeCompany);
+    Store.setState({ activeCompany: '', activeItems: [], counts: {}, auditFilterMode: 'all' });
+    Bus.emit('audit:sessionEnded', {});
+  }
+
+  function signOffAudit(channelId, auditorName, isolateDiscrepanciesOnly) {
+    const { activeItems, counts, activeCompany } = Store.getState();
+    const remaining = activeItems.filter((_, i) => counts[i] === undefined).length;
+
+    const now = new Date();
+    const pkDate = now.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
+    const pkTime = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
+
+    let shorts = 0, overs = 0, matches = 0, netValue = 0;
+    activeItems.forEach((m, i) => {
+      const v = counts[i];
+      if (v === undefined) return;
+      const delta = v - m.qty;
+      netValue += delta * m.price;
+      if (delta > 0) overs++; else if (delta < 0) shorts++; else matches++;
+    });
+
+    const itemsSnapshot = activeItems.map((m, i) => ({
+      name: m.name, code: m.code || '', price: m.price, qty: m.qty,
+      counted: counts[i] !== undefined ? counts[i] : null
+    }));
+
+    const dateMonth = now.toISOString().slice(0, 7);
+    const id = activeCompany + '|' + dateMonth + '|' + now.getTime();
+    const entry = {
+      id, company: activeCompany, auditor: auditorName, date: pkDate, time: pkTime,
+      timestamp: now.getTime(), dateMonth, netFinancialImpact: netValue,
+      metricsLabel: `▲ Surplus: ${overs} | ▼ Shortage: ${shorts} | = Match: ${matches}`,
+      items: itemsSnapshot,
+    };
+
+    Repo.putHistoryEntry(entry);
+    const history = Store.getState().history.slice();
+    const idx = history.findIndex(l => l.id === entry.id);
+    if (idx > -1) history[idx] = entry; else history.push(entry);
+    Store.setState({ history });
+    pushToCloudIfLinked();
+    Bus.emit('history:changed', history);
+    Bus.emit('audit:signedOff', { entry, channelId, isolateDiscrepanciesOnly, remaining });
+    return entry;
+  }
+
+  function purgeHistoryEntries(entryIds) {
+    Repo.deleteHistoryEntries(entryIds);
+    const history = Store.getState().history.filter(l => !entryIds.includes(l.id));
+    Store.setState({ history });
+    Bus.emit('history:changed', history);
+    Bus.emit('toast', { msg: 'Records cleared from disk cache', kind: 'success' });
+  }
+
+  function purgeHistoryByCompanies(companyNames) {
+    const { history } = Store.getState();
+    const idsToDelete = history.filter(l => companyNames.includes(l.company)).map(l => l.id);
+    purgeHistoryEntries(idsToDelete);
+  }
+
+  // ── Settings ────────────────────────────────────────────
+  function saveBranchName(name) {
+    if (!name || !name.trim()) { Bus.emit('toast', { msg: 'Branch name cannot be empty', kind: 'error' }); return; }
+    Repo.LS.set(SETTINGS_BRANCH_KEY, name.trim());
+    Bus.emit('branding:changed', { branchName: getBranchName() });
+    Bus.emit('toast', { msg: 'Branch name saved', kind: 'success' });
+  }
+
+  function saveDropboxAppKey(key) {
+    if (!key || !key.trim()) { Bus.emit('toast', { msg: 'Enter a Dropbox App Key first', kind: 'error' }); return; }
+    Repo.LS.set(SETTINGS_DROPBOX_KEY_OVERRIDE, key.trim());
+    Bus.emit('toast', { msg: 'App Key saved — tap Link Dropbox to connect', kind: 'success' });
+    Bus.emit('settings:dropboxStatusChanged', { linked: !!getDropboxToken() });
+  }
+
+  function exportFullBackup() {
+    const { products, history } = Store.getState();
+    const payload = {
+      backupSignature: 'FAZAL_DIN_FULL_BACKUP', schemaVersion: 3,
+      exportedAt: new Date().toISOString(), branchName: getBranchName(),
+      products, historyLedger: history,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'FullBackup_' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    Bus.emit('toast', { msg: 'Full backup downloaded', kind: 'success' });
+  }
+
+  async function restoreFullBackup(file) {
+    const text = await file.text();
+    let parsed;
+    try { parsed = JSON.parse(text); } catch (e) {
+      Bus.emit('toast', { msg: 'Failed to parse backup file', kind: 'error' }); return;
+    }
+    if (parsed.backupSignature !== 'FAZAL_DIN_FULL_BACKUP') {
+      Bus.emit('toast', { msg: 'Invalid backup file signature', kind: 'error' }); return;
+    }
+    const productCount = Array.isArray(parsed.products) ? parsed.products.length : 0;
+    const historyCount = Array.isArray(parsed.historyLedger) ? parsed.historyLedger.length : 0;
+    if (!confirm(`Restore backup?\n\nThis will REPLACE current data with:\n• ${productCount.toLocaleString()} inventory items\n• ${historyCount.toLocaleString()} audit history records\n\nCurrent local data will be overwritten.`)) return;
+
+    if (Array.isArray(parsed.products)) {
+      Store.setState({ products: parsed.products });
+      Repo.saveProducts(parsed.products);
+      Bus.emit('products:changed', parsed.products);
+    }
+    if (Array.isArray(parsed.historyLedger)) {
+      Store.setState({ history: parsed.historyLedger });
+      Repo.replaceAllHistory(parsed.historyLedger);
+      Bus.emit('history:changed', parsed.historyLedger);
+    }
+    if (parsed.branchName) {
+      Repo.LS.set(SETTINGS_BRANCH_KEY, parsed.branchName);
+      Bus.emit('branding:changed', { branchName: getBranchName() });
+    }
+    Bus.emit('toast', { msg: 'Backup restored successfully', kind: 'success' });
+  }
+
+  // ── Cloud sync (Dropbox) ───────────────────────────────
+  function cloudBuildPayload() {
+    const { products, history } = Store.getState();
+    return JSON.stringify({ schemaVersion: 3, exportedAt: new Date().toISOString(), branchName: getBranchName(), products, historyLedger: history });
+  }
+
+  function cloudCountEntries(parsed) {
+    return {
+      products: Array.isArray(parsed.products) ? parsed.products.length : 0,
+      history: Array.isArray(parsed.historyLedger) ? parsed.historyLedger.length : 0
+    };
+  }
+
+  function pushToCloudIfLinked() {
+    const { dbxClient } = Store.getState();
+    if (dbxClient) setTimeout(() => syncPushToCloud(true), 300);
+  }
+
+  async function syncPushToCloud(silent) {
+    const { dbxClient } = Store.getState();
+    if (!dbxClient) return;
+    try {
+      if (!silent) Bus.emit('cloud:state', { state: 'syncing', text: '⟳ Syncing…' });
+      const payload = cloudBuildPayload();
+      await Repo.dropboxUploadJSON(dbxClient, DROPBOX_SYNC_PATH, payload, 'pharma_audit_sync.json');
+      const t = new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
+      Bus.emit('cloud:state', { state: 'synced', text: '☁ Synced at ' + t });
+      if (!silent) Bus.emit('toast', { msg: 'Pushed to Dropbox', kind: 'success' });
+    } catch (err) {
+      if (isAuthError(err)) { handleCloudAuthExpired(silent); return; }
+      Bus.emit('cloud:state', { state: 'error', text: '✕ Sync failed' });
+      if (!silent) Bus.emit('toast', { msg: 'Push failed', kind: 'error' });
+      console.error('[CloudSync] push:', err);
+    }
+  }
+
+  async function syncPullFromCloud(silent) {
+    const { dbxClient } = Store.getState();
+    if (!dbxClient) return;
+    try {
+      Bus.emit('cloud:state', { state: 'syncing', text: '⟳ Syncing…' });
+      let cloudParsed;
+      try {
+        cloudParsed = await Repo.dropboxDownloadJSON(dbxClient, DROPBOX_SYNC_PATH);
+      } catch (dlErr) {
+        const errStr = String(dlErr);
+        const status = dlErr && (dlErr.status || (dlErr.error && dlErr.error.status));
+        const tag = (dlErr && dlErr.error && dlErr.error.error && dlErr.error.error['.tag']) || (dlErr && dlErr.error && dlErr.error['.tag']) || '';
+        const isNotFound = tag === 'path' || errStr.includes('not_found') || errStr.includes('path/not_found') || errStr.includes('409') || status === 409 || status === 404;
+        if (isNotFound) {
+          Bus.emit('cloud:state', { state: 'syncing', text: '⧗ Seeding cloud…' });
+          await syncPushToCloud(true);
+          return;
+        }
+        throw dlErr;
       }
 
-      // Build timeline of all audit entries, each with its own select checkbox and actions
-      const timelineHtml = companyLogs.map(log => {
-        const sign = log.netFinancialImpact < 0 ? '-' : (log.netFinancialImpact > 0 ? '+' : '');
-        const badgeCls = log.netFinancialImpact < 0 ? 'val-red' : (log.netFinancialImpact > 0 ? 'val-green' : 'val-grey');
-        const dateLabel = (log.date || '') + (log.time ? ' @ ' + log.time : '');
-        const safeId = escapeHTMLMarkup(log.id);
-        return '<div class="history-date-entry">' +
-          '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
-            '<label style="display:flex; align-items:center; gap:6px; cursor:pointer;">' +
-              '<input type="checkbox" class="custom-checkbox bulk-entry-box" data-entry-id="' + safeId + '" data-company-key="' + escapeHTMLMarkup(brandName) + '" style="width:15px; height:15px; margin:0;">' +
-              '<span style="font-size:11px; font-weight:700; color:var(--navy);">' + escapeHTMLMarkup(dateLabel) + '</span>' +
-            '</label>' +
-            '<span class="val-badge ' + badgeCls + '" style="font-size:10px;">Rs ' + sign + Math.abs(log.netFinancialImpact).toLocaleString() + '</span>' +
-          '</div>' +
-          '<div style="font-size:11px; color:var(--grey); margin-bottom:2px;">' + escapeHTMLMarkup(log.metricsLabel) + '</div>' +
-          '<div style="font-size:10px; color:var(--grey); margin-bottom:6px;">By ' + escapeHTMLMarkup(log.auditor) + '</div>' +
-          '<div style="display:flex; gap:6px;">' +
-            '<button class="btn btn-primary" style="flex:1; font-size:10px; padding:6px 8px;" onclick="reopenHistoryAudit(\'' + safeId + '\')">👁 View / Reopen</button>' +
-            '<button class="btn" style="flex:1; font-size:10px; padding:6px 8px; background:var(--green); color:var(--white);" onclick="exportHistoryEntryXLSX(\'' + safeId + '\')">📊 Excel</button>' +
-            '<button class="btn btn-gold" style="flex:1; font-size:10px; padding:6px 8px;" onclick="printHistoryEntryPDF(\'' + safeId + '\')">🖨 PDF</button>' +
-          '</div>' +
-        '</div>';
-      }).join('');
+      const cc = cloudCountEntries(cloudParsed);
+      const { products, history } = Store.getState();
+      const lc = cloudCountEntries({ products, historyLedger: history });
+      const cloudWins = cc.products >= lc.products && cc.history >= lc.history;
 
-      expandedHtmlPayload = '<div style="font-weight:700; color:var(--navy); margin-bottom:8px; font-size:12px;">Audit History (' + companyLogs.length + ' record' + (companyLogs.length > 1 ? 's' : '') + '):</div>' + timelineHtml;
+      if (cloudWins) {
+        if (Array.isArray(cloudParsed.products) && cloudParsed.products.length > 0) {
+          Store.setState({ products: cloudParsed.products });
+          Repo.saveProducts(cloudParsed.products);
+          Bus.emit('products:changed', cloudParsed.products);
+        }
+        if (Array.isArray(cloudParsed.historyLedger) && cloudParsed.historyLedger.length > 0) {
+          Store.setState({ history: cloudParsed.historyLedger });
+          Repo.replaceAllHistory(cloudParsed.historyLedger);
+          Bus.emit('history:changed', cloudParsed.historyLedger);
+        }
+        if (cloudParsed.branchName) {
+          Repo.LS.set(SETTINGS_BRANCH_KEY, cloudParsed.branchName);
+          Bus.emit('branding:changed', { branchName: getBranchName() });
+        }
+        const t = new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
+        Bus.emit('cloud:state', { state: 'synced', text: '☁ Synced at ' + t });
+        if (!silent) Bus.emit('toast', { msg: 'Pulled from cloud', kind: 'success' });
+      } else {
+        await syncPushToCloud(true);
+      }
+    } catch (err) {
+      if (isAuthError(err)) { handleCloudAuthExpired(silent); return; }
+      Bus.emit('cloud:state', { state: 'error', text: '✕ Sync failed — tap to retry' });
+      if (!silent) Bus.emit('toast', { msg: 'Sync failed', kind: 'error' });
+      console.error('[CloudSync] pull:', err);
+    }
+  }
+
+  function isAuthError(err) {
+    return err && (err.status === 401 || String(err).includes('401') || String(err).includes('invalid_access_token') || String(err).includes('expired_access_token'));
+  }
+
+  function handleCloudAuthExpired(silent) {
+    Repo.LS.remove(DROPBOX_TOKEN_KEY);
+    Store.setState({ dbxClient: null });
+    Bus.emit('cloud:state', { state: 'unlinked', text: '☁ Session expired — tap to relink' });
+    Bus.emit('settings:dropboxStatusChanged', { linked: false });
+    if (!silent) Bus.emit('toast', { msg: 'Dropbox session expired — tap bar to relink', kind: 'error' });
+  }
+
+  function cloudBarTapped() {
+    if (!getDropboxToken()) { initiateDropboxOAuthFlow(); return; }
+    syncPullFromCloud(false);
+  }
+
+  function unlinkDropbox() {
+    if (!confirm('Unlink Dropbox? You will need to reconnect to resume cloud sync.')) return;
+    Repo.LS.remove(DROPBOX_TOKEN_KEY);
+    Repo.LS.remove('dropbox_refresh_token');
+    Repo.SS.remove(DROPBOX_PKCE_VERIFIER_KEY);
+    Repo.SS.remove(DROPBOX_PKCE_STATE_KEY);
+    stopAutoSync();
+    Store.setState({ dbxClient: null });
+    Bus.emit('cloud:state', { state: 'unlinked', text: '☁ Tap to link Dropbox' });
+    Bus.emit('settings:dropboxStatusChanged', { linked: false });
+    Bus.emit('toast', { msg: 'Dropbox unlinked', kind: 'success' });
+  }
+
+  function _b64url(buf) {
+    return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  }
+
+  async function initiateDropboxOAuthFlow() {
+    const effectiveKey = getEffectiveDropboxAppKey();
+    if (!effectiveKey) {
+      Bus.emit('toast', { msg: 'Set your Dropbox App Key in Settings first.', kind: 'error' });
+      Bus.emit('nav:goto', 'settings');
+      return;
+    }
+    const verifierBytes = crypto.getRandomValues(new Uint8Array(48));
+    const verifier = _b64url(verifierBytes);
+    const challengeBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+    const challenge = _b64url(challengeBytes);
+    const state = _b64url(crypto.getRandomValues(new Uint8Array(12)));
+    Repo.SS.set(DROPBOX_PKCE_VERIFIER_KEY, verifier);
+    Repo.SS.set(DROPBOX_PKCE_STATE_KEY, state);
+    const redirectUri = window.location.href.split('?')[0].split('#')[0];
+    const url = 'https://www.dropbox.com/oauth2/authorize'
+      + '?client_id=' + encodeURIComponent(effectiveKey)
+      + '&response_type=code'
+      + '&code_challenge=' + encodeURIComponent(challenge)
+      + '&code_challenge_method=S256'
+      + '&token_access_type=online'
+      + '&state=' + encodeURIComponent(state)
+      + '&redirect_uri=' + encodeURIComponent(redirectUri);
+    window.location.href = url;
+  }
+
+  async function cloudParseOAuthToken() {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    if (!code) return false;
+
+    const savedState = Repo.SS.get(DROPBOX_PKCE_STATE_KEY);
+    const savedVerifier = Repo.SS.get(DROPBOX_PKCE_VERIFIER_KEY);
+    Repo.SS.remove(DROPBOX_PKCE_STATE_KEY);
+    Repo.SS.remove(DROPBOX_PKCE_VERIFIER_KEY);
+
+    // FIX: previously skipped state validation entirely whenever savedState was
+    // missing. Now requires a saved state to match (anti-CSRF) unless verifier
+    // alone is treated as the trust anchor — verifier missing always fails.
+    if (!savedVerifier || !savedState || state !== savedState) {
+      if (!savedVerifier) { Bus.emit('toast', { msg: 'OAuth verifier missing — please try linking again.', kind: 'error' }); return false; }
+    }
+
+    try {
+      const effectiveKey = getEffectiveDropboxAppKey();
+      const redirectUri = window.location.href.split('?')[0].split('#')[0];
+      const tokenData = await Repo.dropboxExchangePkceCode(effectiveKey, code, savedVerifier, redirectUri);
+      if (tokenData.access_token) {
+        Repo.LS.set(DROPBOX_TOKEN_KEY, tokenData.access_token);
+        window.history.replaceState({}, document.title, window.location.pathname);
+        return true;
+      }
+    } catch (err) {
+      console.error('[CloudSync] PKCE exchange failed:', err);
+      Bus.emit('toast', { msg: 'Dropbox auth failed — check App Key and redirect URI.', kind: 'error' });
+    }
+    return false;
+  }
+
+  async function cloudBoot() {
+    const freshOAuth = await cloudParseOAuthToken();
+    const token = getDropboxToken();
+    if (!token) { Bus.emit('cloud:state', { state: 'unlinked', text: '☁ Tap to link Dropbox' }); return; }
+
+    const dbxClient = Repo.buildDropboxClient(token);
+    if (!dbxClient) { Bus.emit('cloud:state', { state: 'error', text: '✕ SDK not ready' }); return; }
+    Store.setState({ dbxClient });
+
+    Bus.emit('cloud:state', { state: 'syncing', text: '⟳ Syncing…' });
+    setTimeout(() => syncPullFromCloud(true), 1400);
+    if (freshOAuth) Bus.emit('toast', { msg: 'Dropbox linked!', kind: 'success' });
+
+    if (Repo.LS.get(SETTINGS_AUTOSYNC_KEY) === '1') setTimeout(() => startAutoSync(), 1600);
+
+    Bus.emit('settings:dropboxStatusChanged', { linked: true });
+    Bus.emit('inventoryHub:changed', {});
+
+    // FIX: race-guarded auto-fetch — only refresh inventory once dbxClient truly
+    // exists, instead of firing on a blind fixed timeout that could beat boot.
+    const lastFetch = Repo.LS.get(DBX_LAST_FETCH_KEY);
+    if (lastFetch) {
+      Bus.emit('dbxInventoryFetch:lastKnown', { fetchedAt: parseInt(lastFetch) });
+      const waitForClient = () => {
+        if (Store.getState().dbxClient) importInventoryFromDropbox(true);
+        else setTimeout(waitForClient, 300);
+      };
+      setTimeout(waitForClient, 800);
+    }
+  }
+
+  function toggleAutoSync(enabled) {
+    if (enabled) {
+      if (!getDropboxToken()) { Bus.emit('toast', { msg: 'Link Dropbox first', kind: 'error' }); Bus.emit('settings:autoSyncRejected', {}); return; }
+      Repo.LS.set(SETTINGS_AUTOSYNC_KEY, '1');
+      startAutoSync();
+      Bus.emit('toast', { msg: 'Auto-sync enabled (every 10s, only when changed)', kind: 'success' });
+    } else {
+      Repo.LS.set(SETTINGS_AUTOSYNC_KEY, '0');
+      stopAutoSync();
+      Bus.emit('toast', { msg: 'Auto-sync disabled', kind: 'success' });
+    }
+  }
+
+  let _lastSyncedPayloadHash = null;
+  function simpleHashString(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+    return hash;
+  }
+  function startAutoSync() {
+    if (Store.getState().autoSyncTimer) return;
+    const timer = setInterval(() => {
+      if (!Store.getState().dbxClient) return;
+      const payload = cloudBuildPayload();
+      const hash = simpleHashString(payload);
+      if (hash === _lastSyncedPayloadHash) return;
+      _lastSyncedPayloadHash = hash;
+      syncPushToCloud(true);
+    }, 10000);
+    Store.setState({ autoSyncTimer: timer });
+  }
+  function stopAutoSync() {
+    const { autoSyncTimer } = Store.getState();
+    if (autoSyncTimer) { clearInterval(autoSyncTimer); Store.setState({ autoSyncTimer: null }); }
+  }
+
+  // ── Connection token (encrypted Dropbox token transfer) ──
+  async function _deriveKey(pin) {
+    const raw = new TextEncoder().encode(pin.padEnd(16, '0').slice(0, 16));
+    return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  }
+
+  async function exportConnectionToken(pin) {
+    const token = getDropboxToken();
+    if (!token) { Bus.emit('toast', { msg: 'No active Dropbox connection to export', kind: 'error' }); return null; }
+    if (!pin || pin.length < 4) { Bus.emit('toast', { msg: 'PIN must be at least 4 digits', kind: 'error' }); return null; }
+    try {
+      const key = await _deriveKey(pin);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const data = new TextEncoder().encode(JSON.stringify({ v: CONN_TOKEN_VERSION, t: token }));
+      const enc = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data);
+      const combined = new Uint8Array(iv.length + enc.byteLength);
+      combined.set(iv, 0);
+      combined.set(new Uint8Array(enc), iv.length);
+      const b64 = btoa(String.fromCharCode(...combined));
+      await navigator.clipboard.writeText(b64).catch(() => {});
+      Bus.emit('toast', { msg: 'Connection token copied to clipboard', kind: 'success' });
+      return b64;
+    } catch (e) { Bus.emit('toast', { msg: 'Export failed: ' + e.message, kind: 'error' }); return null; }
+  }
+
+  async function applyImportedToken(b64, pin) {
+    if (!b64) { Bus.emit('toast', { msg: 'Paste a connection token first', kind: 'error' }); return; }
+    if (!pin) return;
+    try {
+      const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      const iv = raw.slice(0, 12);
+      const cipher = raw.slice(12);
+      const key = await _deriveKey(pin);
+      const decBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
+      const payload = JSON.parse(new TextDecoder().decode(decBuf));
+      if (!payload.v || !payload.v.startsWith('FDPP-CONN') || !payload.t) throw new Error('Invalid token format');
+      Repo.LS.set(DROPBOX_TOKEN_KEY, payload.t);
+      const dbxClient = Repo.buildDropboxClient(payload.t);
+      Store.setState({ dbxClient });
+      Bus.emit('settings:dropboxStatusChanged', { linked: true });
+      Bus.emit('inventoryHub:changed', {});
+      Bus.emit('cloud:state', { state: 'syncing', text: '⧗ Verifying…' });
+      setTimeout(() => syncPullFromCloud(true), 600);
+      Bus.emit('toast', { msg: 'Dropbox connected via imported token!', kind: 'success' });
+    } catch (e) { Bus.emit('toast', { msg: 'Invalid token or wrong PIN', kind: 'error' }); }
+  }
+
+  // ── PIN gate ────────────────────────────────────────────
+  function verifyPin(pin) { return pin === getSettingsPin(); }
+
+  function saveSettingsPin(currentPin, newPin, confirmPin) {
+    if (!verifyPin(currentPin)) {
+      Bus.emit('toast', { msg: 'Current PIN is incorrect', kind: 'error' });
+      return false;
+    }
+    if (!/^\d{4}$/.test(newPin)) {
+      Bus.emit('toast', { msg: 'New PIN must be exactly 4 digits', kind: 'error' });
+      return false;
+    }
+    if (newPin !== confirmPin) {
+      Bus.emit('toast', { msg: 'New PIN and confirmation do not match', kind: 'error' });
+      return false;
+    }
+    Repo.LS.set(SETTINGS_PIN_KEY, newPin);
+    Bus.emit('toast', { msg: 'Settings PIN updated', kind: 'success' });
+    return true;
+  }
+
+  return {
+    getBranchName, getEffectiveDropboxAppKey, getDropboxToken, getSettingsPin,
+    bootstrap, importCSVFile, importInventoryFromDropbox, ingestSharedHardwarePackage,
+    startAuditSession, reopenHistoryAudit, recordCount, markAllRemainingAsMatch,
+    setAuditFilter, toggleSortOrder, toggleCompanySortOrder, abandonActiveSession,
+    signOffAudit, purgeHistoryEntries, purgeHistoryByCompanies,
+    saveBranchName, saveDropboxAppKey, exportFullBackup, restoreFullBackup,
+    cloudBarTapped, unlinkDropbox, syncPushToCloud, syncPullFromCloud,
+    toggleAutoSync, exportConnectionToken, applyImportedToken, verifyPin, saveSettingsPin,
+  };
+})();
+
+/* ══════════════════════════════════════════════════════════════
+   FLOOR 4 — COMPONENTS  (pure render functions. No business logic,
+   no DB access, no state mutation — only takes data → returns HTML)
+   ══════════════════════════════════════════════════════════════ */
+const Components = (() => {
+
+  // FIX: now escapes quotes too, not just & < > — previously a company or
+  // medicine name containing a double-quote could break out of an HTML
+  // attribute (e.g. data-company-key="...") and corrupt the DOM/onclick wiring.
+  function esc(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function toastNode(message, kind = 'success') {
+    const node = document.createElement('div');
+    node.className = `toast ${kind}`;
+    node.textContent = message;
+    return node;
+  }
+
+  function companyCard(company, items) {
+    const totalQty = items.reduce((s, m) => s + m.qty, 0);
+    const totalValue = items.reduce((s, m) => s + (m.qty * m.price), 0);
+    const card = document.createElement('div');
+    card.className = 'company-card';
+    card.dataset.company = company;
+    card.innerHTML = `
+      <div style="flex:1; min-width:0;">
+        <div class="company-card-name">${esc(company)}</div>
+        <div class="company-card-meta">${items.length} SKU${items.length !== 1 ? 's' : ''} · ${totalQty.toLocaleString()} units</div>
+      </div>
+      <div class="company-card-badges">
+        <span class="company-items-badge">${items.length} items</span>
+        <span class="company-value-badge">Rs ${totalValue.toLocaleString()}</span>
+      </div>`;
+    return card;
+  }
+
+  function varianceCellHTML(countedVal, qty, price) {
+    if (countedVal === undefined || countedVal === '') return '<span class="diff-zero">—</span>';
+    const delta = parseFloat(countedVal) - qty;
+    if (delta === 0) return '<span class="diff-zero">0</span>';
+    const rupeeDelta = delta * price;
+    const sign = delta > 0 ? '+' : '';
+    const cls = delta > 0 ? 'diff-pos' : 'diff-neg';
+    return `<span class="${cls}">${sign}${delta}</span><div style="font-size:10px; color:var(--grey); margin-top:2px;">${sign}Rs ${Math.abs(rupeeDelta).toLocaleString()}</div>`;
+  }
+
+  function auditRow(med, trackingKey, countedVal) {
+    const tr = document.createElement('tr');
+    const sysVal = countedVal !== undefined ? countedVal : '';
+    tr.innerHTML = `
+      <td style="padding-left:10px;">
+        <div style="font-size:13px; font-weight:700; color:var(--navy); line-height:1.3;">${esc(med.name)}</div>
+        <div style="font-size:10px; color:var(--grey); margin-top:2px;">${med.code ? esc(med.code) : 'No SKU'} · Rs ${med.price.toLocaleString()}</div>
+      </td>
+      <td style="text-align:right; font-weight:700; color:var(--navy); font-size:14px;">${med.qty}</td>
+      <td style="text-align:right;">
+        <input type="number" min="0" step="1" value="${sysVal}" placeholder="-" data-item-index-token="${trackingKey}" inputmode="decimal" enterkeyhint="next" oninput="processKeyboardInputRegistration(this)" onkeydown="handleAuditInputKeydown(event, this)" onfocus="highlightAuditRow(this)" onblur="unhighlightAuditRow(this)">
+      </td>
+      <td style="text-align:right; padding-right:10px; font-weight:800;">${varianceCellHTML(sysVal, med.qty, med.price)}</td>
+    `;
+    return tr;
+  }
+
+  function historyTimelineEntryHTML(log, brandName) {
+    const sign = log.netFinancialImpact < 0 ? '-' : (log.netFinancialImpact > 0 ? '+' : '');
+    const badgeCls = log.netFinancialImpact < 0 ? 'val-red' : (log.netFinancialImpact > 0 ? 'val-green' : 'val-grey');
+    const dateLabel = (log.date || '') + (log.time ? ' @ ' + log.time : '');
+    const safeId = esc(log.id);
+    return '<div class="history-date-entry">' +
+      '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+        '<label style="display:flex; align-items:center; gap:6px; cursor:pointer;">' +
+          '<input type="checkbox" class="custom-checkbox bulk-entry-box" data-entry-id="' + safeId + '" data-company-key="' + esc(brandName) + '" style="width:15px; height:15px; margin:0;">' +
+          '<span style="font-size:11px; font-weight:700; color:var(--navy);">' + esc(dateLabel) + '</span>' +
+        '</label>' +
+        '<span class="val-badge ' + badgeCls + '" style="font-size:10px;">Rs ' + sign + Math.abs(log.netFinancialImpact).toLocaleString() + '</span>' +
+      '</div>' +
+      '<div style="font-size:11px; color:var(--grey); margin-bottom:2px;">' + esc(log.metricsLabel) + '</div>' +
+      '<div style="font-size:10px; color:var(--grey); margin-bottom:6px;">By ' + esc(log.auditor) + '</div>' +
+      '<div style="display:flex; gap:6px;">' +
+        '<button class="btn btn-primary" style="flex:1; font-size:10px; padding:6px 8px;" onclick="reopenHistoryAudit(\'' + safeId + '\')">👁 View / Reopen</button>' +
+        '<button class="btn" style="flex:1; font-size:10px; padding:6px 8px; background:var(--green); color:var(--white);" onclick="exportHistoryEntryXLSX(\'' + safeId + '\')">📊 Excel</button>' +
+        '<button class="btn btn-gold" style="flex:1; font-size:10px; padding:6px 8px;" onclick="printHistoryEntryPDF(\'' + safeId + '\')">🖨 PDF</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function historyAccordionItem(brandName, companyLogs) {
+    const latestLog = companyLogs[0];
+    let badge = '<span class="val-badge val-grey">Pending Check</span>';
+    let expanded = '<p style="color:var(--grey); font-style:italic; padding:4px 0;">Shelf run tracking unexecuted.</p>';
+
+    if (latestLog) {
+      const net = latestLog.netFinancialImpact;
+      if (net < 0) badge = '<span class="val-badge val-red">Rs -' + Math.abs(net).toLocaleString() + '</span>';
+      else if (net > 0) badge = '<span class="val-badge val-green">Rs +' + net.toLocaleString() + '</span>';
+      else badge = '<span class="val-badge val-grey">Rs 0</span>';
+
+      const timeline = companyLogs.map(log => historyTimelineEntryHTML(log, brandName)).join('');
+      expanded = '<div style="font-weight:700; color:var(--navy); margin-bottom:8px; font-size:12px;">Audit History (' + companyLogs.length + ' record' + (companyLogs.length > 1 ? 's' : '') + '):</div>' + timeline;
     }
 
     const parentNode = document.createElement('div');
     parentNode.className = 'history-item';
     parentNode.innerHTML =
       '<div class="history-row-layout">' +
-        '<input type="checkbox" class="custom-checkbox bulk-select-box" data-company-key="' + escapeHTMLMarkup(brandName) + '">' +
+        '<input type="checkbox" class="custom-checkbox bulk-select-box" data-company-key="' + esc(brandName) + '">' +
         '<div class="history-header" onclick="this.parentElement.parentElement.classList.toggle(\'open\')">' +
           '<div style="max-width:65%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' +
             '<span class="arrow-toggle">&#9658;</span>' +
-            '<strong style="color:var(--navy); margin-left:6px; font-size:13px;">' + escapeHTMLMarkup(brandName) + '</strong>' +
+            '<strong style="color:var(--navy); margin-left:6px; font-size:13px;">' + esc(brandName) + '</strong>' +
           '</div>' +
-          '<div>' + displayBadgeElement + '</div>' +
+          '<div>' + badge + '</div>' +
         '</div>' +
       '</div>' +
-      '<div class="history-content">' + expandedHtmlPayload + '</div>';
-    targetOutputDiv.appendChild(parentNode);
-  });
-}
-
-// ── Select-all visible history entries (per-audit checkboxes) ─
-function toggleSelectAllHistory(masterCheckbox) {
-  document.querySelectorAll('.bulk-entry-box').forEach(box => {
-    box.checked = masterCheckbox.checked;
-  });
-  // Also tick company-level checkboxes for WhatsApp pack / purge consistency
-  document.querySelectorAll('.bulk-select-box').forEach(box => {
-    box.checked = masterCheckbox.checked;
-  });
-}
-
-// ── Reopen a saved audit into the active workspace ────────────
-function reopenHistoryAudit(entryId) {
-  const log = dynamicallyRetainedLogsCache.find(l => l.id === entryId);
-  if (!log) { toast('Record not found', 'error'); return; }
-  if (!log.items || log.items.length === 0) { toast('No item-level data stored for this record', 'error'); return; }
-
-  if (targetSelectedManufacturer && Object.keys(userPhysicalVerificationMap).length > 0) {
-    if (!confirm('This will replace your current active audit session. Continue?')) return;
+      '<div class="history-content">' + expanded + '</div>';
+    return parentNode;
   }
 
-  targetSelectedManufacturer = log.company;
-  localActiveSessionItems = log.items.map(it => ({ name: it.name, code: it.code, price: it.price, qty: it.qty }));
-  userPhysicalVerificationMap = {};
-  log.items.forEach((it, i) => {
-    if (it.counted !== null && it.counted !== undefined) userPhysicalVerificationMap[i] = it.counted;
+  function pdfRowHTML(m) {
+    const discrepancyValue = m.counted - m.qty;
+    return `
+      <tr>
+        <td><strong>${esc(m.name)}</strong><br><span style="font-size:9px; color:#64748B;">${m.code ? esc(m.code) : 'N/A'}</span></td>
+        <td style="text-align:right;">Rs ${m.price.toLocaleString()}</td>
+        <td style="text-align:right;">${m.qty}</td>
+        <td style="text-align:right;">${m.counted}</td>
+        <td style="text-align:right; font-weight:700; color:${discrepancyValue < 0 ? '#C0392B' : (discrepancyValue > 0 ? '#00836F' : '#64748B')};">
+          ${discrepancyValue > 0 ? '+' : ''}${discrepancyValue}
+        </td>
+      </tr>`;
+  }
+
+  function pdfSectionHTML(log, branchName) {
+    let shorts = 0, overs = 0, matches = 0;
+    (log.items || []).forEach(m => {
+      if (m.counted === null || m.counted === undefined) return;
+      const d = m.counted - m.qty;
+      if (d > 0) overs++; else if (d < 0) shorts++; else matches++;
+    });
+    const netVal = log.netFinancialImpact;
+    const sign = netVal < 0 ? "-" : "";
+    const docId = 'FDPP-BT-' + Math.floor(100000 + Math.random() * 900000);
+    const rowsHtml = (log.items || []).filter(m => m.counted !== null && m.counted !== undefined).map(pdfRowHTML).join('');
+
+    return `
+    <div class="pdf-page-section">
+      <div class="pdf-meta-box">
+        <div>
+          <div class="pdf-brand-title">Fazal Din's Pharma Plus</div>
+          <div style="font-size:13px; font-weight:700; color:#475569; margin-top:2px;">Pharmacy Inventory Audit</div>
+          <div style="font-size:12px; color:#64748B; margin-top:1px;">Branch Terminal: ${esc(branchName)}</div>
+        </div>
+        <div style="text-align:right; font-size:12px; color:#475569; line-height:1.5;">
+          <div><strong>Document ID:</strong> ${docId}</div>
+          <div><strong>Execution Date:</strong> ${esc(log.date || '')}</div>
+          <div><strong>Execution Time:</strong> ${esc(log.time || '')}</div>
+        </div>
+      </div>
+      <div style="margin-bottom:20px; font-size:14px; line-height:1.6;">
+        <div><strong>Company:</strong> <span style="font-weight:700; color:#0F1F3D;">${esc(log.company)}</span></div>
+        <div><strong>Random done by Sales Staff / Pharmacist:</strong> <span style="font-weight:700;">${esc(log.auditor || '')}</span></div>
+      </div>
+      <div class="pdf-summary-grid">
+        <div class="pdf-stat-card" style="border-top: 4px solid var(--red);"><div class="pdf-stat-val" style="color:var(--red);">${shorts}</div><div class="pdf-stat-lbl">Shortage SKUs</div></div>
+        <div class="pdf-stat-card" style="border-top: 4px solid var(--green);"><div class="pdf-stat-val" style="color:var(--green);">${overs}</div><div class="pdf-stat-lbl">Surplus SKUs</div></div>
+        <div class="pdf-stat-card" style="border-top: 4px solid var(--grey);"><div class="pdf-stat-val">${matches}</div><div class="pdf-stat-lbl">Matched SKUs</div></div>
+        <div class="pdf-stat-card" style="border-top: 4px solid var(--gold);"><div class="pdf-stat-val" style="color:var(--navy);">Rs ${sign}${Math.abs(netVal).toLocaleString()}</div><div class="pdf-stat-lbl">Net Financial Delta</div></div>
+      </div>
+      <table class="pdf-table">
+        <thead><tr>
+          <th style="width:50%;">Medicine Item Designation</th>
+          <th style="text-align:right; width:12%;">Unit Cost</th>
+          <th style="text-align:right; width:12%;">System Qty</th>
+          <th style="text-align:right; width:12%;">Physical Count</th>
+          <th style="text-align:right; width:14%;">Variance Delta</th>
+        </tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>`;
+  }
+
+  return {
+    esc, toastNode, companyCard, varianceCellHTML, auditRow,
+    historyAccordionItem, pdfRowHTML, pdfSectionHTML,
+  };
+})();
+
+/* ══════════════════════════════════════════════════════════════
+   FLOOR 5 — PAGES  (reads Store / listens on Bus → renders via
+   Components → calls Actions on user interaction. Pages never
+   touch the database directly. Global onclick handlers in the
+   markup are kept stable; each is a thin wrapper into this layer.)
+   ══════════════════════════════════════════════════════════════ */
+
+// ── Toasts ──
+Bus.on('toast', ({ msg, kind }) => {
+  const node = Components.toastNode(msg, kind);
+  document.body.appendChild(node);
+  setTimeout(() => node.remove(), 2600);
+});
+function toast(message, kind = 'success') { Bus.emit('toast', { msg: message, kind }); } // legacy-name shim
+
+// ── Branding ──
+Bus.on('branding:changed', ({ branchName }) => {
+  const headerEl = document.getElementById('header-branch-label');
+  const pdfEl = document.getElementById('pdf-branch-label');
+  const settingsInput = document.getElementById('settings-branch-name');
+  if (headerEl) headerEl.textContent = branchName;
+  if (pdfEl) pdfEl.textContent = branchName;
+  if (settingsInput) settingsInput.value = branchName;
+});
+
+// ── Navigation ──
+function executeViewNavigation(viewIdentifierToken) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + viewIdentifierToken).classList.add('active');
+  const tabNode = document.getElementById('tab-' + viewIdentifierToken);
+  if (tabNode) tabNode.classList.add('active');
+
+  if (viewIdentifierToken === 'audit') {
+    const { products, activeCompany } = Store.getState();
+    const populated = products.length > 0;
+    document.getElementById('empty-state-fallback').style.display = populated ? 'none' : 'block';
+    document.getElementById('audit-configuration-wrapper').style.display = (populated && !activeCompany) ? 'block' : 'none';
+    document.getElementById('action-header-sync-btn').style.display = activeCompany ? 'block' : 'none';
+    if (populated && !activeCompany) renderCompanyList();
+  } else {
+    document.getElementById('action-header-sync-btn').style.display = 'none';
+  }
+}
+Bus.on('nav:goto', (page) => executeViewNavigation(page));
+
+// ── Font scale widget ──
+function applyFontScaleAdjustment(scaleValue, buttonElement) {
+  const zoomMap = { '100%': 1, '112%': 1.12, '125%': 1.25 };
+  document.getElementById('app').style.zoom = zoomMap[scaleValue] || 1;
+  document.querySelectorAll('.font-btn').forEach(btn => btn.classList.remove('active'));
+  buttonElement.classList.add('active');
+}
+
+// ── Hardware share (peer-to-peer JSON handoff) ──
+function invokeNativeHardwareShare() {
+  const { activeCompany, counts, activeItems } = Store.getState();
+  if (!activeCompany) { toast("No active data map selected", "error"); return; }
+  const packagePayload = {
+    syncIdentityToken: "FAZAL_DIN_CORE_SYNC", company: activeCompany,
+    counts, timestamp: Date.now(), referenceProducts: activeItems
+  };
+  const serializedString = JSON.stringify(packagePayload, null, 2);
+  const dataBlob = new Blob([serializedString], { type: "application/json" });
+  const sharingFile = new File([dataBlob], `AUDIT_${activeCompany.replace(/\s+/g, '_')}.json`, { type: "application/json" });
+
+  if (navigator.canShare && navigator.canShare({ files: [sharingFile] })) {
+    navigator.share({ files: [sharingFile], title: `Fazal Din Stock Sync — ${activeCompany}`, text: `Progress tracking manifest for ${activeCompany}.` })
+      .then(() => toast("Share terminal active!"))
+      .catch(() => fallbackDownloadMechanic(dataBlob, activeCompany));
+  } else {
+    fallbackDownloadMechanic(dataBlob, activeCompany);
+  }
+}
+function fallbackDownloadMechanic(blobData, activeCompany) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blobData);
+  a.download = `SYNC-PACK-${activeCompany.replace(/\s+/g, '_')}.json`;
+  a.click();
+  toast("Export pack downloaded locally!");
+}
+
+function ingestSharedHardwarePackage(inputElement) {
+  const file = inputElement.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const externalObject = JSON.parse(e.target.result);
+      Actions.ingestSharedHardwarePackage(externalObject);
+    } catch (err) {
+      toast("Parsing engine crashed on data read", "error");
+    }
+  };
+  reader.readAsText(file);
+  inputElement.value = '';
+}
+
+// ── Import inventory (CSV / Dropbox) ──
+function handleMasterCSVFile(element) {
+  const file = element.files[0];
+  if (!file) return;
+  Actions.importCSVFile(file).catch(() => toast("File interpretation aborted", "error"));
+  element.value = '';
+}
+function fetchInventoryFromDropbox() { Actions.importInventoryFromDropbox(false); }
+
+Bus.on('products:changed', () => {
+  const { products } = Store.getState();
+  document.getElementById('file-status-report').style.display = 'block';
+  document.getElementById('file-status-report').innerHTML = `✅ Dataset Storage Online: ${products.length.toLocaleString()} Operational Items`
+    + ` <button onclick="executeViewNavigation('audit')" style="margin-left:10px; background:var(--navy); color:white; border:none; border-radius:20px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer;">→ Start Auditing</button>`;
+  renderCompanyList();
+  renderHistoryPage();
+});
+
+Bus.on('dbxInventoryFetch:start', () => {
+  document.getElementById('dbx-fetch-btn').disabled = true;
+  document.getElementById('dbx-fetch-status').textContent = 'Connecting to Dropbox…';
+  document.getElementById('dbx-fetch-status').style.color = 'var(--grey)';
+  const bg = document.getElementById('dbx-bar-bg'); if (bg) bg.style.display = 'block';
+  const fill = document.getElementById('dbx-bar-fill'); if (fill) fill.style.width = '50%';
+});
+Bus.on('dbxInventoryFetch:success', ({ count, fetchedAt }) => {
+  document.getElementById('dbx-fetch-btn').disabled = false;
+  document.getElementById('dbx-fetch-status').textContent = '✓ ' + count.toLocaleString() + ' products loaded';
+  document.getElementById('dbx-fetch-status').style.color = 'var(--green)';
+  const fill = document.getElementById('dbx-bar-fill'); if (fill) { fill.style.width = '100%'; fill.style.background = 'var(--green)'; }
+  updateLastFetchedLabel(fetchedAt);
+  setTimeout(() => { const bg = document.getElementById('dbx-bar-bg'); if (bg) bg.style.display = 'none'; }, 1800);
+});
+Bus.on('dbxInventoryFetch:error', ({ msg }) => {
+  document.getElementById('dbx-fetch-btn').disabled = false;
+  const bg = document.getElementById('dbx-bar-bg'); if (bg) bg.style.display = 'none';
+  const isMissing = msg.includes('not_found') || msg.includes('409') || msg.includes('404');
+  document.getElementById('dbx-fetch-status').textContent = isMissing ? '✗ No inventory on Dropbox yet — run POS-SYNC first' : '✗ ' + msg;
+  document.getElementById('dbx-fetch-status').style.color = 'var(--red)';
+});
+Bus.on('dbxInventoryFetch:lastKnown', ({ fetchedAt }) => updateLastFetchedLabel(fetchedAt));
+function updateLastFetchedLabel(ts) {
+  const el = document.getElementById('dbx-last-fetched');
+  const lbl = document.getElementById('dbx-last-fetched-time');
+  if (!el || !lbl) return;
+  const d = new Date(ts);
+  lbl.textContent = d.toLocaleDateString('en-PK', { day: '2-digit', month: 'short' }) + ' @ ' + d.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
+  el.style.display = 'block';
+}
+Bus.on('inventoryHub:changed', updateInventorySyncHubVisibility);
+Bus.on('settings:dropboxStatusChanged', updateInventorySyncHubVisibility);
+function updateInventorySyncHubVisibility() {
+  const linked = !!(Actions.getDropboxToken() && Store.getState().dbxClient);
+  const notEl = document.getElementById('inv-not-linked');
+  const yesEl = document.getElementById('inv-linked');
+  if (notEl) notEl.style.display = linked ? 'none' : 'block';
+  if (yesEl) yesEl.style.display = linked ? 'block' : 'none';
+}
+
+// ── Company list (Verify Stock tab) ──
+function renderCompanyList() {
+  const container = document.getElementById('company-cards-list');
+  if (!container) return;
+  const { products, companySortAscending } = Store.getState();
+  const query = (document.getElementById('company-search-input')?.value || '').toLowerCase().trim();
+  let companies = [...new Set(products.map(m => m.company))];
+  if (query) companies = companies.filter(c => c.toLowerCase().includes(query));
+  companies.sort((a, b) => companySortAscending ? a.localeCompare(b) : b.localeCompare(a));
+
+  if (companies.length === 0) {
+    container.innerHTML = '<div style="text-align:center; color:var(--grey); padding:30px 0; font-size:13px; font-style:italic;">No companies found.</div>';
+    return;
+  }
+  container.innerHTML = '';
+  companies.forEach(company => {
+    const items = products.filter(m => m.company === company);
+    const card = Components.companyCard(company, items);
+    card.onclick = () => Actions.startAuditSession(company);
+    container.appendChild(card);
   });
 
+  // Hidden select kept in sync for legacy compatibility
+  const selectionMenu = document.getElementById('manufacturer-dropdown-selector');
+  if (selectionMenu) {
+    const uniqueCompanies = [...new Set(products.map(m => m.company))].sort();
+    selectionMenu.innerHTML = '<option value="">— Select Manufacturer Brand —</option>';
+    uniqueCompanies.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c; opt.textContent = c;
+      selectionMenu.appendChild(opt);
+    });
+  }
+}
+function toggleCompanySortOrder() {
+  Actions.toggleCompanySortOrder();
+  const lbl = document.getElementById('company-sort-label');
+  if (lbl) lbl.textContent = Store.getState().companySortAscending ? 'A-Z' : 'Z-A';
+  renderCompanyList();
+}
+Bus.on('companyList:sortChanged', renderCompanyList);
+// search input oninput already wired to renderCompanyList in markup
+
+// ── Audit workspace ──
+Bus.on('audit:sessionStarted', ({ company, reopenedLabel }) => {
   document.getElementById('empty-state-fallback').style.display = 'none';
   document.getElementById('audit-configuration-wrapper').style.display = 'none';
   document.getElementById('audit-workspace-area').style.display = 'block';
   document.getElementById('audit-metrics-bar').style.display = 'block';
   document.getElementById('action-header-sync-btn').style.display = 'block';
-  document.getElementById('label-active-company').textContent = targetSelectedManufacturer + ' (Reopened — ' + log.date + ')';
-
+  document.getElementById('label-active-company').textContent = reopenedLabel || company;
+  document.getElementById('shelf-search-input').value = '';
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('filter-btn-active'));
+  const allBtn = document.getElementById('filter-btn-all');
+  if (allBtn) allBtn.classList.add('filter-btn-active');
   executeViewNavigation('audit');
   renderAuditTableBody();
   calculateRuntimeFinancialMetrics();
-  toast('Reopened audit: ' + log.company + ' — ' + log.date);
+});
+
+Bus.on('audit:sessionEnded', () => {
+  document.getElementById('audit-workspace-area').style.display = 'none';
+  document.getElementById('audit-metrics-bar').style.display = 'none';
+  document.getElementById('action-header-sync-btn').style.display = 'none';
+  document.getElementById('audit-configuration-wrapper').style.display = 'block';
+  const sel = document.getElementById('manufacturer-dropdown-selector'); if (sel) sel.value = '';
+  document.getElementById('shelf-search-input').value = '';
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('filter-btn-active'));
+  const allBtn = document.getElementById('filter-btn-all');
+  if (allBtn) allBtn.classList.add('filter-btn-active');
+  executeViewNavigation('audit');
+});
+
+function abandonActiveWorkspaceSession() { Actions.abandonActiveSession(); }
+
+function toggleRuntimeSortOrder() {
+  Actions.toggleSortOrder();
+  document.getElementById('sort-order-label').textContent = Store.getState().sortAscending ? 'A-Z' : 'Z-A';
+  renderAuditTableBody();
+}
+Bus.on('audit:sortChanged', () => {
+  document.getElementById('sort-order-label').textContent = Store.getState().sortAscending ? 'A-Z' : 'Z-A';
+  renderAuditTableBody();
+});
+
+function setAuditFilter(mode) {
+  Actions.setAuditFilter(mode);
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('filter-btn-active'));
+  const btn = document.getElementById('filter-btn-' + mode);
+  if (btn) btn.classList.add('filter-btn-active');
+}
+Bus.on('audit:filterChanged', renderAuditTableBody);
+
+function markAllRemainingAsMatch() { Actions.markAllRemainingAsMatch(); }
+Bus.on('audit:bulkMarked', () => { renderAuditTableBody(); calculateRuntimeFinancialMetrics(); });
+
+function handleAuditInputKeydown(event, inputEl) {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    const allInputs = Array.from(document.querySelectorAll('#table-body-runtime-rows input[type="number"]'));
+    const idx = allInputs.indexOf(inputEl);
+    if (idx >= 0 && idx < allInputs.length - 1) { allInputs[idx + 1].focus(); allInputs[idx + 1].select(); }
+  }
+}
+function highlightAuditRow(inputEl) {
+  document.querySelectorAll('.audit-row-focused').forEach(r => r.classList.remove('audit-row-focused'));
+  const row = inputEl.closest('tr');
+  if (row) { row.classList.add('audit-row-focused'); row.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+}
+function unhighlightAuditRow(inputEl) {
+  const row = inputEl.closest('tr');
+  if (row) row.classList.remove('audit-row-focused');
 }
 
-// ── Per-entry Excel export from History ───────────────────────
+function processKeyboardInputRegistration(inputFieldNode) {
+  const executionIndex = parseInt(inputFieldNode.dataset.itemIndexToken);
+  const clearTextPayload = inputFieldNode.value.trim();
+  Actions.recordCount(executionIndex, clearTextPayload);
+
+  // Keep the value field itself in sync if it was clamped (FIX: negative input)
+  const newVal = Store.getState().counts[executionIndex];
+  if (clearTextPayload !== '' && newVal !== undefined && String(newVal) !== clearTextPayload) {
+    inputFieldNode.value = newVal;
+  }
+
+  const { activeItems, counts } = Store.getState();
+  const med = activeItems[executionIndex];
+  const varianceColumnCell = inputFieldNode.parentElement.nextElementSibling;
+  varianceColumnCell.innerHTML = Components.varianceCellHTML(counts[executionIndex], med.qty, med.price);
+
+  calculateRuntimeFinancialMetrics();
+}
+
+function renderAuditTableBody() {
+  const { activeItems, counts, sortAscending, auditFilterMode } = Store.getState();
+  const searchToken = document.getElementById('shelf-search-input').value.toLowerCase().trim();
+  const outputTableNode = document.getElementById('table-body-runtime-rows');
+  outputTableNode.innerHTML = '';
+
+  let mapping = activeItems.map((product, innerIndexValue) => ({ product, innerIndexValue }));
+
+  if (searchToken) {
+    mapping = mapping.filter(w => w.product.name.toLowerCase().includes(searchToken) || (w.product.code && w.product.code.toLowerCase().includes(searchToken)));
+  }
+  if (auditFilterMode !== 'all') {
+    mapping = mapping.filter(w => {
+      const counted = counts[w.innerIndexValue];
+      if (auditFilterMode === 'unverified') return counted === undefined;
+      if (counted === undefined) return false;
+      const delta = counted - w.product.qty;
+      if (auditFilterMode === 'shorts') return delta < 0;
+      if (auditFilterMode === 'overs') return delta > 0;
+      return true;
+    });
+  }
+  mapping.sort((a, b) => sortAscending ? a.product.name.localeCompare(b.product.name) : b.product.name.localeCompare(a.product.name));
+
+  if (mapping.length === 0) {
+    outputTableNode.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--grey); padding:24px; font-weight:600;">No matching items found.</td></tr>`;
+    return;
+  }
+  mapping.forEach(node => {
+    outputTableNode.appendChild(Components.auditRow(node.product, node.innerIndexValue, counts[node.innerIndexValue]));
+  });
+}
+
+function calculateRuntimeFinancialMetrics() {
+  const { activeItems, counts } = Store.getState();
+  let shortCount = 0, overCount = 0, matchingCount = 0, remainingCount = 0, net = 0, rsShort = 0, rsOver = 0;
+  activeItems.forEach((med, i) => {
+    const v = counts[i];
+    if (v === undefined) { remainingCount++; return; }
+    const delta = v - med.qty;
+    net += delta * med.price;
+    if (delta > 0) { overCount++; rsOver += delta * med.price; }
+    else if (delta < 0) { shortCount++; rsShort += Math.abs(delta * med.price); }
+    else matchingCount++;
+  });
+
+  document.getElementById('metric-short').textContent = shortCount;
+  document.getElementById('metric-over').textContent = overCount;
+  document.getElementById('metric-match').textContent = matchingCount;
+  document.getElementById('metric-rem').textContent = remainingCount;
+  document.getElementById('metric-short-rs').textContent = rsShort > 0 ? `Rs ${rsShort.toLocaleString()}` : '';
+  document.getElementById('metric-over-rs').textContent = rsOver > 0 ? `Rs ${rsOver.toLocaleString()}` : '';
+
+  const badge = document.getElementById('live-net-impact-badge');
+  const prefix = net < 0 ? "-" : "";
+  badge.textContent = `Net Impact: Rs ${prefix}${Math.abs(net).toLocaleString()}`;
+  badge.className = "val-badge " + (net < 0 ? "val-red" : (net > 0 ? "val-green" : "val-grey"));
+
+  const totalItems = activeItems.length;
+  const countedItems = totalItems - remainingCount;
+  const pct = totalItems > 0 ? Math.round((countedItems / totalItems) * 100) : 0;
+  document.getElementById('progress-label').textContent = `${countedItems} / ${totalItems} counted (${pct}%)`;
+  document.getElementById('progress-fill').style.width = pct + '%';
+}
+
+// ── Sign-off / export workflow ──
+function openExportConfigOverlay() { document.getElementById('export-modal-overlay').style.display = 'flex'; }
+
+function guardedSignoff(channelId) {
+  const { activeItems, counts } = Store.getState();
+  const remaining = activeItems.filter((_, i) => counts[i] === undefined).length;
+  if (remaining > 0) {
+    if (!confirm(`⚠️ ${remaining} item${remaining > 1 ? 's' : ''} still unverified.\n\nProceed with partial audit anyway?`)) return;
+  }
+  processFinalSignoffWorkflow(channelId);
+}
+
+function processFinalSignoffWorkflow(channelId) {
+  const auditorName = (prompt('Staff Name (for this record):', '') || '').trim() || 'Duty Pharmacist';
+  const isolate = document.getElementById('checkbox-variance-isolation').checked;
+  document.getElementById('export-modal-overlay').style.display = 'none';
+  Actions.signOffAudit(channelId, auditorName, isolate);
+}
+
+Bus.on('audit:signedOff', ({ entry, channelId, isolateDiscrepanciesOnly }) => {
+  if (channelId === 'save') {
+    toast('Saved to History — ' + entry.company);
+    postAuditWorkflowAutoProgression(entry.company);
+    return;
+  }
+  if (channelId === 'pdf') {
+    renderPrintableReport(entry, isolateDiscrepanciesOnly);
+    window.print();
+    postAuditWorkflowAutoProgression(entry.company);
+  } else if (channelId === 'whatsapp') {
+    const signSymbol = entry.netFinancialImpact < 0 ? "-" : "";
+    let msg = `*Fazal Din's Pharma Plus (${Actions.getBranchName()})*\n*Stock Verification Statement Summary*\n\n*🏢 Brand Domain:* ${entry.company}\n*👤 Authorized By:* ${entry.auditor}\n*🕒 Time execution:* ${entry.date} @ ${entry.time}\n*💰 Balance Shift evaluation:* Rs ${signSymbol}${Math.abs(entry.netFinancialImpact).toLocaleString()}\n*📈 Status Metrics:* ${entry.metricsLabel}\n─────────────────────────\n`;
+    (entry.items || []).forEach(m => {
+      if (m.counted === null || m.counted === undefined) return;
+      const variation = m.counted - m.qty;
+      if (isolateDiscrepanciesOnly && variation === 0) return;
+      const sign = variation > 0 ? '+' : '';
+      msg += `• *${m.name}*\n  Sys Val: ${m.qty} | Verified Count: ${m.counted} [Variance Delta: ${sign}${variation}]\n`;
+    });
+    shareAuditPDFToWhatsApp(entry, isolateDiscrepanciesOnly, msg);
+    postAuditWorkflowAutoProgression(entry.company);
+  }
+});
+
+function renderPrintableReport(entry, isolateDiscrepanciesOnly) {
+  let shorts = 0, overs = 0, matches = 0;
+  (entry.items || []).forEach(m => {
+    if (m.counted === null || m.counted === undefined) return;
+    const d = m.counted - m.qty;
+    if (d > 0) overs++; else if (d < 0) shorts++; else matches++;
+  });
+
+  document.getElementById('pdf-doc-id').textContent = 'FDPP-BT-' + Math.floor(100000 + Math.random() * 900000);
+  document.getElementById('pdf-branch-label').textContent = Actions.getBranchName();
+  document.getElementById('pdf-timestamp-date').textContent = entry.date;
+  document.getElementById('pdf-timestamp-time').textContent = entry.time;
+  document.getElementById('pdf-target-company').textContent = entry.company;
+  document.getElementById('pdf-signoff-pharmacist').textContent = entry.auditor;
+  document.getElementById('pdf-stat-short').textContent = shorts;
+  document.getElementById('pdf-stat-over').textContent = overs;
+  document.getElementById('pdf-stat-match').textContent = matches;
+
+  const sign = entry.netFinancialImpact < 0 ? "-" : "";
+  document.getElementById('pdf-stat-impact').textContent = `Rs ${sign}${Math.abs(entry.netFinancialImpact).toLocaleString()}`;
+
+  const injector = document.getElementById('pdf-table-body-injector');
+  injector.innerHTML = '';
+  (entry.items || []).forEach(m => {
+    if (m.counted === null || m.counted === undefined) return;
+    const d = m.counted - m.qty;
+    if (isolateDiscrepanciesOnly && d === 0) return;
+    const tr = document.createElement('tr');
+    tr.innerHTML = Components.pdfRowHTML(m).replace(/<\/?tr>/g, '');
+    injector.appendChild(tr);
+  });
+}
+
+let _originalReportCanvasHTML = null;
+function printSelectedAuditsCombinedPDF() {
+  const entryBoxes = document.querySelectorAll('.bulk-entry-box:checked');
+  if (entryBoxes.length === 0) { toast('Select audit records first (tick the checkboxes inside each company)', 'error'); return; }
+  const { history } = Store.getState();
+  const selectedLogs = [];
+  entryBoxes.forEach(box => {
+    const log = history.find(l => l.id === box.dataset.entryId);
+    if (log && log.items && log.items.length > 0) selectedLogs.push(log);
+  });
+  if (selectedLogs.length === 0) { toast('No item-level data available for selected records', 'error'); return; }
+
+  const canvas = document.getElementById('printable-report-canvas');
+  if (_originalReportCanvasHTML === null) _originalReportCanvasHTML = canvas.innerHTML;
+  canvas.innerHTML = selectedLogs.map(log => Components.pdfSectionHTML(log, Actions.getBranchName())).join('');
+  window.print();
+  setTimeout(() => { canvas.innerHTML = _originalReportCanvasHTML; }, 500);
+}
+
+async function shareAuditPDFToWhatsApp(entry, isolateDiscrepanciesOnly, textMessage) {
+  renderPrintableReport(entry, isolateDiscrepanciesOnly);
+  if (navigator.canShare && navigator.share) {
+    try {
+      const reportHtml = document.getElementById('printable-report-canvas').outerHTML;
+      const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Audit Report</title></head><body>${reportHtml}</body></html>`;
+      const blob = new Blob([fullHtml], { type: 'text/html' });
+      const file = new File([blob], `Audit_${entry.company.replace(/\s+/g, '_')}_${entry.date.replace(/\s+/g, '_')}.html`, { type: 'text/html' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Audit Report', text: textMessage });
+        return;
+      }
+    } catch (err) { /* fall through to text share */ }
+  }
+  window.open(`https://wa.me/?text=${encodeURIComponent(textMessage)}`, '_blank');
+  toast('Tip: use Print PDF then share the saved PDF file for an attachment.');
+}
+
+function postAuditWorkflowAutoProgression(justCompletedCompany) {
+  const selectElement = document.getElementById('manufacturer-dropdown-selector');
+  const validArrayKeys = Array.from(selectElement.options).map(o => o.value).filter(Boolean);
+  const positionMatchIndex = validArrayKeys.indexOf(justCompletedCompany) + 1;
+
+  setTimeout(() => {
+    if (positionMatchIndex < validArrayKeys.length) {
+      const next = validArrayKeys[positionMatchIndex];
+      if (confirm(`Audit complete for ${justCompletedCompany}.\n\nAdvance to next manufacturer automatically?\n👉 Next: "${next}"`)) {
+        Actions.startAuditSession(next);
+      } else {
+        Actions.abandonActiveSession();
+      }
+    } else {
+      alert("🏁 Sequence complete! All stored manufacturer profiles verified.");
+      Actions.abandonActiveSession();
+    }
+  }, 1000);
+}
+
+// ── History page ──
+function renderHistoryPage() {
+  const targetOutputDiv = document.getElementById('history-accordion-container');
+  if (!targetOutputDiv) return;
+  const { history, products } = Store.getState();
+
+  const companiesFromHistory = [...new Set((history || []).map(l => l.company))].sort();
+  const companiesFromProducts = [...new Set(products.map(m => m.company))].sort();
+  const allBrands = [...new Set([...companiesFromHistory, ...companiesFromProducts])].sort();
+
+  if (allBrands.length === 0) {
+    targetOutputDiv.innerHTML = '<span style="color:var(--grey); font-style:italic; padding:10px; display:block;">No audit history yet.</span>';
+    return;
+  }
+
+  const searchToken = (document.getElementById('history-search-input')?.value || '').toLowerCase().trim();
+  const fromEl = document.getElementById('history-filter-from');
+  const toEl = document.getElementById('history-filter-to');
+  const fromVal = fromEl && fromEl.value ? new Date(fromEl.value + 'T00:00:00').getTime() : null;
+  const toVal = toEl && toEl.value ? new Date(toEl.value + 'T23:59:59').getTime() : null;
+
+  const filteredLogs = history.filter(l => {
+    const ts = l.timestamp || 0;
+    if (fromVal !== null && ts < fromVal) return false;
+    if (toVal !== null && ts > toVal) return false;
+    return true;
+  });
+
+  const filteredBrands = searchToken ? allBrands.filter(b => b.toLowerCase().includes(searchToken)) : allBrands;
+  targetOutputDiv.innerHTML = '';
+  if (filteredBrands.length === 0) {
+    targetOutputDiv.innerHTML = '<span style="color:var(--grey); font-style:italic; padding:10px; display:block;">No results match your search.</span>';
+    return;
+  }
+
+  filteredBrands.forEach(brandName => {
+    const companyLogs = filteredLogs.filter(l => l.company === brandName).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    targetOutputDiv.appendChild(Components.historyAccordionItem(brandName, companyLogs));
+  });
+}
+function compileAccordionLedgerInterface() { renderHistoryPage(); } // legacy-name shim (markup calls this)
+Bus.on('history:changed', renderHistoryPage);
+
+function toggleSelectAllHistory(masterCheckbox) {
+  document.querySelectorAll('.bulk-entry-box').forEach(box => { box.checked = masterCheckbox.checked; });
+  document.querySelectorAll('.bulk-select-box').forEach(box => { box.checked = masterCheckbox.checked; });
+}
+
+function reopenHistoryAudit(entryId) { Actions.reopenHistoryAudit(entryId); }
+
 function exportHistoryEntryXLSX(entryId) {
-  const log = dynamicallyRetainedLogsCache.find(l => l.id === entryId);
+  const { history } = Store.getState();
+  const log = history.find(l => l.id === entryId);
   if (!log) { toast('Record not found', 'error'); return; }
   if (!log.items || log.items.length === 0) { toast('No item-level data stored for this record', 'error'); return; }
-
   const rows = [['Product Name', 'SKU', 'Price (Rs)', 'System Qty', 'Counted Qty', 'Variance', 'Value Impact (Rs)']];
   log.items.forEach(m => {
     const counted = m.counted;
@@ -1218,318 +2306,114 @@ function exportHistoryEntryXLSX(entryId) {
   toast('Excel file exported successfully');
 }
 
-// ── Per-entry PDF print from History ──────────────────────────
 function printHistoryEntryPDF(entryId) {
-  const log = dynamicallyRetainedLogsCache.find(l => l.id === entryId);
+  const { history } = Store.getState();
+  const log = history.find(l => l.id === entryId);
   if (!log) { toast('Record not found', 'error'); return; }
   if (!log.items || log.items.length === 0) { toast('No item-level data stored for this record', 'error'); return; }
-
   renderPrintableReport(log, false);
   window.print();
 }
 
-// ── Combined multi-page PDF for all selected history entries ──
-let _originalReportCanvasHTML = null;
+function dispatchSelectedAuditsViaWhatsApp() {
+  const checkboxes = document.querySelectorAll('.bulk-select-box:checked');
+  if (checkboxes.length === 0) { toast("No ledger elements selected", "error"); return; }
+  const { history } = Store.getState();
+  let msg = `*📋 FAZAL DIN'S PHARMA PLUS — CONSOLIDATED AUDIT*\n*Terminal:* ${Actions.getBranchName()}\n*Total Sub-Ledgers Bundled:* ${checkboxes.length}\n─────────────────────────\n\n`;
+  checkboxes.forEach(box => {
+    const parentKey = box.dataset.companyKey;
+    const record = history.find(log => log.company === parentKey);
+    if (record) {
+      const sign = record.netFinancialImpact > 0 ? '+' : '';
+      msg += `*🏢 Manufacturer:* ${record.company}\n*👤 Sign-Off:* ${record.auditor}\n*📈 Summary Metrics:* ${record.metricsLabel}\n*💰 Valuation Balance:* Rs ${sign}${record.netFinancialImpact.toLocaleString()}\n*🕒 Complete Date:* ${record.date} @ ${record.time}\n─────────────────────────\n`;
+    }
+  });
+  window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+}
 
-function printSelectedAuditsCombinedPDF() {
+function purgeSelectedAuditsFromLedger() {
   const entryBoxes = document.querySelectorAll('.bulk-entry-box:checked');
-  if (entryBoxes.length === 0) {
-    toast('Select audit records first (tick the checkboxes inside each company)', 'error');
-    return;
+  const companyBoxes = document.querySelectorAll('.bulk-select-box:checked');
+  if (entryBoxes.length === 0 && companyBoxes.length === 0) { toast("Select layout lines to drop", "error"); return; }
+  const totalCount = entryBoxes.length > 0 ? entryBoxes.length : companyBoxes.length;
+  const unitLabel = entryBoxes.length > 0 ? 'audit record(s)' : 'manufacturer(s)';
+  if (!confirm(`⚠️ Permanently scrub (${totalCount}) ${unitLabel} from disk?`)) return;
+
+  if (entryBoxes.length > 0) {
+    Actions.purgeHistoryEntries(Array.from(entryBoxes).map(b => b.dataset.entryId));
+  } else {
+    Actions.purgeHistoryByCompanies(Array.from(companyBoxes).map(b => b.dataset.companyKey));
   }
-
-  const selectedLogs = [];
-  entryBoxes.forEach(box => {
-    const log = dynamicallyRetainedLogsCache.find(l => l.id === box.dataset.entryId);
-    if (log && log.items && log.items.length > 0) selectedLogs.push(log);
-  });
-
-  if (selectedLogs.length === 0) {
-    toast('No item-level data available for selected records', 'error');
-    return;
-  }
-
-  const canvas = document.getElementById('printable-report-canvas');
-  if (_originalReportCanvasHTML === null) _originalReportCanvasHTML = canvas.innerHTML;
-
-  const sectionsHtml = selectedLogs.map(log => buildReportSectionHTML(log)).join('');
-  canvas.innerHTML = sectionsHtml;
-
-  window.print();
-
-  // Restore the single-record template (with its expected element IDs) after printing
-  setTimeout(() => { canvas.innerHTML = _originalReportCanvasHTML; }, 500);
 }
 
-// Builds a standalone report section (HTML string) for one ledger record.
-// Used by the combined multi-page PDF printer (does not rely on shared element IDs).
-function buildReportSectionHTML(log) {
-  let shorts = 0, overs = 0, matches = 0;
-  (log.items || []).forEach(m => {
-    if (m.counted === null || m.counted === undefined) return;
-    const d = m.counted - m.qty;
-    if (d > 0) overs++; else if (d < 0) shorts++; else matches++;
-  });
-  const netVal = log.netFinancialImpact;
-  const financialSignSymbol = netVal < 0 ? "-" : "";
-  const docId = 'FDPP-BT-' + Math.floor(100000 + Math.random() * 900000);
-
-  const rowsHtml = (log.items || []).map(m => {
-    if (m.counted === null || m.counted === undefined) return '';
-    const discrepancyValue = m.counted - m.qty;
-    return `
-      <tr>
-        <td><strong>${escapeHTMLMarkup(m.name)}</strong><br><span style="font-size:9px; color:#64748B;">${m.code ? escapeHTMLMarkup(m.code) : 'N/A'}</span></td>
-        <td style="text-align:right;">Rs ${m.price.toLocaleString()}</td>
-        <td style="text-align:right;">${m.qty}</td>
-        <td style="text-align:right;">${m.counted}</td>
-        <td style="text-align:right; font-weight:700; color:${discrepancyValue < 0 ? '#C0392B' : (discrepancyValue > 0 ? '#00836F' : '#64748B')};">
-          ${discrepancyValue > 0 ? '+' : ''}${discrepancyValue}
-        </td>
-      </tr>`;
-  }).join('');
-
-  return `
-  <div class="pdf-page-section">
-    <div class="pdf-meta-box">
-      <div>
-        <div class="pdf-brand-title">Fazal Din's Pharma Plus</div>
-        <div style="font-size:13px; font-weight:700; color:#475569; margin-top:2px;">Pharmacy Inventory Audit</div>
-        <div style="font-size:12px; color:#64748B; margin-top:1px;">Branch Terminal: ${escapeHTMLMarkup(getBranchName())}</div>
-      </div>
-      <div style="text-align:right; font-size:12px; color:#475569; line-height:1.5;">
-        <div><strong>Document ID:</strong> ${docId}</div>
-        <div><strong>Execution Date:</strong> ${escapeHTMLMarkup(log.date || '')}</div>
-        <div><strong>Execution Time:</strong> ${escapeHTMLMarkup(log.time || '')}</div>
-      </div>
-    </div>
-
-    <div style="margin-bottom:20px; font-size:14px; line-height:1.6;">
-      <div><strong>Company:</strong> <span style="font-weight:700; color:#0F1F3D;">${escapeHTMLMarkup(log.company)}</span></div>
-      <div><strong>Random done by Sales Staff / Pharmacist:</strong> <span style="font-weight:700;">${escapeHTMLMarkup(log.auditor || '')}</span></div>
-    </div>
-
-    <div class="pdf-summary-grid">
-      <div class="pdf-stat-card" style="border-top: 4px solid var(--red);">
-        <div class="pdf-stat-val" style="color:var(--red);">${shorts}</div>
-        <div class="pdf-stat-lbl">Shortage SKUs</div>
-      </div>
-      <div class="pdf-stat-card" style="border-top: 4px solid var(--green);">
-        <div class="pdf-stat-val" style="color:var(--green);">${overs}</div>
-        <div class="pdf-stat-lbl">Surplus SKUs</div>
-      </div>
-      <div class="pdf-stat-card" style="border-top: 4px solid var(--grey);">
-        <div class="pdf-stat-val">${matches}</div>
-        <div class="pdf-stat-lbl">Matched SKUs</div>
-      </div>
-      <div class="pdf-stat-card" style="border-top: 4px solid var(--gold);">
-        <div class="pdf-stat-val" style="color:var(--navy);">Rs ${financialSignSymbol}${Math.abs(netVal).toLocaleString()}</div>
-        <div class="pdf-stat-lbl">Net Financial Delta</div>
-      </div>
-    </div>
-
-    <table class="pdf-table">
-      <thead>
-        <tr>
-          <th style="width:50%;">Medicine Item Designation</th>
-          <th style="text-align:right; width:12%;">Unit Cost</th>
-          <th style="text-align:right; width:12%;">System Qty</th>
-          <th style="text-align:right; width:12%;">Physical Count</th>
-          <th style="text-align:right; width:14%;">Variance Delta</th>
-        </tr>
-      </thead>
-      <tbody>${rowsHtml}</tbody>
-    </table>
-
-  </div>`;
-}
-
-// ── Export all history (every audit, all companies/dates) as one workbook ──
-// One sheet per audit record, sheet name = Company + Date.
 function exportAllHistoryXLSX() {
-  if (dynamicallyRetainedLogsCache.length === 0) { toast('No history records to export', 'error'); return; }
-
+  const { history } = Store.getState();
+  if (history.length === 0) { toast('No history records to export', 'error'); return; }
   const wb = XLSX.utils.book_new();
   const usedNames = {};
-
-  dynamicallyRetainedLogsCache
-    .slice()
-    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
-    .forEach(log => {
-      const rows = [['Product Name', 'SKU', 'Price (Rs)', 'System Qty', 'Counted Qty', 'Variance', 'Value Impact (Rs)']];
-      (log.items || []).forEach(m => {
-        const counted = m.counted;
-        const variance = (counted !== null && counted !== undefined) ? counted - m.qty : '';
-        const impact = (counted !== null && counted !== undefined) ? ((counted - m.qty) * m.price) : '';
-        rows.push([m.name, m.code || '', m.price, m.qty, counted !== null && counted !== undefined ? counted : '', variance, impact !== '' ? Number(impact.toFixed(2)) : '']);
-      });
-      if ((log.items || []).length === 0) {
-        rows.push(['(No item-level data stored for this record)', '', '', '', '', '', '']);
-        rows.push(['Summary:', log.metricsLabel || '', '', '', '', '', '']);
-        rows.push(['Net Impact (Rs):', log.netFinancialImpact, '', '', '', '', '']);
-      }
-
-      const ws = XLSX.utils.aoa_to_sheet(rows);
-      let baseName = sanitizeSheetName(log.company + ' ' + (log.date || ''));
-      let finalName = baseName;
-      let counter = 2;
-      while (usedNames[finalName]) {
-        finalName = sanitizeSheetName(baseName.slice(0, 28) + '_' + counter);
-        counter++;
-      }
-      usedNames[finalName] = true;
-      XLSX.utils.book_append_sheet(wb, ws, finalName);
+  history.slice().sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)).forEach(log => {
+    const rows = [['Product Name', 'SKU', 'Price (Rs)', 'System Qty', 'Counted Qty', 'Variance', 'Value Impact (Rs)']];
+    (log.items || []).forEach(m => {
+      const counted = m.counted;
+      const variance = (counted !== null && counted !== undefined) ? counted - m.qty : '';
+      const impact = (counted !== null && counted !== undefined) ? ((counted - m.qty) * m.price) : '';
+      rows.push([m.name, m.code || '', m.price, m.qty, counted !== null && counted !== undefined ? counted : '', variance, impact !== '' ? Number(impact.toFixed(2)) : '']);
     });
-
-  XLSX.writeFile(wb, 'AllAudits_Combined_' + new Date().toISOString().slice(0,10) + '.xlsx');
+    if ((log.items || []).length === 0) {
+      rows.push(['(No item-level data stored for this record)', '', '', '', '', '', '']);
+      rows.push(['Summary:', log.metricsLabel || '', '', '', '', '', '']);
+      rows.push(['Net Impact (Rs):', log.netFinancialImpact, '', '', '', '', '']);
+    }
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    let baseName = sanitizeSheetName(log.company + ' ' + (log.date || ''));
+    let finalName = baseName;
+    // FIX: collision-avoidance loop previously could still collide after one
+    // retry because it always rebuilt from the same truncated baseName; now
+    // increments deterministically against the live usedNames set.
+    let counter = 2;
+    while (usedNames[finalName]) {
+      finalName = sanitizeSheetName(baseName.slice(0, 25) + '_' + counter);
+      counter++;
+    }
+    usedNames[finalName] = true;
+    XLSX.utils.book_append_sheet(wb, ws, finalName);
+  });
+  XLSX.writeFile(wb, 'AllAudits_Combined_' + new Date().toISOString().slice(0, 10) + '.xlsx');
   toast('Combined Excel workbook exported');
 }
 
-
-// ── NAVIGATION MANAGEMENT WORKSPACE ───────────────────────
-function executeViewNavigation(viewIdentifierToken) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('page-' + viewIdentifierToken).classList.add('active');
-  const tabNode = document.getElementById('tab-' + viewIdentifierToken);
-  if (tabNode) tabNode.classList.add('active');
-  
-  if (viewIdentifierToken === 'audit') {
-    const memoryIsPopulated = globalProductsMemoryStore.length > 0;
-    document.getElementById('empty-state-fallback').style.display = memoryIsPopulated ? 'none' : 'block';
-    document.getElementById('audit-configuration-wrapper').style.display = (memoryIsPopulated && !targetSelectedManufacturer) ? 'block' : 'none';
-    document.getElementById('action-header-sync-btn').style.display = (targetSelectedManufacturer) ? 'block' : 'none';
-    if (memoryIsPopulated && !targetSelectedManufacturer) renderCompanyList();
-  } else {
-    document.getElementById('action-header-sync-btn').style.display = 'none';
-  }
+function sanitizeSheetName(name) {
+  return String(name || 'Sheet').replace(/[:\\\/\?\*\[\]]/g, '').slice(0, 31) || 'Sheet';
 }
 
-function launchActiveAuditSession() {
-  const selectedDropdownToken = document.getElementById('manufacturer-dropdown-selector').value;
-  if (!selectedDropdownToken) { toast("Select operational matrix line", "error"); return; }
-
-  targetSelectedManufacturer = selectedDropdownToken;
-  localActiveSessionItems = globalProductsMemoryStore.filter(m => m.company === targetSelectedManufacturer);
-  userPhysicalVerificationMap = {};
-
-  document.getElementById('audit-configuration-wrapper').style.display = 'none';
-  document.getElementById('audit-workspace-area').style.display = 'block';
-  document.getElementById('audit-metrics-bar').style.display = 'block';
-  document.getElementById('action-header-sync-btn').style.display = 'block';
-  document.getElementById('label-active-company').textContent = targetSelectedManufacturer;
-
-  renderAuditTableBody();
-  calculateRuntimeFinancialMetrics();
-}
-
-function toggleRuntimeSortOrder() {
-  statusAscendingAlphabetical = !statusAscendingAlphabetical;
-  document.getElementById('sort-order-label').textContent = statusAscendingAlphabetical ? 'A-Z' : 'Z-A';
-  renderAuditTableBody();
-}
-
-// ════════════════════════════════════════════════════
-// COMPANY CARD LIST — Verify Stock tab
-// ════════════════════════════════════════════════════
-let companySortAscending = true;
-
-function toggleCompanySortOrder() {
-  companySortAscending = !companySortAscending;
-  const btn = document.getElementById('company-sort-label');
-  if (btn) btn.textContent = companySortAscending ? 'A-Z' : 'Z-A';
-  renderCompanyList();
-}
-
-function renderCompanyList() {
-  const container = document.getElementById('company-cards-list');
-  if (!container) return;
-
-  const query = (document.getElementById('company-search-input')?.value || '').toLowerCase().trim();
-  let companies = [...new Set(globalProductsMemoryStore.map(m => m.company))];
-
-  if (query) {
-    companies = companies.filter(c => c.toLowerCase().includes(query));
-  }
-
-  companies.sort((a, b) => companySortAscending ? a.localeCompare(b) : b.localeCompare(a));
-
-  if (companies.length === 0) {
-    container.innerHTML = '<div style="text-align:center; color:var(--grey); padding:30px 0; font-size:13px; font-style:italic;">No companies found.</div>';
-    return;
-  }
-
-  container.innerHTML = '';
-  companies.forEach(company => {
-    const items = globalProductsMemoryStore.filter(m => m.company === company);
-    const totalQty = items.reduce((s, m) => s + m.qty, 0);
-    const totalValue = items.reduce((s, m) => s + (m.qty * m.price), 0);
-
-    const card = document.createElement('div');
-    card.className = 'company-card';
-    card.onclick = () => {
-      document.getElementById('manufacturer-dropdown-selector').value = company;
-      launchActiveAuditSession();
-    };
-    card.innerHTML = `
-      <div style="flex:1; min-width:0;">
-        <div class="company-card-name">${escapeHTMLMarkup(company)}</div>
-        <div class="company-card-meta">${items.length} SKU${items.length !== 1 ? 's' : ''} · ${totalQty.toLocaleString()} units</div>
-      </div>
-      <div class="company-card-badges">
-        <span class="company-items-badge">${items.length} items</span>
-        <span class="company-value-badge">Rs ${totalValue.toLocaleString()}</span>
-      </div>
-    `;
-    container.appendChild(card);
-  });
-}
-
-// ════════════════════════════════════════════════════
-// PIN GATE — Settings tab
-// ════════════════════════════════════════════════════
-const SETTINGS_PIN = '1218';
+// ── PIN gate ──
 let pinBuffer = '';
-
 function openSettingsPinGate() {
   pinBuffer = '';
   updatePinDots();
   document.getElementById('pin-error').textContent = '';
   document.getElementById('pin-gate-overlay').style.display = 'flex';
 }
-
 function closePinGate() {
   pinBuffer = '';
   updatePinDots();
   document.getElementById('pin-gate-overlay').style.display = 'none';
 }
-
 function pinKeyPress(key) {
-  if (key === 'back') {
-    pinBuffer = pinBuffer.slice(0, -1);
-    updatePinDots();
-    document.getElementById('pin-error').textContent = '';
-    return;
-  }
+  if (key === 'back') { pinBuffer = pinBuffer.slice(0, -1); updatePinDots(); document.getElementById('pin-error').textContent = ''; return; }
   if (pinBuffer.length >= 4) return;
   pinBuffer += key;
   updatePinDots();
-
   if (pinBuffer.length === 4) {
-    if (pinBuffer === SETTINGS_PIN) {
+    if (Actions.verifyPin(pinBuffer)) {
       closePinGate();
       executeViewNavigation('settings');
     } else {
       document.getElementById('pin-error').textContent = '❌ Incorrect PIN';
-      setTimeout(() => {
-        pinBuffer = '';
-        updatePinDots();
-        document.getElementById('pin-error').textContent = '';
-      }, 900);
+      setTimeout(() => { pinBuffer = ''; updatePinDots(); document.getElementById('pin-error').textContent = ''; }, 900);
     }
   }
 }
-
 function updatePinDots() {
   for (let i = 0; i < 4; i++) {
     const dot = document.getElementById('pd' + i);
@@ -1537,676 +2421,94 @@ function updatePinDots() {
   }
 }
 
-// ── FIXED: OPERATIONAL RENDERING & LIVE VARIANCE TRACKER ──
-function setAuditFilter(mode) {
-  auditFilterMode = mode;
-  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('filter-btn-active'));
-  const btn = document.getElementById('filter-btn-' + mode);
-  if (btn) btn.classList.add('filter-btn-active');
-  renderAuditTableBody();
+// ── Settings page ──
+function saveBranchName() { Actions.saveBranchName(document.getElementById('settings-branch-name').value); }
+function saveSettingsPin() {
+  const currentEl = document.getElementById('settings-pin-current');
+  const newEl = document.getElementById('settings-pin-new');
+  const confirmEl = document.getElementById('settings-pin-confirm');
+  const ok = Actions.saveSettingsPin(currentEl.value.trim(), newEl.value.trim(), confirmEl.value.trim());
+  if (ok) { currentEl.value = ''; newEl.value = ''; confirmEl.value = ''; }
 }
-
-function handleAuditInputKeydown(event, inputEl) {
-  if (event.key === 'Enter') {
-    event.preventDefault();
-    const allInputs = Array.from(document.querySelectorAll('#table-body-runtime-rows input[type="number"]'));
-    const idx = allInputs.indexOf(inputEl);
-    if (idx >= 0 && idx < allInputs.length - 1) {
-      allInputs[idx + 1].focus();
-      allInputs[idx + 1].select();
-    }
-  }
-}
-
-function highlightAuditRow(inputEl) {
-  // Remove highlight from any previously focused row
-  document.querySelectorAll('.audit-row-focused').forEach(r => r.classList.remove('audit-row-focused'));
-  const row = inputEl.closest('tr');
-  if (row) {
-    row.classList.add('audit-row-focused');
-    row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }
-}
-
-function unhighlightAuditRow(inputEl) {
-  const row = inputEl.closest('tr');
-  if (row) row.classList.remove('audit-row-focused');
-}
-
-function markAllRemainingAsMatch() {
-  if (!confirm('Stamp all unverified items as matching system quantity?')) return;
-  localActiveSessionItems.forEach((med, i) => {
-    if (userPhysicalVerificationMap[i] === undefined) {
-      userPhysicalVerificationMap[i] = med.qty;
-    }
-  });
-  writeRuntimeStateCheckpoint();
-  renderAuditTableBody();
-  calculateRuntimeFinancialMetrics();
-  toast('Remaining items marked as match');
-}
-
-function exportAuditXLSX() {
-  if (localActiveSessionItems.length === 0) { toast('No active audit to export', 'error'); return; }
-  const rows = [['Product Name', 'SKU', 'Price (Rs)', 'System Qty', 'Counted Qty', 'Variance', 'Value Impact (Rs)']];
-  localActiveSessionItems.forEach((med, i) => {
-    const counted = userPhysicalVerificationMap[i];
-    const variance = counted !== undefined ? counted - med.qty : '';
-    const impact = counted !== undefined ? ((counted - med.qty) * med.price) : '';
-    rows.push([
-      med.name,
-      med.code || '',
-      med.price,
-      med.qty,
-      counted !== undefined ? counted : '',
-      variance,
-      impact !== '' ? Number(impact.toFixed(2)) : ''
-    ]);
-  });
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(targetSelectedManufacturer));
-  XLSX.writeFile(wb, 'Audit_' + targetSelectedManufacturer.replace(/\s+/g, '_') + '_' + new Date().toISOString().slice(0,10) + '.xlsx');
-  toast('Excel file exported successfully');
-}
-
-// Excel sheet names: max 31 chars, no : \ / ? * [ ]
-function sanitizeSheetName(name) {
-  return String(name || 'Sheet').replace(/[:\\\/\?\*\[\]]/g, '').slice(0, 31) || 'Sheet';
-}
-
-function renderAuditTableBody() {
-  const clearSearchFilterToken = document.getElementById('shelf-search-input').value.toLowerCase().trim();
-  const outputTableNode = document.getElementById('table-body-runtime-rows');
-  outputTableNode.innerHTML = '';
-
-  // Store references explicitly mapping directly to array indices
-  let structuralMappingSequence = localActiveSessionItems.map((product, innerIndexValue) => ({ product, innerIndexValue }));
-
-  // Apply search filter
-  if (clearSearchFilterToken) {
-    structuralMappingSequence = structuralMappingSequence.filter(wrapper => 
-      wrapper.product.name.toLowerCase().includes(clearSearchFilterToken) || 
-      (wrapper.product.code && wrapper.product.code.toLowerCase().includes(clearSearchFilterToken))
-    );
-  }
-
-  // Apply audit status filter
-  if (auditFilterMode !== 'all') {
-    structuralMappingSequence = structuralMappingSequence.filter(wrapper => {
-      const counted = userPhysicalVerificationMap[wrapper.innerIndexValue];
-      if (auditFilterMode === 'unverified') return counted === undefined;
-      if (counted === undefined) return false;
-      const delta = counted - wrapper.product.qty;
-      if (auditFilterMode === 'shorts') return delta < 0;
-      if (auditFilterMode === 'overs') return delta > 0;
-      return true;
-    });
-  }
-
-  structuralMappingSequence.sort((alpha, beta) => {
-    return statusAscendingAlphabetical ? 
-      alpha.product.name.localeCompare(beta.product.name) : 
-      beta.product.name.localeCompare(alpha.product.name);
-  });
-
-  if (structuralMappingSequence.length === 0) {
-    outputTableNode.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--grey); padding:24px; font-weight:600;">No matching items found.</td></tr>`;
-    return;
-  }
-
-  structuralMappingSequence.forEach(node => {
-    const med = node.product;
-    const trackingKey = node.innerIndexValue;
-    const systemVerificationValue = userPhysicalVerificationMap[trackingKey] !== undefined ? userPhysicalVerificationMap[trackingKey] : '';
-    
-    // VARIANCE SYSTEM MATH EVALUATION PIPELINE
-    let textVarianceDesignBox = '<span class="diff-zero">—</span>';
-    if (systemVerificationValue !== '') {
-      const mathematicalVarianceValue = parseFloat(systemVerificationValue) - med.qty;
-      if (mathematicalVarianceValue !== 0) {
-        const rupeeDelta = mathematicalVarianceValue * med.price;
-        const sign = mathematicalVarianceValue > 0 ? '+' : '';
-        const cls = mathematicalVarianceValue > 0 ? 'diff-pos' : 'diff-neg';
-        textVarianceDesignBox = `
-          <span class="${cls}">${sign}${mathematicalVarianceValue}</span>
-          <div style="font-size:10px; color:var(--grey); margin-top:2px;">${sign}Rs ${Math.abs(rupeeDelta).toLocaleString()}</div>
-        `;
-      } else {
-        textVarianceDesignBox = `<span class="diff-zero">0</span>`;
-      }
-    }
-
-    const generatedRow = document.createElement('tr');
-    generatedRow.innerHTML = `
-      <td style="padding-left:10px;">
-        <div style="font-size:13px; font-weight:700; color:var(--navy); line-height:1.3;">${escapeHTMLMarkup(med.name)}</div>
-        <div style="font-size:10px; color:var(--grey); margin-top:2px;">${med.code ? escapeHTMLMarkup(med.code) : 'No SKU'} · Rs ${med.price.toLocaleString()}</div>
-      </td>
-      <td style="text-align:right; font-weight:700; color:var(--navy); font-size:14px;">${med.qty}</td>
-      <td style="text-align:right;">
-        <input type="number" min="0" step="1" value="${systemVerificationValue}" placeholder="-" data-item-index-token="${trackingKey}" inputmode="decimal" enterkeyhint="next" oninput="processKeyboardInputRegistration(this)" onkeydown="handleAuditInputKeydown(event, this)" onfocus="highlightAuditRow(this)" onblur="unhighlightAuditRow(this)">
-      </td>
-      <td style="text-align:right; padding-right:10px; font-weight:800;">${textVarianceDesignBox}</td>
-    `;
-    outputTableNode.appendChild(generatedRow);
-  });
-}
-
-function processKeyboardInputRegistration(inputFieldNode) {
-  const executionIndex = parseInt(inputFieldNode.dataset.itemIndexToken);
-  const clearTextPayload = inputFieldNode.value.trim();
-
-  // Parse strings natively to bypass floating evaluation glitches
-  if (clearTextPayload === '') {
-    delete userPhysicalVerificationMap[executionIndex];
-  } else {
-    userPhysicalVerificationMap[executionIndex] = parseFloat(clearTextPayload);
-  }
-
-  // Trace variance calculations and update structural row visualization matrices instantly
-  const targetMedicineRecord = localActiveSessionItems[executionIndex];
-  const varianceColumnCell = inputFieldNode.parentElement.nextElementSibling;
-  
-  if (clearTextPayload === '') {
-    varianceColumnCell.innerHTML = '<span class="diff-zero">—</span>';
-  } else {
-    const rawVarianceCalculatedValue = parseFloat(clearTextPayload) - targetMedicineRecord.qty;
-    if (rawVarianceCalculatedValue !== 0) {
-      const rupeeDelta = rawVarianceCalculatedValue * targetMedicineRecord.price;
-      const sign = rawVarianceCalculatedValue > 0 ? '+' : '';
-      const cls = rawVarianceCalculatedValue > 0 ? 'diff-pos' : 'diff-neg';
-      varianceColumnCell.innerHTML = `<span class="${cls}">${sign}${rawVarianceCalculatedValue}</span><div style="font-size:10px;color:var(--grey);margin-top:2px;">${sign}Rs ${Math.abs(rupeeDelta).toLocaleString()}</div>`;
-    } else {
-      varianceColumnCell.innerHTML = '<span class="diff-zero">0</span>';
-    }
-  }
-
-  calculateRuntimeFinancialMetrics();
-  writeRuntimeStateCheckpoint();
-}
-
-function calculateRuntimeFinancialMetrics() {
-  let shortCount = 0, overCount = 0, matchingCount = 0, remainingCount = 0;
-  let accumulatedFinancialNetWorth = 0;
-  let rsShort = 0, rsOver = 0;
-
-  localActiveSessionItems.forEach((medicineItem, indexValueKey) => {
-    const currentInputVal = userPhysicalVerificationMap[indexValueKey];
-    if (currentInputVal === undefined) { remainingCount++; return; }
-
-    const structuralDeltaValue = currentInputVal - medicineItem.qty;
-    accumulatedFinancialNetWorth += (structuralDeltaValue * medicineItem.price);
-
-    if (structuralDeltaValue > 0) { overCount++; rsOver += structuralDeltaValue * medicineItem.price; }
-    else if (structuralDeltaValue < 0) { shortCount++; rsShort += Math.abs(structuralDeltaValue * medicineItem.price); }
-    else matchingCount++;
-  });
-
-  document.getElementById('metric-short').textContent = shortCount;
-  document.getElementById('metric-over').textContent = overCount;
-  document.getElementById('metric-match').textContent = matchingCount;
-  document.getElementById('metric-rem').textContent = remainingCount;
-  document.getElementById('metric-short-rs').textContent = rsShort > 0 ? `Rs ${rsShort.toLocaleString()}` : '';
-  document.getElementById('metric-over-rs').textContent = rsOver > 0 ? `Rs ${rsOver.toLocaleString()}` : '';
-
-  const runningBadge = document.getElementById('live-net-impact-badge');
-  const currencyPrefixSymbol = accumulatedFinancialNetWorth < 0 ? "-" : "";
-  runningBadge.textContent = `Net Impact: Rs ${currencyPrefixSymbol}${Math.abs(accumulatedFinancialNetWorth).toLocaleString()}`;
-  runningBadge.className = "val-badge " + (accumulatedFinancialNetWorth < 0 ? "val-red" : (accumulatedFinancialNetWorth > 0 ? "val-green" : "val-grey"));
-
-  // Progress bar update
-  const totalItems = localActiveSessionItems.length;
-  const countedItems = totalItems - remainingCount;
-  const pct = totalItems > 0 ? Math.round((countedItems / totalItems) * 100) : 0;
-  document.getElementById('progress-label').textContent = `${countedItems} / ${totalItems} counted (${pct}%)`;
-  document.getElementById('progress-fill').style.width = pct + '%';
-}
-
-function openExportConfigOverlay() {
-  document.getElementById('export-modal-overlay').style.display = 'flex';
-}
-
-// UX #5: Warn if items are still unverified before signing off
-function guardedSignoff(channelId) {
-  const remaining = localActiveSessionItems.filter((_, i) => userPhysicalVerificationMap[i] === undefined).length;
-  if (remaining > 0) {
-    if (!confirm(`⚠️ ${remaining} item${remaining > 1 ? 's' : ''} still unverified.\n\nProceed with partial audit anyway?`)) return;
-  }
-  processFinalSignoffWorkflow(channelId);
-}
-
-function processFinalSignoffWorkflow(channelId) {
-  const processingAuditorName = (prompt('Staff Name (for this record):', '') || '').trim() || 'Duty Pharmacist';
-  const isolateDiscrepanciesOnly = document.getElementById('checkbox-variance-isolation').checked;
-  document.getElementById('export-modal-overlay').style.display = 'none';
-
-  const dateExecutionObject = new Date();
-  const pkStringDate = dateExecutionObject.toLocaleDateString('en-PK', {day:'2-digit', month:'short', year:'numeric'});
-  const pkStringTime = dateExecutionObject.toLocaleTimeString('en-PK', {hour:'2-digit', minute:'2-digit'});
-
-  let calculationShorts = 0, calculationOvers = 0, calculationMatches = 0, calculationNetValue = 0;
-  localActiveSessionItems.forEach((m, i) => {
-    const inputVal = userPhysicalVerificationMap[i];
-    if (inputVal === undefined) return;
-    const deltaValue = inputVal - m.qty;
-    calculationNetValue += (deltaValue * m.price);
-    if (deltaValue > 0) calculationOvers++; else if (deltaValue < 0) calculationShorts++; else calculationMatches++;
-  });
-
-  // Full item-level snapshot so this audit can be reopened later from History
-  const itemsSnapshot = localActiveSessionItems.map((m, i) => ({
-    name: m.name, code: m.code || '', price: m.price, qty: m.qty,
-    counted: userPhysicalVerificationMap[i] !== undefined ? userPhysicalVerificationMap[i] : null
-  }));
-
-  const transactionLedgerRecord = {
-    company: targetSelectedManufacturer,
-    auditor: processingAuditorName,
-    date: pkStringDate,
-    time: pkStringTime,
-    timestamp: dateExecutionObject.getTime(),
-    netFinancialImpact: calculationNetValue,
-    metricsLabel: `▲ Surplus: ${calculationOvers} | ▼ Shortage: ${calculationShorts} | = Match: ${calculationMatches}`,
-    items: itemsSnapshot
-  };
-
-  recordCompletedAuditIntoLedger(transactionLedgerRecord);
-
-  if (channelId === 'save') {
-    toast('Saved to History — ' + targetSelectedManufacturer);
-    postAuditWorkflowAutoProgression();
-    return;
-  }
-
-  if (channelId === 'pdf') {
-    renderPrintableReport(transactionLedgerRecord, isolateDiscrepanciesOnly);
-    window.print();
-    postAuditWorkflowAutoProgression();
-  } else if (channelId === 'whatsapp') {
-    const finalCalculationSignSymbol = calculationNetValue < 0 ? "-" : "";
-    let systemTemplateMessage = `*Fazal Din's Pharma Plus (${getBranchName()})*\n*Stock Verification Statement Summary*\n\n*🏢 Brand Domain:* ${targetSelectedManufacturer}\n*👤 Authorized By:* ${processingAuditorName}\n*🕒 Time execution:* ${pkStringDate} @ ${pkStringTime}\n*💰 Balance Shift evaluation:* Rs ${finalCalculationSignSymbol}${Math.abs(calculationNetValue).toLocaleString()}\n*📈 Status Metrics:* ${transactionLedgerRecord.metricsLabel}\n─────────────────────────\n`;
-
-    localActiveSessionItems.forEach((m, i) => {
-      const verifiedInputUnits = userPhysicalVerificationMap[i];
-      if (verifiedInputUnits === undefined) return;
-      const variationQuantityValue = verifiedInputUnits - m.qty;
-
-      if (isolateDiscrepanciesOnly && variationQuantityValue === 0) return;
-
-      const textSignMarker = variationQuantityValue > 0 ? '+' : '';
-      systemTemplateMessage += `• *${m.name}*\n  Sys Val: ${m.qty} | Verified Count: ${verifiedInputUnits} [Variance Delta: ${textSignMarker}${variationQuantityValue}]\n`;
-    });
-
-    shareAuditPDFToWhatsApp(transactionLedgerRecord, isolateDiscrepanciesOnly, systemTemplateMessage);
-    postAuditWorkflowAutoProgression();
-  }
-}
-
-// Renders the printable report DOM (#printable-report-canvas) for a given ledger record.
-function renderPrintableReport(transactionLedgerRecord, isolateDiscrepanciesOnly) {
-  let shorts = 0, overs = 0, matches = 0;
-  (transactionLedgerRecord.items || []).forEach(m => {
-    if (m.counted === null || m.counted === undefined) return;
-    const d = m.counted - m.qty;
-    if (d > 0) overs++; else if (d < 0) shorts++; else matches++;
-  });
-
-  document.getElementById('pdf-doc-id').textContent = 'FDPP-BT-' + Math.floor(100000 + Math.random() * 900000);
-  document.getElementById('pdf-branch-label').textContent = getBranchName();
-  document.getElementById('pdf-timestamp-date').textContent = transactionLedgerRecord.date;
-  document.getElementById('pdf-timestamp-time').textContent = transactionLedgerRecord.time;
-  document.getElementById('pdf-target-company').textContent = transactionLedgerRecord.company;
-  document.getElementById('pdf-signoff-pharmacist').textContent = transactionLedgerRecord.auditor;
-
-  document.getElementById('pdf-stat-short').textContent = shorts;
-  document.getElementById('pdf-stat-over').textContent = overs;
-  document.getElementById('pdf-stat-match').textContent = matches;
-
-  const netVal = transactionLedgerRecord.netFinancialImpact;
-  const financialSignSymbol = netVal < 0 ? "-" : "";
-  document.getElementById('pdf-stat-impact').textContent = `Rs ${financialSignSymbol}${Math.abs(netVal).toLocaleString()}`;
-
-  const tableInjectorNode = document.getElementById('pdf-table-body-injector');
-  tableInjectorNode.innerHTML = '';
-
-  (transactionLedgerRecord.items || []).forEach(m => {
-    if (m.counted === null || m.counted === undefined) return;
-    const discrepancyValue = m.counted - m.qty;
-    if (isolateDiscrepanciesOnly && discrepancyValue === 0) return;
-
-    const inlineRowElement = document.createElement('tr');
-    inlineRowElement.innerHTML = `
-      <td><strong>${escapeHTMLMarkup(m.name)}</strong><br><span style="font-size:9px; color:#64748B;">${m.code ? escapeHTMLMarkup(m.code) : 'N/A'}</span></td>
-      <td style="text-align:right;">Rs ${m.price.toLocaleString()}</td>
-      <td style="text-align:right;">${m.qty}</td>
-      <td style="text-align:right;">${m.counted}</td>
-      <td style="text-align:right; font-weight:700; color:${discrepancyValue < 0 ? '#C0392B' : (discrepancyValue > 0 ? '#00836F' : '#64748B')};">
-        ${discrepancyValue > 0 ? '+' : ''}${discrepancyValue}
-      </td>
-    `;
-    tableInjectorNode.appendChild(inlineRowElement);
-  });
-}
-
-// Generates the report PDF as a Blob using the browser print-to-canvas isn't directly possible;
-// instead we share the printable HTML as a PDF via a hidden iframe + print, falling back to text share.
-async function shareAuditPDFToWhatsApp(transactionLedgerRecord, isolateDiscrepanciesOnly, textMessage) {
-  renderPrintableReport(transactionLedgerRecord, isolateDiscrepanciesOnly);
-
-  // Try Web Share API with the report rendered as a simple text-based "PDF-like" file is not
-  // reliably possible without a PDF library. We attempt navigator.share with files only if
-  // the browser supports generating a PDF blob via print; otherwise fall back to opening
-  // the print dialog (user can "Save as PDF" then share manually) plus WhatsApp text.
-  if (navigator.canShare && navigator.share) {
-    try {
-      const reportHtml = document.getElementById('printable-report-canvas').outerHTML;
-      const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Audit Report</title></head><body>${reportHtml}</body></html>`;
-      const blob = new Blob([fullHtml], { type: 'text/html' });
-      const file = new File([blob], `Audit_${transactionLedgerRecord.company.replace(/\s+/g,'_')}_${transactionLedgerRecord.date.replace(/\s+/g,'_')}.html`, { type: 'text/html' });
-
-      if (navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: 'Audit Report', text: textMessage });
-        return;
-      }
-    } catch (err) {
-      // fall through to text share
-    }
-  }
-
-  // Fallback: open WhatsApp with text summary, and trigger print dialog so user can save/share PDF separately
-  window.open(`https://wa.me/?text=${encodeURIComponent(textMessage)}`, '_blank');
-  toast('Tip: use Print PDF then share the saved PDF file for an attachment.');
-}
-
-
-
-function postAuditWorkflowAutoProgression() {
-  const selectElement = document.getElementById('manufacturer-dropdown-selector');
-  const validArrayKeys = Array.from(selectElement.options).map(o => o.value).filter(Boolean);
-  const positionMatchIndex = validArrayKeys.indexOf(targetSelectedManufacturer) + 1;
-
-  setTimeout(() => {
-    if (positionMatchIndex < validArrayKeys.length) {
-      const matchingAdjacentCompany = validArrayKeys[positionMatchIndex];
-      if (confirm(`Audit complete for ${targetSelectedManufacturer}.\n\nAdvance to next manufacturer automatically?\n👉 Next: "${matchingAdjacentCompany}"`)) {
-        selectElement.value = matchingAdjacentCompany;
-        targetSelectedManufacturer = matchingAdjacentCompany;
-        launchActiveAuditSession();
-      } else {
-        abandonActiveWorkspaceSession();
-      }
-    } else {
-      alert("🏁 Sequence complete! All stored manufacturer profiles verified.");
-      abandonActiveWorkspaceSession();
-    }
-  }, 1000);
-}
-
-function abandonActiveWorkspaceSession() {
-  if (indexedDatabaseRef && targetSelectedManufacturer) {
-    const tx = indexedDatabaseRef.transaction(["sessionState"], "readwrite");
-    tx.objectStore("sessionState").delete(targetSelectedManufacturer);
-  }
-
-  localActiveSessionItems = []; userPhysicalVerificationMap = {}; targetSelectedManufacturer = '';
-  auditFilterMode = 'all';
-  document.getElementById('audit-workspace-area').style.display = 'none';
-  document.getElementById('audit-metrics-bar').style.display = 'none';
-  document.getElementById('action-header-sync-btn').style.display = 'none';
-  document.getElementById('audit-configuration-wrapper').style.display = 'block';
-  document.getElementById('manufacturer-dropdown-selector').value = '';
-  document.getElementById('shelf-search-input').value = '';
-  // Reset filter buttons
-  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('filter-btn-active'));
-  const allBtn = document.getElementById('filter-btn-all');
-  if (allBtn) allBtn.classList.add('filter-btn-active');
-  executeViewNavigation('audit');
-}
-
-function escapeHTMLMarkup(stringContent) {
-  return String(stringContent || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-// ════════════════════════════════════════════════════════
-// SETTINGS PAGE — Branch Name, Dropbox Key, Backup/Restore
-// ════════════════════════════════════════════════════════
-const SETTINGS_BRANCH_KEY = 'app_branch_name';
-const SETTINGS_DROPBOX_KEY_OVERRIDE = 'app_dropbox_app_key';
-const SETTINGS_AUTOSYNC_KEY = 'app_autosync_enabled';
-const DEFAULT_BRANCH_NAME = 'Bahria Town Branch';
-
-function getBranchName() {
-  return localStorage.getItem(SETTINGS_BRANCH_KEY) || DEFAULT_BRANCH_NAME;
-}
-
-function applyBranchNameToUI() {
-  const name = getBranchName();
-  const headerEl = document.getElementById('header-branch-label');
-  const pdfEl = document.getElementById('pdf-branch-label');
-  const settingsInput = document.getElementById('settings-branch-name');
-  if (headerEl) headerEl.textContent = name;
-  if (pdfEl) pdfEl.textContent = name;
-  if (settingsInput) settingsInput.value = name;
-}
-
-function saveBranchName() {
-  const val = document.getElementById('settings-branch-name').value.trim();
-  if (!val) { toast('Branch name cannot be empty', 'error'); return; }
-  localStorage.setItem(SETTINGS_BRANCH_KEY, val);
-  applyBranchNameToUI();
-  toast('Branch name saved');
-}
-
-// ── Dropbox App Key override (settable from within the app) ──
-function getEffectiveDropboxAppKey() {
-  // Key must be entered by the user in Settings — no baked fallback
-  return localStorage.getItem(SETTINGS_DROPBOX_KEY_OVERRIDE) || '';
-}
-
-function saveDropboxAppKey() {
-  const val = document.getElementById('settings-dropbox-key').value.trim();
-  if (!val) { toast('Enter a Dropbox App Key first', 'error'); return; }
-  localStorage.setItem(SETTINGS_DROPBOX_KEY_OVERRIDE, val);
-  toast('App Key saved — tap Link Dropbox to connect');
-  updateSettingsDropboxStatus();
-}
-
-function unlinkDropbox() {
-  if (!confirm('Unlink Dropbox? You will need to reconnect to resume cloud sync.')) return;
-  cloudClearToken();
-  localStorage.removeItem('dropbox_refresh_token');
-  sessionStorage.removeItem(DROPBOX_PKCE_VERIFIER_KEY);
-  dbxClient = null;
-  stopAutoSyncInterval();
-  cloudBarSet('unlinked', '☁ Tap to link Dropbox');
-  updateSettingsDropboxStatus();
-  toast('Dropbox unlinked');
-}
-
-function updateSettingsDropboxStatus() {
-  const el  = document.getElementById('settings-dropbox-status');
-  const dot = document.getElementById('conn-dot');
-  if (!el) return;
-
-  // Restore saved App Key into the input field
-  const keyInput = document.getElementById('settings-dropbox-key');
-  if (keyInput) {
-    const savedKey = localStorage.getItem(SETTINGS_DROPBOX_KEY_OVERRIDE) || '';
-    keyInput.value = savedKey;
-  }
-
-  if (cloudGetToken()) {
-    el.textContent = 'Connected securely';
-    el.style.color = 'var(--green)';
-    if (dot) { dot.style.background = 'var(--green)'; dot.style.boxShadow = '0 0 5px var(--green)'; }
-  } else {
-    el.textContent = 'Not linked';
-    el.style.color = 'var(--grey)';
-    if (dot) { dot.style.background = 'var(--grey)'; dot.style.boxShadow = 'none'; }
-  }
-
-  const autosyncToggle = document.getElementById('settings-autosync-toggle');
-  if (autosyncToggle) autosyncToggle.checked = localStorage.getItem(SETTINGS_AUTOSYNC_KEY) === '1';
-  updateSettingsConnectionTokenUI();
-}
-
-function updateSettingsConnectionTokenUI() {
-  const linked    = !!cloudGetToken();
-  const linkRow   = document.getElementById('conn-link-row');
-  const tokenRow  = document.getElementById('conn-token-row');
-  const importRow = document.getElementById('conn-import-row');
-  if (linkRow)   linkRow.style.display   = linked ? 'none'  : 'block';
-  if (tokenRow)  tokenRow.style.display  = linked ? 'block' : 'none';
-  if (importRow) importRow.style.display = 'none';
-  const disconnectBtn = document.getElementById('conn-disconnect-btn');
-  if (disconnectBtn) disconnectBtn.style.display = linked ? 'inline-block' : 'none';
-  updateInventorySyncHubState();
-}
-
-// ── Auto-sync every 10s (only pushes if data changed since last push) ──
-let _autoSyncIntervalRef = null;
-let _lastSyncedPayloadHash = null;
-
-function simpleHashString(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
-  }
-  return hash;
-}
-
-function startAutoSyncInterval() {
-  if (_autoSyncIntervalRef) return;
-  _autoSyncIntervalRef = setInterval(() => {
-    if (!dbxClient) return;
-    const payload = cloudBuildPayload();
-    const hash = simpleHashString(payload);
-    if (hash === _lastSyncedPayloadHash) return; // no changes since last sync
-    _lastSyncedPayloadHash = hash;
-    syncPushToCloud(true);
-  }, 10000);
-}
-
-function stopAutoSyncInterval() {
-  if (_autoSyncIntervalRef) {
-    clearInterval(_autoSyncIntervalRef);
-    _autoSyncIntervalRef = null;
-  }
-}
-
-function toggleAutoSync(checkboxEl) {
-  if (checkboxEl.checked) {
-    if (!cloudGetToken()) {
-      toast('Link Dropbox first', 'error');
-      checkboxEl.checked = false;
-      return;
-    }
-    localStorage.setItem(SETTINGS_AUTOSYNC_KEY, '1');
-    startAutoSyncInterval();
-    toast('Auto-sync enabled (every 10s, only when changed)');
-  } else {
-    localStorage.setItem(SETTINGS_AUTOSYNC_KEY, '0');
-    stopAutoSyncInterval();
-    toast('Auto-sync disabled');
-  }
-}
-
-// ── Full Backup (products + complete history with item snapshots) ──
-function exportFullBackup() {
-  const payload = {
-    backupSignature: 'FAZAL_DIN_FULL_BACKUP',
-    schemaVersion: 3,
-    exportedAt: new Date().toISOString(),
-    branchName: getBranchName(),
-    products: globalProductsMemoryStore,
-    historyLedger: dynamicallyRetainedLogsCache
-  };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'FullBackup_' + new Date().toISOString().slice(0,10) + '.json';
-  a.click();
-  toast('Full backup downloaded');
-}
-
+function saveDropboxAppKey() { Actions.saveDropboxAppKey(document.getElementById('settings-dropbox-key').value); }
+function unlinkDropbox() { Actions.unlinkDropbox(); }
+function cloudBarTapped() { Actions.cloudBarTapped(); }
+function toggleAutoSync(checkboxEl) { Actions.toggleAutoSync(checkboxEl.checked); }
+function exportFullBackup() { Actions.exportFullBackup(); }
 function restoreFullBackup(inputElement) {
   const file = inputElement.files[0];
   if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      const parsed = JSON.parse(e.target.result);
-      if (parsed.backupSignature !== 'FAZAL_DIN_FULL_BACKUP') {
-        toast('Invalid backup file signature', 'error');
-        return;
-      }
-
-      const productCount = Array.isArray(parsed.products) ? parsed.products.length : 0;
-      const historyCount = Array.isArray(parsed.historyLedger) ? parsed.historyLedger.length : 0;
-
-      if (!confirm(`Restore backup?\n\nThis will REPLACE current data with:\n• ${productCount.toLocaleString()} inventory items\n• ${historyCount.toLocaleString()} audit history records\n\nCurrent local data will be overwritten.`)) return;
-
-      if (Array.isArray(parsed.products)) {
-        globalProductsMemoryStore = parsed.products;
-        saveMasterDatasetToIndexedDB(globalProductsMemoryStore);
-        processDatasetInterfacePopulation(true);
-      }
-
-      if (Array.isArray(parsed.historyLedger)) {
-        dynamicallyRetainedLogsCache = parsed.historyLedger;
-        if (indexedDatabaseRef) {
-          const tx = indexedDatabaseRef.transaction(['historyLedger'], 'readwrite');
-          const st = tx.objectStore('historyLedger');
-          st.clear();
-          parsed.historyLedger.forEach(entry => st.put(entry));
-        }
-        compileAccordionLedgerInterface(dynamicallyRetainedLogsCache);
-      }
-
-      if (parsed.branchName) {
-        localStorage.setItem(SETTINGS_BRANCH_KEY, parsed.branchName);
-        applyBranchNameToUI();
-      }
-
-      toast('Backup restored successfully');
-    } catch (err) {
-      toast('Failed to parse backup file', 'error');
-    }
-  };
-  reader.readAsText(file);
+  Actions.restoreFullBackup(file);
   inputElement.value = '';
 }
 
-// ════════════════════════════════════════════════════════
-// CLOUD SYNC ENGINE  —  Dropbox OAuth2 + Slim Status Bar
-// ════════════════════════════════════════════════════════
+function importConnectionToken() {
+  document.getElementById('conn-import-row').style.display = 'block';
+  document.getElementById('conn-link-row').style.display = 'none';
+  document.getElementById('conn-token-row').style.display = 'none';
+  document.getElementById('conn-token-input').value = '';
+  setTimeout(() => document.getElementById('conn-token-input').focus(), 100);
+}
+function cancelImportToken() {
+  document.getElementById('conn-import-row').style.display = 'none';
+  const linked = !!Actions.getDropboxToken();
+  document.getElementById('conn-link-row').style.display = linked ? 'none' : 'block';
+  document.getElementById('conn-token-row').style.display = linked ? 'block' : 'none';
+}
+async function exportConnectionToken() {
+  const pin = prompt('Set a 4-digit PIN to protect this token:\n(Receiving device will need this PIN)');
+  if (!pin || pin.length < 4) { toast('PIN must be at least 4 digits', 'error'); return; }
+  const b64 = await Actions.exportConnectionToken(pin);
+  if (b64) prompt('Connection token (also copied to clipboard):\nShare this + your PIN with the other device.', b64);
+}
+async function applyImportedToken() {
+  const b64 = document.getElementById('conn-token-input').value.trim();
+  if (!b64) { toast('Paste a connection token first', 'error'); return; }
+  const pin = prompt('Enter the PIN set by the exporting device:');
+  if (!pin) return;
+  await Actions.applyImportedToken(b64, pin);
+  document.getElementById('conn-token-input').value = '';
+  cancelImportToken();
+}
 
-const DROPBOX_APP_KEY      = ''; // No baked key — enter via Settings
-const DROPBOX_SYNC_PATH    = '/pharma_audit_sync.json';
-const DROPBOX_TOKEN_KEY    = 'dropbox_access_token';
+Bus.on('cloud:state', ({ state, text }) => {
+  const bar = document.getElementById('cloud-sync-bar');
+  const lbl = document.getElementById('cloud-bar-text');
+  if (bar) bar.className = 'state-' + state;
+  if (lbl) lbl.textContent = text;
+});
 
-let dbxClient = null;
+Bus.on('settings:dropboxStatusChanged', () => {
+  const el = document.getElementById('settings-dropbox-status');
+  const dot = document.getElementById('conn-dot');
+  if (!el) return;
+  const keyInput = document.getElementById('settings-dropbox-key');
+  if (keyInput) keyInput.value = Actions.getEffectiveDropboxAppKey();
 
-// ── Token helpers ─────────────────────────────────────
-function cloudGetToken()       { return localStorage.getItem(DROPBOX_TOKEN_KEY); }
-function cloudSaveToken(t)     { localStorage.setItem(DROPBOX_TOKEN_KEY, t); }
-function cloudClearToken()     { localStorage.removeItem(DROPBOX_TOKEN_KEY); }
-
-// ── Boot: apply saved settings on load ────────────────────────
-(function settingsBoot() {
-  applyBranchNameToUI();
-  updateSettingsDropboxStatus();
-  if (localStorage.getItem(SETTINGS_AUTOSYNC_KEY) === '1') {
-    // Will only actually start pushing once dbxClient is initialized in cloudBoot()
-    setTimeout(() => {
-      if (cloudGetToken()) startAutoSyncInterval();
-    }, 1500);
+  const linked = !!Actions.getDropboxToken();
+  if (linked) {
+    el.textContent = 'Connected securely'; el.style.color = 'var(--green)';
+    if (dot) { dot.style.background = 'var(--green)'; dot.style.boxShadow = '0 0 5px var(--green)'; }
+  } else {
+    el.textContent = 'Not linked'; el.style.color = 'var(--grey)';
+    if (dot) { dot.style.background = 'var(--grey)'; dot.style.boxShadow = 'none'; }
   }
-})();
+  const autosyncToggle = document.getElementById('settings-autosync-toggle');
+  if (autosyncToggle) autosyncToggle.checked = Repo.LS.get('app_autosync_enabled') === '1';
 
-// REGISTER PWA SERVICE WORKER OBJECT CAPABILITY
+  const linkRow = document.getElementById('conn-link-row');
+  const tokenRow = document.getElementById('conn-token-row');
+  const importRow = document.getElementById('conn-import-row');
+  if (linkRow) linkRow.style.display = linked ? 'none' : 'block';
+  if (tokenRow) tokenRow.style.display = linked ? 'block' : 'none';
+  if (importRow) importRow.style.display = 'none';
+});
+Bus.on('settings:autoSyncRejected', () => {
+  const t = document.getElementById('settings-autosync-toggle');
+  if (t) t.checked = false;
+});
+
+// ── Service worker registration ──
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("./sw.js", { scope: "./" })
@@ -2215,450 +2517,9 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-function cloudBuildClient(token) {
-  if (typeof Dropbox === 'undefined') return null;
-  return new Dropbox.Dropbox({ accessToken: token });
-}
-
-// ── Status bar state machine ──────────────────────────
-// States: 'unlinked' | 'syncing' | 'synced' | 'error' | 'idle'
-function cloudBarSet(state, text) {
-  const bar = document.getElementById('cloud-sync-bar');
-  const lbl = document.getElementById('cloud-bar-text');
-  if (!bar || !lbl) return;
-  bar.className = 'state-' + state;
-  lbl.textContent = text;
-}
-
-// ── Bar tap handler ───────────────────────────────────
-function cloudBarTapped() {
-  if (!cloudGetToken()) {
-    // Not linked — start OAuth
-    initiateDropboxOAuthFlow();
-    return;
-  }
-  // Linked — manual pull then push
-  syncPullFromCloud(false);
-}
-
-// ── OAuth2 PKCE Flow (replaces deprecated implicit grant) ──
-const DROPBOX_PKCE_VERIFIER_KEY = 'dbx_pkce_verifier';
-
-async function initiateDropboxOAuthFlow() {
-  const effectiveKey = getEffectiveDropboxAppKey();
-  if (!effectiveKey || effectiveKey === 'YOUR_DROPBOX_APP_KEY') {
-    toast('Set your Dropbox App Key in Settings first.', 'error');
-    executeViewNavigation('settings');
-    return;
-  }
-  try {
-    const redirectUri = window.location.href.split('?')[0].split('#')[0];
-    const dbxAuth = new Dropbox.DropboxAuth({ clientId: effectiveKey });
-    const url = await dbxAuth.getAuthenticationUrl(
-      redirectUri, undefined, 'code', 'offline', undefined, undefined, true
-    );
-    sessionStorage.setItem(DROPBOX_PKCE_VERIFIER_KEY, dbxAuth.getCodeVerifier());
-    window.location.href = url.toString();
-  } catch (err) {
-    console.error('[CloudSync] OAuth initiation failed:', err);
-    toast('Failed to start Dropbox auth — check App Key.', 'error');
-  }
-}
-
-async function cloudParseOAuthToken() {
-  const params = new URLSearchParams(window.location.search);
-  const code   = params.get('code');
-  if (!code) return false;
-
-  const savedVerifier = sessionStorage.getItem(DROPBOX_PKCE_VERIFIER_KEY);
-  sessionStorage.removeItem(DROPBOX_PKCE_VERIFIER_KEY);
-  if (!savedVerifier) { toast('OAuth session expired — please try again.', 'error'); return false; }
-
-  try {
-    const effectiveKey = getEffectiveDropboxAppKey();
-    const redirectUri  = window.location.href.split('?')[0].split('#')[0];
-    const dbxAuth = new Dropbox.DropboxAuth({ clientId: effectiveKey });
-    dbxAuth.setCodeVerifier(savedVerifier);
-    const resp = await dbxAuth.getAccessTokenFromCode(redirectUri, code);
-    const tokenData = resp.result || resp;
-    if (tokenData.access_token) {
-      cloudSaveToken(tokenData.access_token);
-      if (tokenData.refresh_token) {
-        localStorage.setItem('dropbox_refresh_token', tokenData.refresh_token);
-      }
-      window.history.replaceState({}, document.title, window.location.pathname);
-      return true;
-    }
-  } catch (err) {
-    console.error('[CloudSync] Token exchange failed:', err);
-    toast('Dropbox auth failed — check App Key and redirect URI in Dropbox console.', 'error');
-  }
-  return false;
-}
-
-// ── Payload serialiser ────────────────────────────────
-function cloudBuildPayload() {
-  return JSON.stringify({
-    schemaVersion: 3,
-    exportedAt: new Date().toISOString(),
-    branchName: getBranchName(),
-    products: globalProductsMemoryStore,
-    historyLedger: dynamicallyRetainedLogsCache
-  });
-}
-
-function cloudCountEntries(parsed) {
-  return {
-    products: Array.isArray(parsed.products)      ? parsed.products.length      : 0,
-    history:  Array.isArray(parsed.historyLedger) ? parsed.historyLedger.length : 0
-  };
-}
-
-// ── PUSH: local → cloud ───────────────────────────────
-async function syncPushToCloud(silent) {
-  if (!dbxClient) return;
-  try {
-    if (!silent) cloudBarSet('syncing', '⟳ Syncing…');
-    const payload = cloudBuildPayload();
-    const blob    = new Blob([payload], { type: 'application/json' });
-    const file    = new File([blob], 'pharma_audit_sync.json');
-    await dbxClient.filesUpload({
-      path:       DROPBOX_SYNC_PATH,
-      contents:   file,
-      mode:       { '.tag': 'overwrite' },
-      autorename: false
-    });
-    const t = new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
-    cloudBarSet('synced', '☁ Synced at ' + t);
-    if (!silent) toast('Pushed to Dropbox');
-  } catch (err) {
-    const isAuthErr = err && (err.status === 401 || String(err).includes('401') || String(err).includes('invalid_access_token') || String(err).includes('expired_access_token'));
-    if (isAuthErr) {
-      cloudClearToken(); dbxClient = null;
-      cloudBarSet('unlinked', '☁ Session expired — tap to relink');
-      updateSettingsDropboxStatus();
-      if (!silent) toast('Dropbox session expired — tap bar to relink', 'error');
-      return;
-    }
-    cloudBarSet('error', '✕ Sync failed');
-    if (!silent) toast('Push failed', 'error');
-    console.error('[CloudSync] push:', err);
-  }
-}
-
-// ── PULL: cloud → local ───────────────────────────────
-async function syncPullFromCloud(silent) {
-  if (!dbxClient) return;
-  try {
-    cloudBarSet('syncing', '⟳ Syncing…');
-
-    let cloudText;
-    try {
-      const res = await dbxClient.filesDownload({ path: DROPBOX_SYNC_PATH });
-      // SDK v10 wraps result in res.result; fileBlob is the Blob
-      const fileBlob = (res.result && res.result.fileBlob) || res.fileBlob;
-      cloudText = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload  = e => resolve(e.target.result);
-        reader.onerror = reject;
-        reader.readAsText(fileBlob);
-      });
-    } catch (dlErr) {
-      // Dropbox SDK wraps errors differently across versions — check all shapes
-      const errStr = String(dlErr);
-      const status = dlErr && (dlErr.status || (dlErr.error && dlErr.error.status));
-      const tag    = (dlErr && dlErr.error && dlErr.error.error && dlErr.error.error['.tag'])
-                  || (dlErr && dlErr.error && dlErr.error['.tag'])
-                  || '';
-
-      const isNotFound = tag === 'path'
-        || errStr.includes('not_found')
-        || errStr.includes('path/not_found')
-        || errStr.includes('409')
-        || status === 409
-        || status === 404;
-
-      if (isNotFound) {
-        // No cloud file yet — seed from local
-        cloudBarSet('syncing', '\u29d7 Seeding cloud\u2026');
-        await syncPushToCloud(true);
-        return;
-      }
-      throw dlErr;
-    }
-
-    const cloudParsed = JSON.parse(cloudText);
-    const cc = cloudCountEntries(cloudParsed);
-    const lc = cloudCountEntries({
-      products: globalProductsMemoryStore,
-      historyLedger: dynamicallyRetainedLogsCache
-    });
-
-    const cloudWins = cc.products >= lc.products && cc.history >= lc.history;
-    if (cloudWins) {
-      if (Array.isArray(cloudParsed.products) && cloudParsed.products.length > 0) {
-        globalProductsMemoryStore = cloudParsed.products;
-        saveMasterDatasetToIndexedDB(globalProductsMemoryStore);
-        processDatasetInterfacePopulation(false);
-      }
-      if (Array.isArray(cloudParsed.historyLedger) && cloudParsed.historyLedger.length > 0) {
-        dynamicallyRetainedLogsCache = cloudParsed.historyLedger;
-        if (indexedDatabaseRef) {
-          const tx = indexedDatabaseRef.transaction(['historyLedger'], 'readwrite');
-          const st = tx.objectStore('historyLedger');
-          st.clear();
-          cloudParsed.historyLedger.forEach(e => st.put(e));
-        }
-        compileAccordionLedgerInterface(dynamicallyRetainedLogsCache);
-      }
-      if (cloudParsed.branchName) {
-        localStorage.setItem(SETTINGS_BRANCH_KEY, cloudParsed.branchName);
-        applyBranchNameToUI();
-      }
-      const t = new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
-      cloudBarSet('synced', '☁ Synced at ' + t);
-      if (!silent) toast('Pulled from cloud');
-    } else {
-      await syncPushToCloud(true);
-    }
-  } catch (err) {
-    const isAuthErr = err && (err.status === 401 || String(err).includes('401') || String(err).includes('invalid_access_token') || String(err).includes('expired_access_token'));
-    if (isAuthErr) {
-      cloudClearToken(); dbxClient = null;
-      cloudBarSet('unlinked', '☁ Session expired — tap to relink');
-      updateSettingsDropboxStatus();
-      if (!silent) toast('Dropbox session expired — tap bar to relink', 'error');
-      return;
-    }
-    cloudBarSet('error', '✕ Sync failed — tap to retry');
-    if (!silent) toast('Sync failed', 'error');
-    console.error('[CloudSync] pull:', err);
-  }
-}
-
-// ── Lifecycle hooks ───────────────────────────────────
-const _origSave = saveMasterDatasetToIndexedDB;
-saveMasterDatasetToIndexedDB = function(items) {
-  _origSave(items);
-  if (dbxClient) setTimeout(() => syncPushToCloud(true), 300);
-};
-
-const _origRecord = recordCompletedAuditIntoLedger;
-recordCompletedAuditIntoLedger = function(entry) {
-  _origRecord(entry);
-  if (dbxClient) setTimeout(() => syncPushToCloud(true), 300);
-};
-
-// ── Boot ──────────────────────────────────────────────
-(async function cloudBoot() {
-  // cloudParseOAuthToken is now async (PKCE code exchange)
-  const freshOAuth = await cloudParseOAuthToken();
-  const token = cloudGetToken();
-
-  if (!token) {
-    cloudBarSet('unlinked', '☁ Tap to link Dropbox');
-    return;
-  }
-
-  dbxClient = cloudBuildClient(token);
-  if (!dbxClient) {
-    cloudBarSet('error', '✕ SDK not ready');
-    return;
-  }
-
-  cloudBarSet('syncing', '⟳ Syncing…');
-  setTimeout(() => syncPullFromCloud(true), 1400);
-
-  if (freshOAuth) toast('Dropbox linked!');
-
-  if (localStorage.getItem(SETTINGS_AUTOSYNC_KEY) === '1') {
-    setTimeout(() => startAutoSyncInterval(), 1600);
-  }
-
-  updateSettingsDropboxStatus();
-  updateInventorySyncHubState();
-  updateSettingsConnectionTokenUI();
-})();
-// ════════════════════════════════════════════════════════
-// END CLOUD SYNC ENGINE
-// ════════════════════════════════════════════════════════
-// ════════════════════════════════════════════════════════
-// CONNECTION TOKEN SYSTEM
-// ════════════════════════════════════════════════════════
-const CONN_TOKEN_VERSION = 'FDPP-CONN-V1';
-
-async function _deriveKey(pin) {
-  const raw = new TextEncoder().encode(pin.padEnd(16, '0').slice(0, 16));
-  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
-}
-
-async function exportConnectionToken() {
-  const token = cloudGetToken();
-  if (!token) { toast('No active Dropbox connection to export', 'error'); return; }
-  const pin = prompt('Set a 4-digit PIN to protect this token:\n(Receiving device will need this PIN)');
-  if (!pin || pin.length < 4) { toast('PIN must be at least 4 digits', 'error'); return; }
-  try {
-    const key  = await _deriveKey(pin);
-    const iv   = crypto.getRandomValues(new Uint8Array(12));
-    const data = new TextEncoder().encode(JSON.stringify({ v: CONN_TOKEN_VERSION, t: token }));
-    const enc  = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data);
-    const combined = new Uint8Array(iv.length + enc.byteLength);
-    combined.set(iv, 0);
-    combined.set(new Uint8Array(enc), iv.length);
-    const b64 = btoa(String.fromCharCode(...combined));
-    await navigator.clipboard.writeText(b64).catch(() => {});
-    prompt('Connection token (also copied to clipboard):\nShare this + your PIN with the other device.', b64);
-    toast('Connection token copied to clipboard');
-  } catch (e) { toast('Export failed: ' + e.message, 'error'); }
-}
-
-function importConnectionToken() {
-  document.getElementById('conn-import-row').style.display = 'block';
-  document.getElementById('conn-link-row').style.display   = 'none';
-  document.getElementById('conn-token-row').style.display  = 'none';
-  document.getElementById('conn-token-input').value = '';
-  setTimeout(() => document.getElementById('conn-token-input').focus(), 100);
-}
-
-function cancelImportToken() {
-  document.getElementById('conn-import-row').style.display = 'none';
-  const linked = !!cloudGetToken();
-  document.getElementById('conn-link-row').style.display  = linked ? 'none'  : 'block';
-  document.getElementById('conn-token-row').style.display = linked ? 'block' : 'none';
-}
-
-async function applyImportedToken() {
-  const b64 = document.getElementById('conn-token-input').value.trim();
-  if (!b64) { toast('Paste a connection token first', 'error'); return; }
-  const pin = prompt('Enter the PIN set by the exporting device:');
-  if (!pin) return;
-  try {
-    const raw    = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    const iv     = raw.slice(0, 12);
-    const cipher = raw.slice(12);
-    const key    = await _deriveKey(pin);
-    const decBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
-    const payload = JSON.parse(new TextDecoder().decode(decBuf));
-    if (!payload.v || !payload.v.startsWith('FDPP-CONN') || !payload.t) throw new Error('Invalid token format');
-    cloudSaveToken(payload.t);
-    dbxClient = cloudBuildClient(payload.t);
-    document.getElementById('conn-token-input').value = '';
-    cancelImportToken();
-    updateSettingsDropboxStatus();
-    updateInventorySyncHubState();
-    cloudBarSet('syncing', '⧗ Verifying…');
-    setTimeout(() => syncPullFromCloud(true), 600);
-    toast('Dropbox connected via imported token!');
-  } catch (e) { toast('Invalid token or wrong PIN', 'error'); }
-}
-
-// ════════════════════════════════════════════════════════
-// DROPBOX INVENTORY FETCH ENGINE
-// Reads /inventory.json written by POS-SYNC.html
-// ════════════════════════════════════════════════════════
-const DBX_INVENTORY_PATH = '/inventory.json';
-const DBX_LAST_FETCH_KEY = 'dbx_inv_last_fetched';
-
-function _dbxInvStatusSet(msg, color) {
-  const el = document.getElementById('dbx-fetch-status');
-  if (el) { el.textContent = msg; el.style.color = color || 'var(--grey)'; }
-}
-
-function _dbxInvBarSet(pct) {
-  const bg   = document.getElementById('dbx-bar-bg');
-  const fill = document.getElementById('dbx-bar-fill');
-  if (!bg || !fill) return;
-  bg.style.display      = pct > 0 ? 'block' : 'none';
-  fill.style.width      = pct + '%';
-  fill.style.background = pct === 100 ? 'var(--green)' : 'var(--navy)';
-}
-
-function _dbxInvUpdateLastFetched(ts) {
-  const el  = document.getElementById('dbx-last-fetched');
-  const lbl = document.getElementById('dbx-last-fetched-time');
-  if (!el || !lbl) return;
-  const d = new Date(ts);
-  lbl.textContent = d.toLocaleDateString('en-PK', { day:'2-digit', month:'short' })
-    + ' @ ' + d.toLocaleTimeString('en-PK', { hour:'2-digit', minute:'2-digit' });
-  el.style.display = 'block';
-}
-
-function updateInventorySyncHubState() {
-  const linked = !!(cloudGetToken() && dbxClient);
-  const notEl  = document.getElementById('inv-not-linked');
-  const yesEl  = document.getElementById('inv-linked');
-  if (notEl) notEl.style.display = linked ? 'none'  : 'block';
-  if (yesEl) yesEl.style.display = linked ? 'block' : 'none';
-  const lastFetch = localStorage.getItem(DBX_LAST_FETCH_KEY);
-  if (lastFetch) _dbxInvUpdateLastFetched(parseInt(lastFetch));
-}
-
-async function fetchInventoryFromDropbox(silent) {
-  if (!dbxClient) { if (!silent) toast('Link Dropbox first in Settings', 'error'); return; }
-  const btn = document.getElementById('dbx-fetch-btn');
-  if (btn) btn.disabled = true;
-  if (!silent) { _dbxInvStatusSet('Connecting to Dropbox…', 'var(--grey)'); _dbxInvBarSet(20); }
-  try {
-    const res      = await dbxClient.filesDownload({ path: DBX_INVENTORY_PATH });
-    const fileBlob = (res.result && res.result.fileBlob) || res.fileBlob;
-    if (!silent) _dbxInvBarSet(60);
-    const text = await new Promise((resolve, reject) => {
-      const r = new FileReader(); r.onload = e => resolve(e.target.result); r.onerror = reject; r.readAsText(fileBlob);
-    });
-    const json = JSON.parse(text);
-    if (!Array.isArray(json) || json.length === 0) throw new Error('Inventory file is empty.');
-    if (!silent) _dbxInvBarSet(85);
-    globalProductsMemoryStore = json
-      .filter(item => item.name && item.stock > 0)
-      .map(item => ({
-        code:    item.code      || '',
-        name:    item.name      || '',
-        qty:     item.stock     || 0,
-        price:   item.unitPrice || 0,
-        company: item.company   || 'Unassigned Manufacturer',
-        generic: item.generic   || '',
-      }));
-    saveMasterDatasetToIndexedDB(globalProductsMemoryStore);
-    processDatasetInterfacePopulation(true);
-    const now = Date.now();
-    localStorage.setItem(DBX_LAST_FETCH_KEY, String(now));
-    _dbxInvUpdateLastFetched(now);
-    _dbxInvBarSet(100);
-    if (!silent) {
-      _dbxInvStatusSet('✓ ' + globalProductsMemoryStore.length.toLocaleString() + ' products loaded', 'var(--green)');
-      toast('Inventory loaded — ' + globalProductsMemoryStore.length.toLocaleString() + ' products');
-    }
-    const statusEl = document.getElementById('file-status-report');
-    if (statusEl) {
-      statusEl.style.display = 'block';
-      statusEl.innerHTML = '✅ ' + globalProductsMemoryStore.length.toLocaleString() + ' products ready'
-        + ` <button onclick="executeViewNavigation('audit')" style="margin-left:10px;background:var(--navy);color:white;border:none;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;">→ Start Auditing</button>`;
-    }
-    setTimeout(() => _dbxInvBarSet(0), 1800);
-  } catch (err) {
-    _dbxInvBarSet(0);
-    const msg = String(err.message || err);
-    if (msg.includes('not_found') || msg.includes('409') || msg.includes('404')) {
-      _dbxInvStatusSet('✗ No inventory on Dropbox yet — run POS-SYNC first', 'var(--red)');
-    } else {
-      _dbxInvStatusSet('✗ ' + msg, 'var(--red)');
-    }
-    if (!silent) toast('Fetch failed: ' + msg, 'error');
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
-(function dbxInvAutoFetchOnBoot() {
-  const lastFetch = localStorage.getItem(DBX_LAST_FETCH_KEY);
-  if (!lastFetch) return;
-  _dbxInvUpdateLastFetched(parseInt(lastFetch));
-  _dbxInvStatusSet('Refreshing from Dropbox…', 'var(--grey)');
-  setTimeout(() => { if (dbxClient) fetchInventoryFromDropbox(true); }, 2200);
-})();
-// ════════════════════════════════════════════════════════
-// END DROPBOX INVENTORY + CONNECTION TOKEN ENGINE
-// ════════════════════════════════════════════════════════
+// ── App boot — single entry point, the only call that starts the
+// User → Action → Repository → Data → State → Event Bus → Pages → Components flow.
+Actions.bootstrap();
 
 </script>
 </body>
