@@ -1,22 +1,57 @@
 {
+  "id": "/",
   "name": "Fazal Din Pharmacy Audit Hub",
   "short_name": "PharmaAudit",
-  "description": "Inventory Variance and Random Stock Audit Engine",
+  "description": "Inventory Variance and Random Stock Audit Engine for Fazal Din's Pharma Plus",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#0F1F3D",
   "theme_color": "#0F1F3D",
-  "orientation": "portrait",
+  "orientation": "portrait-primary",
+  "lang": "en",
+  "categories": ["business", "productivity"],
   "icons": [
     {
       "src": "icons/icon-192.png",
       "type": "image/png",
-      "sizes": "192x192"
+      "sizes": "192x192",
+      "purpose": "any"
     },
     {
       "src": "icons/icon-512.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-192-maskable.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon-512-maskable.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Start Audit",
+      "short_name": "Audit",
+      "description": "Go directly to the Verify Stock tab",
+      "url": "./index.html#audit",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "History Ledger",
+      "short_name": "History",
+      "description": "View past audit records",
+      "url": "./index.html#history",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

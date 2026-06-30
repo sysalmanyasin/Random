@@ -7,8 +7,19 @@
 
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#0F1F3D">
+<meta name="application-name" content="PharmaAudit">
+<meta name="description" content="Inventory Variance and Random Stock Audit Engine for Fazal Din's Pharma Plus">
+
+<!-- Apple PWA -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PharmaAudit">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+
+<!-- Favicons -->
+<link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
+<link rel="shortcut icon" href="./favicon.ico">
 
 <style>
   /* ── Structural System Base ─────────────────────────────── */
@@ -254,6 +265,21 @@
   .pin-key.wide { grid-column:span 2; font-size:14px; }
   .pin-error-msg { color:var(--red); font-size:12px; font-weight:700; min-height:18px; }
 
+  /* ── PWA Install Banner ─────────────────────────────────── */
+  #pwa-install-banner {
+    display: none; position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%);
+    width: calc(100% - 32px); max-width: 508px; background: var(--navy); border-radius: var(--radius);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.25); padding: 12px 14px; z-index: 150;
+    display: none; align-items: center; gap: 12px;
+  }
+  #pwa-install-banner.visible { display: flex; }
+  #pwa-install-banner .pwa-icon { width: 40px; height: 40px; border-radius: 10px; background: var(--gold); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 20px; }
+  #pwa-install-banner .pwa-text { flex: 1; }
+  #pwa-install-banner .pwa-title { font-size: 13px; font-weight: 800; color: var(--white); }
+  #pwa-install-banner .pwa-sub { font-size: 11px; color: rgba(255,255,255,0.65); margin-top: 2px; }
+  #pwa-install-banner .pwa-btn { background: var(--gold); color: var(--white); border: none; border-radius: 20px; padding: 8px 14px; font-size: 12px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+  #pwa-install-banner .pwa-dismiss { background: transparent; border: none; color: rgba(255,255,255,0.4); font-size: 18px; cursor: pointer; padding: 4px; line-height: 1; }
+
 </style>
 <!-- Dropbox SDK -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dropbox.js/10.34.0/Dropbox-sdk.min.js"></script>
@@ -263,6 +289,17 @@
 <body>
 
 <div id="app">
+
+  <!-- ── PWA Install Banner ─────────────────────────────────── -->
+  <div id="pwa-install-banner" role="banner" aria-label="Install app">
+    <div class="pwa-icon">💊</div>
+    <div class="pwa-text">
+      <div class="pwa-title">Install PharmaAudit</div>
+      <div class="pwa-sub">Add to home screen for offline access</div>
+    </div>
+    <button class="pwa-btn" id="pwa-install-btn">Install</button>
+    <button class="pwa-dismiss" id="pwa-dismiss-btn" aria-label="Dismiss">✕</button>
+  </div>
 
   <!-- ── Cloud Sync Status Bar ─────────────────────────────── -->
   <div id="cloud-sync-bar" class="state-unlinked" onclick="cloudBarTapped()" title="Tap to sync">
@@ -2507,6 +2544,42 @@ Bus.on('settings:autoSyncRejected', () => {
   const t = document.getElementById('settings-autosync-toggle');
   if (t) t.checked = false;
 });
+
+// ── PWA Install Prompt ──
+(function() {
+  let deferredInstallPrompt = null;
+  const banner = document.getElementById('pwa-install-banner');
+  const installBtn = document.getElementById('pwa-install-btn');
+  const dismissBtn = document.getElementById('pwa-dismiss-btn');
+  const DISMISSED_KEY = 'pwa_install_dismissed';
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    if (!localStorage.getItem(DISMISSED_KEY)) {
+      setTimeout(() => banner && banner.classList.add('visible'), 2000);
+    }
+  });
+
+  if (installBtn) installBtn.addEventListener('click', () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    deferredInstallPrompt.userChoice.then(() => {
+      deferredInstallPrompt = null;
+      banner && banner.classList.remove('visible');
+    });
+  });
+
+  if (dismissBtn) dismissBtn.addEventListener('click', () => {
+    banner && banner.classList.remove('visible');
+    localStorage.setItem(DISMISSED_KEY, '1');
+  });
+
+  window.addEventListener('appinstalled', () => {
+    banner && banner.classList.remove('visible');
+    deferredInstallPrompt = null;
+  });
+})();
 
 // ── Service worker registration ──
 if ("serviceWorker" in navigator) {
