@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Fazal Din's Pharma Plus — Audit Hub</title>
+
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#1B3A6B">
+<meta name="application-name" content="PharmaAudit">
+<meta name="description" content="Inventory Variance and Random Stock Audit Engine for Fazal Din's Pharma Plus">
+
+<!-- Apple PWA -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PharmaAudit">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+
+<!-- Favicons -->
+<link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
+<link rel="shortcut icon" href="./favicon.ico">
+
+<link rel="stylesheet" href="./css/app.css">
+<link rel="stylesheet" href="./css/engagement.css">
+<link rel="stylesheet" href="./css/desktop.css">
+
+<!-- Dropbox SDK -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dropbox.js/10.34.0/Dropbox-sdk.min.js"></script>
+<!-- Supabase JS -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<!-- SheetJS (Excel export) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<div id="app">
+
+  <div id="auth-root"></div>
+
+  <div id="app-shell-below-auth" style="display:none;">
+
+  <!-- ── PWA Install Banner ─────────────────────────────────── -->
+  <div id="pwa-install-banner" role="banner" aria-label="Install app">
+    <div class="pwa-icon">💊</div>
+    <div class="pwa-text">
+      <div class="pwa-title">Install PharmaAudit</div>
+      <div class="pwa-sub">Add to home screen for offline access</div>
+    </div>
+    <button class="pwa-btn" data-action="pwa-install">Install</button>
+    <button class="pwa-dismiss" data-action="pwa-dismiss" aria-label="Dismiss">✕</button>
+  </div>
+
+  <!-- ── Cloud Sync Status Bar ─────────────────────────────── -->
+  <div id="cloud-sync-bar" class="state-unlinked" data-action="cloud-bar-tapped" title="Tap to sync">
+    <span class="sync-dot"></span>
+    <span id="cloud-bar-text">☁ Not linked</span>
+  </div>
+
+  <div class="header">
+    <div class="header-brand-wrap">
+      <div class="header-sub">Fazal Din's Pharma Plus</div>
+      <div class="header-title">Pharmacy Audit Hub</div>
+      <div class="header-loc">📍 <span id="header-branch-label">Bahria Town Branch</span></div>
+    </div>
+    <div class="no-print" id="action-header-sync-btn" style="display:none;">
+      <button class="btn btn-gold" style="padding:5px 12px; font-size:11px;" data-action="hardware-share">Share Progress</button>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       HOME SCREEN
+  ══════════════════════════════════════════════════════════ -->
+  <div class="page active" id="page-home">
+    <div class="home-screen">
+
+      <div class="home-welcome">
+        <div class="home-greeting">Welcome back 👋</div>
+        <div class="home-tagline">What would you like to do today?</div>
+      </div>
+
+      <!-- Random Audit tile -->
+      <button class="section-tile section-tile--random" data-action="navigate" data-view="audit">
+        <div class="section-tile-icon">📋</div>
+        <div class="section-tile-body">
+          <div class="section-tile-name">Random Audit</div>
+          <div class="section-tile-desc">Verify Stock · History · Reports</div>
+          <div class="section-tile-stat" id="home-stat-random">Loading…</div>
+        </div>
+        <div class="section-tile-chevron">›</div>
+      </button>
+
+      <!-- Team Audit tile -->
+      <button class="section-tile section-tile--team" data-action="navigate" data-view="team">
+        <div class="section-tile-icon">👥</div>
+        <div class="section-tile-body">
+          <div class="section-tile-name">Team Audit</div>
+          <div class="section-tile-desc">Engagements · Rounds · Staff</div>
+          <div class="section-tile-stat" id="home-stat-team">Loading…</div>
+        </div>
+        <div class="section-tile-chevron">›</div>
+      </button>
+
+      <!-- Sync & Tools tile -->
+      <button class="section-tile section-tile--sync" data-action="navigate" data-view="import">
+        <div class="section-tile-icon">⚙️</div>
+        <div class="section-tile-body">
+          <div class="section-tile-name">Sync &amp; Tools</div>
+          <div class="section-tile-desc">Dropbox · Upload · Settings</div>
+          <div class="section-tile-stat" id="home-stat-sync">Loading…</div>
+        </div>
+        <div class="section-tile-chevron">›</div>
+      </button>
+
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       RANDOM AUDIT — VERIFY STOCK
+  ══════════════════════════════════════════════════════════ -->
+  <div class="page" id="page-audit">
+
+    <!-- Section nav -->
+    <div class="section-nav-bar">
+      <div class="section-nav-label">Random Audit</div>
+      <div class="section-sub-tabs">
+        <button class="section-sub-tab active" data-action="navigate" data-view="audit">Verify Stock</button>
+        <button class="section-sub-tab" data-action="navigate" data-view="history">History</button>
+      </div>
+    </div>
+
+    <div class="sticky-controls" id="audit-metrics-bar" style="display:none;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <span id="label-active-company" style="font-size:14px; font-weight:800; color:var(--navy); max-width:65%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Target Manufacturer</span>
+        <span id="live-net-impact-badge" class="val-badge val-grey">Net Impact: Rs 0</span>
+      </div>
+
+      <!-- Progress Bar -->
+      <div style="margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700; color:var(--grey); margin-bottom:5px;">
+          <span id="progress-label">0 / 0 counted (0%)</span>
+          <span style="color:var(--gold); cursor:pointer; text-decoration:underline;" data-action="mark-remaining-match-legacy">Mark Remaining as Match</span>
+        </div>
+        <div class="progress-track">
+          <div id="progress-fill" class="progress-fill" style="width:0%;"></div>
+        </div>
+      </div>
+
+      <!-- Metric grid -->
+      <div class="metric-grid">
+        <div>
+          <div class="metric-cell-label">Short</div>
+          <div class="metric-cell-value metric-short"><span id="metric-short">0</span></div>
+          <div class="metric-cell-sub" id="metric-short-rs"></div>
+        </div>
+        <div>
+          <div class="metric-cell-label">Over</div>
+          <div class="metric-cell-value metric-over"><span id="metric-over">0</span></div>
+          <div class="metric-cell-sub" id="metric-over-rs"></div>
+        </div>
+        <div>
+          <div class="metric-cell-label">Match</div>
+          <div class="metric-cell-value metric-match"><span id="metric-match">0</span></div>
+        </div>
+        <div>
+          <div class="metric-cell-label">Remaining</div>
+          <div class="metric-cell-value metric-rem"><span id="metric-rem">0</span></div>
+        </div>
+      </div>
+
+      <!-- Filter Toggle -->
+      <div style="display:flex; gap:4px; margin-top:10px; flex-wrap:wrap;">
+        <button id="filter-btn-all"        class="filter-btn filter-btn-active" data-action="set-audit-filter" data-mode="all">All</button>
+        <button id="filter-btn-shorts"     class="filter-btn" data-action="set-audit-filter" data-mode="shorts">Shorts ▼</button>
+        <button id="filter-btn-overs"      class="filter-btn" data-action="set-audit-filter" data-mode="overs">Overs ▲</button>
+        <button id="filter-btn-unverified" class="filter-btn" data-action="set-audit-filter" data-mode="unverified">Unverified</button>
+      </div>
+
+      <div class="search-sort-row no-print">
+        <input type="text" id="shelf-search-input" class="search-input" placeholder="🔍 Filter product row names…" data-input-action="filter-audit-table">
+        <button class="sort-btn" data-action="toggle-runtime-sort">↕ <span id="sort-order-label">A-Z</span></button>
+      </div>
+    </div>
+
+    <div id="empty-state-fallback" class="card">
+      <div class="empty-state">
+        <div class="empty-state-icon">📋</div>
+        <div class="empty-state-title">No session loaded</div>
+        <div class="empty-state-sub">Import an inventory baseline from <strong>Sync &amp; Tools</strong> to get started.</div>
+      </div>
+    </div>
+
+    <div id="audit-configuration-wrapper" style="display:none;">
+      <div class="sticky-controls" id="company-list-controls" style="margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span style="font-size:13px; font-weight:800; color:var(--navy);">Select Manufacturer</span>
+          <button class="sort-btn" id="company-sort-btn" data-action="toggle-company-sort" style="font-size:11px; padding:6px 12px;">↕ <span id="company-sort-label">A-Z</span></button>
+        </div>
+        <input type="text" id="company-search-input" class="search-input" placeholder="🔍 Search company…" data-input-action="filter-company-list" style="margin:0;">
+      </div>
+      <!-- Hidden select kept for "next manufacturer" ordering logic only -->
+      <select id="manufacturer-dropdown-selector" style="display:none;">
+        <option value="">— Select Manufacturer Brand —</option>
+      </select>
+      <div id="company-cards-list"></div>
+    </div>
+
+    <div id="audit-workspace-area" style="display:none;">
+      <div class="no-print" style="display:flex; gap:8px; margin-bottom:12px;">
+        <button class="btn btn-primary" style="flex:1;" data-action="open-export-overlay">Verify &amp; Complete Audit</button>
+        <button class="btn" style="background:var(--border); color:var(--text);" data-action="abandon-session">Exit Run</button>
+      </div>
+
+      <div style="background:white; border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden;">
+        <table class="audit-table">
+          <thead>
+            <tr>
+              <th style="padding-left:10px; width:52%;">Medicine</th>
+              <th style="text-align:right; width:13%;">Sys</th>
+              <th style="text-align:right; width:20%;">Count</th>
+              <th style="text-align:right; padding-right:10px; width:15%;">Var</th>
+            </tr>
+          </thead>
+          <tbody id="table-body-runtime-rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       RANDOM AUDIT — HISTORY LEDGER
+  ══════════════════════════════════════════════════════════ -->
+  <div class="page" id="page-history">
+
+    <!-- Section nav -->
+    <div class="section-nav-bar">
+      <div class="section-nav-label">Random Audit</div>
+      <div class="section-sub-tabs">
+        <button class="section-sub-tab" data-action="navigate" data-view="audit">Verify Stock</button>
+        <button class="section-sub-tab active" data-action="navigate" data-view="history">History</button>
+      </div>
+    </div>
+
+    <input type="text" id="history-search-input" placeholder="🔍 Search company…" data-input-action="filter-history">
+
+    <div class="history-filter-bar">
+      <input type="date" id="history-filter-from" placeholder="From date" data-change-action="filter-history">
+      <span style="font-size:11px; color:var(--grey); font-weight:700;">to</span>
+      <input type="date" id="history-filter-to" placeholder="To date" data-change-action="filter-history">
+      <button class="sort-btn" data-action="clear-history-filters">Clear</button>
+    </div>
+
+    <div class="select-all-row">
+      <input type="checkbox" class="custom-checkbox" id="history-select-all" data-change-action="toggle-select-all-history">
+      <label for="history-select-all" style="cursor:pointer;">Select All Visible</label>
+    </div>
+
+    <div class="bulk-actions-panel">
+      <button class="btn btn-gold" style="flex:1; font-size:12px; padding:10px; border-radius:8px;" data-action="dispatch-whatsapp">🟢 WhatsApp Pack</button>
+      <button class="btn btn-danger" style="flex:1; font-size:12px; padding:10px; border-radius:8px;" data-action="purge-selected">🗑️ Purge Records</button>
+    </div>
+    <div class="bulk-actions-panel">
+      <button class="btn btn-primary" style="flex:1; font-size:12px; padding:10px; border-radius:8px;" data-action="print-combined-pdf">🖨️ Combined PDF</button>
+      <button class="btn" style="flex:1; font-size:12px; padding:10px; border-radius:8px; background:var(--green); color:var(--white);" data-action="export-all-xlsx">📊 Export All (.xlsx)</button>
+    </div>
+
+    <div id="history-accordion-container"></div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       TEAM AUDIT
+  ══════════════════════════════════════════════════════════ -->
+  <div class="page" id="page-team">
+
+    <!-- Section nav -->
+    <div class="section-nav-bar">
+      <div class="section-nav-label">Team Audit</div>
+      <div class="section-sub-tabs">
+        <button class="section-sub-tab active" data-action="navigate" data-view="team">Engagements</button>
+        <button class="section-sub-tab" data-action="navigate" data-view="staff">Staff</button>
+      </div>
+    </div>
+
+    <div id="team-tab-root"></div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       STAFF
+  ══════════════════════════════════════════════════════════ -->
+  <div class="page" id="page-staff">
+
+    <!-- Section nav -->
+    <div class="section-nav-bar">
+      <div class="section-nav-label">Team Audit</div>
+      <div class="section-sub-tabs">
+        <button class="section-sub-tab" data-action="navigate" data-view="team">Engagements</button>
+        <button class="section-sub-tab active" data-action="navigate" data-view="staff">Staff</button>
+      </div>
+    </div>
+
+    <div id="staff-tab-root"></div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════════════
+       SYNC & TOOLS — SYNC (Inventory)
+  ══════════════════════════════════════════════════════════ -->
+  <div class="page" id="page-import">
+
+    <!-- Section nav -->
+    <div class="section-nav-bar">
+      <div class="section-nav-label">Sync &amp; Tools</div>
+      <div class="section-sub-tabs">
+        <button class="section-sub-tab active" data-action="navigate" data-view="import">Sync</button>
+        <button class="section-sub-tab" data-action="open-pin-gate">Tools</button>
+      </div>
+    </div>
+
+    <input type="file" id="hardware-sync-receiver" accept=".json" style="display:none" data-change-action="ingest-hardware-package">
+
+    <!-- Dropbox Inventory Fetch -->
+    <div class="card">
+      <div class="card-title" style="margin-top:0;">Live Inventory — Dropbox Sync</div>
+
+      <div id="inv-not-linked" style="text-align:center; padding:8px 0;">
+        <div style="font-size:12px; color:var(--grey); margin-bottom:14px; line-height:1.6;">
+          Link your Dropbox account in <strong>Tools</strong> to load inventory automatically.
+        </div>
+        <button class="btn btn-primary btn-block" data-action="goto-settings-pin-gate">⚙ Go to Tools → Link Dropbox</button>
+      </div>
+
+      <div id="inv-linked" style="display:none;">
+        <button class="btn btn-primary btn-block" id="dbx-fetch-btn" data-action="fetch-dropbox-inventory">
+          ☁ Load Latest Inventory
+        </button>
+        <div id="dbx-fetch-status" style="margin-top:10px; font-size:12px; font-weight:700; color:var(--grey); text-align:center; min-height:18px;"></div>
+        <div id="dbx-bar-bg" style="width:100%; height:4px; background:var(--light); border-radius:99px; overflow:hidden; margin-top:8px; display:none;">
+          <div id="dbx-bar-fill" style="height:100%; width:0%; background:var(--navy); border-radius:99px; transition:width .4s ease;"></div>
+        </div>
+        <div id="dbx-last-fetched" style="margin-top:10px; font-size:11px; color:var(--grey); text-align:center; display:none;">
+          Last fetched: <strong id="dbx-last-fetched-time">—</strong>
+        </div>
+      </div>
+    </div>
+
+    <!-- Manual CSV fallback -->
+    <div class="card">
+      <div class="card-title" style="color:var(--grey);">Manual CSV Upload (Fallback)</div>
+      <div style="border: 2px dashed var(--border); padding: 24px 16px; text-align: center; border-radius: 12px; cursor: pointer; background: var(--light);" data-action="trigger-file-input" data-target="csv-file-input">
+        <span style="font-size:30px;">📂</span>
+        <div style="font-size:12px; font-weight:700; color:var(--grey); margin-top:8px; line-height:1.5;">Tap to upload a CSV file<br>Use when Dropbox is unavailable</div>
+      </div>
+      <input type="file" id="csv-file-input" accept=".csv" style="display:none" data-change-action="handle-csv-file">
+      <div id="file-status-report" style="margin-top:12px; font-size:13px; font-weight:700; color:var(--green); display:none;"></div>
+    </div>
+
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       SYNC & TOOLS — SETTINGS / TOOLS
+  ══════════════════════════════════════════════════════════ -->
+  <div class="page" id="page-settings">
+
+    <!-- Section nav -->
+    <div class="section-nav-bar">
+      <div class="section-nav-label">Sync &amp; Tools</div>
+      <div class="section-sub-tabs">
+        <button class="section-sub-tab" data-action="navigate" data-view="import">Sync</button>
+        <button class="section-sub-tab active" data-action="open-pin-gate">Tools</button>
+      </div>
+    </div>
+
+    <!-- Display -->
+    <div class="font-widget">
+      <span style="font-size:13px; font-weight:700; color:var(--navy);">Text Scale:</span>
+      <div class="font-btn-group">
+        <button class="font-btn active" id="f-norm" data-action="font-scale" data-scale="100%">Normal</button>
+        <button class="font-btn" id="f-med" data-action="font-scale" data-scale="112%">Medium</button>
+        <button class="font-btn" id="f-lrg" data-action="font-scale" data-scale="125%">Large</button>
+      </div>
+    </div>
+
+    <div class="card-title" style="margin-top:0;">Branch &amp; Display</div>
+    <div class="card">
+      <label class="settings-label">Branch Name</label>
+      <input type="text" id="settings-branch-name" class="settings-input" placeholder="e.g. Bahria Town Branch" style="margin-bottom:0;">
+      <button class="btn btn-primary btn-block" style="margin-top:12px;" data-action="save-branch-name">Save Branch Name</button>
+    </div>
+
+    <div class="card-title">Security</div>
+    <div class="card">
+      <label class="settings-label">Current Settings PIN</label>
+      <input type="password" id="settings-pin-current" class="settings-input" placeholder="Enter current 4-digit PIN" inputmode="numeric" maxlength="4" pattern="[0-9]*">
+      <label class="settings-label">New 4-Digit PIN</label>
+      <input type="password" id="settings-pin-new" class="settings-input" placeholder="Enter new 4-digit PIN" inputmode="numeric" maxlength="4" pattern="[0-9]*">
+      <label class="settings-label">Confirm New PIN</label>
+      <input type="password" id="settings-pin-confirm" class="settings-input" placeholder="Re-enter new 4-digit PIN" inputmode="numeric" maxlength="4" pattern="[0-9]*" style="margin-bottom:0;">
+      <button class="btn btn-primary btn-block" style="margin-top:12px;" data-action="save-settings-pin">Change PIN</button>
+    </div>
+
+    <div class="card-title">Team Audit — Supabase Project</div>
+    <div class="card">
+      <div style="font-size:11px; color:var(--grey); margin-bottom:12px; line-height:1.6;">
+        Staff logins and multi-auditor data live in this Supabase project. Only change this if moving to a different project.
+      </div>
+      <label class="settings-label">Supabase URL</label>
+      <input type="text" id="supabase-url-input" class="settings-input" placeholder="https://xxxx.supabase.co">
+      <label class="settings-label">Supabase Anon / Publishable Key</label>
+      <input type="text" id="supabase-anon-key-input" class="settings-input" placeholder="sb_publishable_…" style="margin-bottom:0;">
+      <button class="btn btn-primary btn-block" style="margin-top:12px;" data-action="save-supabase-config">Save &amp; Reload</button>
+    </div>
+
+    <div class="card-title">Cloud Sync — Dropbox</div>
+    <div class="card">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span id="conn-dot" style="width:10px; height:10px; border-radius:50%; background:var(--grey); display:inline-block;"></span>
+          <strong id="settings-dropbox-status" style="font-size:13px; color:var(--grey);">Not linked</strong>
+        </div>
+        <button class="btn btn-danger btn-sm" data-action="unlink-dropbox">Disconnect</button>
+      </div>
+
+      <div id="conn-key-row" style="margin-bottom:12px;">
+        <label class="settings-label">Dropbox App Key</label>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="settings-dropbox-key" class="settings-input"
+            placeholder="Enter Dropbox App Key from POS-SYNC"
+            style="margin-bottom:0; font-family:monospace; font-size:12px; flex:1;">
+          <button class="btn btn-primary btn-sm" data-action="save-dropbox-key">Save</button>
+        </div>
+        <div style="font-size:10px; color:var(--grey); margin-top:5px;">Find this key in POS-SYNC.html</div>
+      </div>
+
+      <div id="conn-link-row">
+        <button class="btn btn-primary btn-block" data-action="cloud-bar-tapped">🔗 Link Dropbox Account</button>
+        <div style="margin-top:10px; text-align:center; font-size:11px; color:var(--grey);">— or authorise via token from another device —</div>
+        <button class="btn btn-block" style="margin-top:8px; background:var(--light); color:var(--navy); font-size:12px; padding:10px;" data-action="import-connection-token">📥 Import Connection Token</button>
+      </div>
+
+      <div id="conn-token-row" style="display:none; margin-top:4px;">
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary btn-sm" style="flex:1;" data-action="export-connection-token">📤 Export Connection</button>
+          <button class="btn btn-gold btn-sm" style="flex:1;" data-action="import-connection-token">📥 Import Connection</button>
+        </div>
+        <button class="btn btn-block" style="margin-top:8px; background:var(--green); color:var(--white); padding:11px; font-size:12px;" data-action="cloud-bar-tapped">↓ Pull From Cloud</button>
+        <label style="display:flex; align-items:center; gap:10px; font-size:13px; font-weight:700; color:var(--navy); margin-top:14px; cursor:pointer; user-select:none;">
+          <input type="checkbox" id="settings-autosync-toggle" style="width:18px; height:18px; accent-color:var(--navy);" data-change-action="toggle-autosync"> Auto-sync every 10s
+        </label>
+      </div>
+
+      <div id="conn-import-row" style="display:none; margin-top:10px;">
+        <label class="settings-label">Paste Connection Token</label>
+        <textarea id="conn-token-input" class="settings-input" rows="3" placeholder="Paste token from another device…" style="font-size:11px; font-family:monospace; resize:none;"></textarea>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary btn-sm" style="flex:1;" data-action="apply-imported-token">✓ Connect</button>
+          <button class="btn btn-sm" style="flex:1; background:var(--light); color:var(--text);" data-action="cancel-import-token">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-title">Backup &amp; Restore</div>
+    <div class="card">
+      <p style="font-size:12px; color:var(--grey); margin-bottom:14px; line-height:1.5;">
+        Export everything (inventory + full audit history) as one JSON file, or restore from a previous backup.
+      </p>
+      <button class="btn btn-block" style="background:var(--green); color:var(--white); margin-bottom:10px;" data-action="export-full-backup">⬇️ Backup Everything (.json)</button>
+      <button class="btn btn-primary btn-block" data-action="trigger-file-input" data-target="restore-backup-input">📥 Restore From Backup</button>
+      <input type="file" id="restore-backup-input" accept=".json" style="display:none" data-change-action="restore-backup">
+    </div>
+
+  </div>
+
+  <!-- ── Bottom Tab Bar ──────────────────────────────────────── -->
+  <div class="tabbar no-print">
+
+    <button class="tab-btn active" id="tab-home" data-action="navigate" data-view="home">
+      <span class="tab-icon">🏠</span>
+      <span class="tab-label">Home</span>
+      <div class="tab-dot"></div>
+    </button>
+
+    <button class="tab-btn" id="tab-audit" data-action="navigate" data-view="audit">
+      <span class="tab-icon">📋</span>
+      <span class="tab-label">Random</span>
+      <div class="tab-dot"></div>
+    </button>
+
+    <button class="tab-btn" id="tab-team" data-action="navigate" data-view="team">
+      <span class="tab-icon">👥</span>
+      <span class="tab-label">Team</span>
+      <div class="tab-dot"></div>
+    </button>
+
+    <button class="tab-btn" id="tab-import" data-action="navigate" data-view="import">
+      <span class="tab-icon">⚙️</span>
+      <span class="tab-label">Sync</span>
+      <div class="tab-dot"></div>
+    </button>
+
+    <!-- Hidden: kept so executeViewNavigation can find and mark them active -->
+    <button class="tab-btn" id="tab-history"  style="display:none;" data-action="navigate" data-view="history"></button>
+    <button class="tab-btn" id="tab-staff"    style="display:none;" data-action="navigate" data-view="staff"></button>
+    <button class="tab-btn" id="tab-settings" style="display:none;" data-action="open-pin-gate"></button>
+
+  </div>
+
+  </div><!-- /#app-shell-below-auth -->
+
+  <!-- ── PIN Gate for Settings / Tools ─────────────────────── -->
+  <div id="pin-gate-overlay" style="display:none;">
+    <div class="pin-title">🔒 Tools Access</div>
+    <div class="pin-sub">Enter 4-digit PIN to continue</div>
+    <div class="pin-dots">
+      <div class="pin-dot-circle" id="pd0"></div>
+      <div class="pin-dot-circle" id="pd1"></div>
+      <div class="pin-dot-circle" id="pd2"></div>
+      <div class="pin-dot-circle" id="pd3"></div>
+    </div>
+    <div class="pin-error-msg" id="pin-error"></div>
+    <div class="pin-keypad">
+      <button class="pin-key" data-action="pin-key" data-key="1">1</button>
+      <button class="pin-key" data-action="pin-key" data-key="2">2</button>
+      <button class="pin-key" data-action="pin-key" data-key="3">3</button>
+      <button class="pin-key" data-action="pin-key" data-key="4">4</button>
+      <button class="pin-key" data-action="pin-key" data-key="5">5</button>
+      <button class="pin-key" data-action="pin-key" data-key="6">6</button>
+      <button class="pin-key" data-action="pin-key" data-key="7">7</button>
+      <button class="pin-key" data-action="pin-key" data-key="8">8</button>
+      <button class="pin-key" data-action="pin-key" data-key="9">9</button>
+      <button class="pin-key" data-action="pin-key" data-key="back" style="font-size:16px;">⌫</button>
+      <button class="pin-key" data-action="pin-key" data-key="0">0</button>
+      <button class="pin-key" data-action="close-pin-gate" style="font-size:13px; color:rgba(255,255,255,0.55);">✕</button>
+    </div>
+  </div>
+
+  <!-- ── Final Audit Validation Modal ──────────────────────── -->
+  <div id="export-modal-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.55); z-index:300; align-items:center; justify-content:center; padding:16px;" data-action="close-export-overlay">
+    <div style="background:white; padding:20px; border-radius:20px; max-width:420px; width:100%; box-shadow:var(--shadow-md);" data-action="noop">
+      <h3 style="margin-bottom:14px; color:var(--navy); font-size:16px; font-weight:800;">Final Audit Validation</h3>
+
+      <label style="display:flex; align-items:center; gap:10px; font-size:13px; font-weight:700; color:var(--navy); margin-bottom:18px; cursor:pointer; user-select:none;">
+        <input type="checkbox" id="checkbox-variance-isolation" style="width:18px; height:18px; accent-color:var(--navy);"> Isolate Discrepancy Items Only
+      </label>
+
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-primary" style="flex:1; padding:12px;" data-action="guarded-signoff" data-channel="pdf">Print PDF</button>
+        <button class="btn btn-gold" style="flex:1; padding:12px;" data-action="guarded-signoff" data-channel="whatsapp">WhatsApp</button>
+      </div>
+      <button class="btn" style="width:100%; margin-top:8px; background:var(--green); color:var(--white); padding:12px; font-weight:700; border-radius:10px;" data-action="guarded-signoff" data-channel="save">💾 Save to History</button>
+      <button class="btn" style="width:100%; margin-top:8px; background:var(--light); color:var(--text); padding:11px; border-radius:10px;" data-action="close-export-overlay">Cancel</button>
+    </div>
+  </div>
+
+</div><!-- /#app -->
+
+<!-- ── Printable Report Canvas ────────────────────────────── -->
+<div id="printable-report-canvas">
+  <div class="pdf-meta-box">
+    <div>
+      <div class="pdf-brand-title">Fazal Din's Pharma Plus</div>
+      <div style="font-size:13px; font-weight:700; color:#475569; margin-top:2px;">Pharmacy Inventory Audit</div>
+      <div style="font-size:12px; color:#64748B; margin-top:1px;">Branch Terminal: <span id="pdf-branch-label">Bahria Town Branch</span></div>
+    </div>
+    <div style="text-align:right; font-size:12px; color:#475569; line-height:1.6;">
+      <div><strong>Document ID:</strong> <span id="pdf-doc-id">N/A</span></div>
+      <div><strong>Execution Date:</strong> <span id="pdf-timestamp-date">N/A</span></div>
+      <div><strong>Execution Time:</strong> <span id="pdf-timestamp-time">N/A</span></div>
+    </div>
+  </div>
+
+  <div style="margin-bottom:20px; font-size:14px; line-height:1.6;">
+    <div><strong>Company:</strong> <span id="pdf-target-company" style="font-weight:700; color:#1B3A6B;">N/A</span></div>
+    <div><strong>Random done by Sales Staff / Pharmacist:</strong> <span id="pdf-signoff-pharmacist" style="font-weight:700;">N/A</span></div>
+  </div>
+
+  <div class="pdf-summary-grid">
+    <div class="pdf-stat-card" style="border-top: 4px solid #DC2626;">
+      <div class="pdf-stat-val" id="pdf-stat-short" style="color:#DC2626;">0</div>
+      <div class="pdf-stat-lbl">Shortage SKUs</div>
+    </div>
+    <div class="pdf-stat-card" style="border-top: 4px solid #059669;">
+      <div class="pdf-stat-val" id="pdf-stat-over" style="color:#059669;">0</div>
+      <div class="pdf-stat-lbl">Surplus SKUs</div>
+    </div>
+    <div class="pdf-stat-card" style="border-top: 4px solid #64748B;">
+      <div class="pdf-stat-val" id="pdf-stat-match">0</div>
+      <div class="pdf-stat-lbl">Matched SKUs</div>
+    </div>
+    <div class="pdf-stat-card" style="border-top: 4px solid #F59E0B;">
+      <div class="pdf-stat-val" id="pdf-stat-impact" style="color:#1B3A6B;">Rs 0</div>
+      <div class="pdf-stat-lbl">Net Financial Delta</div>
+    </div>
+  </div>
+
+  <table class="pdf-table">
+    <thead>
+      <tr>
+        <th style="width:50%;">Medicine Item Designation</th>
+        <th style="text-align:right; width:12%;">Unit Cost</th>
+        <th style="text-align:right; width:12%;">System Qty</th>
+        <th style="text-align:right; width:12%;">Physical Count</th>
+        <th style="text-align:right; width:14%;">Variance Delta</th>
+      </tr>
+    </thead>
+    <tbody id="pdf-table-body-injector"></tbody>
+  </table>
+</div>
+
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>
