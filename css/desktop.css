@@ -1,0 +1,108 @@
+/* ══════════════════════════════════════════════════════════════
+   DESKTOP LAYER — activates only at >=1024px.
+   Everything below this width is untouched: mobile keeps the
+   exact stacked layout + bottom tab bar it already has.
+
+   Strategy: no new markup, no JS changes. The existing .header
+   and .tabbar elements (with their real data-action wiring) are
+   simply repositioned by CSS into a single fixed left sidebar —
+   .header becomes the sidebar's brand block, .tabbar becomes the
+   sidebar's vertical nav directly beneath it.
+   ══════════════════════════════════════════════════════════════ */
+
+@media (min-width: 1024px) {
+
+  :root {
+    --sidebar-w: 232px;
+    /* Left edge of the (centered, max-width:1280px) #app shell,
+       valid whether the viewport is narrower or wider than 1280px —
+       avoids a fixed-position sidebar drifting off #app's real edge
+       at in-between widths (e.g. a 1100px laptop window). */
+    --shell-left: max(0px, calc((100vw - 1280px) / 2));
+  }
+
+  html, body { background: #EEF1F6; }
+
+  #app {
+    max-width: 1280px;
+    padding-bottom: 0;
+    box-shadow: var(--shadow-md);
+    min-height: 100vh;
+  }
+
+  /* ── Sidebar brand block (was the top header) ───────────── */
+  .header {
+    position: fixed;
+    top: 0; left: var(--shell-left);
+    width: var(--sidebar-w);
+    height: 128px;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 20px 16px 0;
+    box-shadow: none;
+    z-index: 120;
+  }
+  .header-brand-wrap { padding-bottom: 18px; border-bottom: 1px solid rgba(255,255,255,0.12); width: 100%; }
+  #action-header-sync-btn { margin-top: 14px; }
+
+  /* ── Sidebar nav (was the bottom tab bar) ───────────────── */
+  .tabbar {
+    position: fixed;
+    top: 128px; left: var(--shell-left);
+    width: var(--sidebar-w);
+    height: calc(100vh - 128px);
+    background: var(--navy);
+    border-top: none;
+    flex-direction: column;
+    gap: 2px;
+    padding: 14px 10px 20px;
+  }
+  .tab-btn {
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 12px;
+    border-radius: 10px;
+    border-left: 3px solid transparent;
+  }
+  .tab-btn:hover { background: rgba(255,255,255,0.06); }
+  .tab-btn:active { background: rgba(255,255,255,0.10); }
+  .tab-icon { color: rgba(255,255,255,0.65); }
+  .tab-label { color: rgba(255,255,255,0.65); font-size: 13px; }
+  .tab-btn.active { background: rgba(255,255,255,0.10); border-left-color: var(--gold); }
+  .tab-btn.active .tab-icon,
+  .tab-btn.active .tab-label { color: var(--white); }
+  .tab-dot { display: none !important; }
+
+  /* ── Main content area shifts right of the fixed sidebar ── */
+  .page { padding: 28px 32px; max-width: 1000px; }
+  #auth-root ~ #app-shell-below-auth,
+  #app-shell-below-auth { padding-left: var(--sidebar-w); }
+
+  #cloud-sync-bar, #pwa-install-banner { margin-left: var(--sidebar-w); }
+
+  /* ── Home screen: tiles side-by-side instead of stacked ─── */
+  .home-screen {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    max-width: 1000px;
+  }
+  .home-welcome { grid-column: 1 / -1; text-align: left; padding: 4px 0 8px; }
+  .section-tile {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 0;
+    min-height: 150px;
+  }
+  .section-tile-chevron { position: absolute; top: 16px; right: 16px; }
+  .section-tile-body { width: 100%; }
+}
+
+/* Slightly narrower breakpoint: collapse sidebar to icons only,
+   still wider than a phone but not full desktop width. */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .page { padding: 18px 22px; }
+}

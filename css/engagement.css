@@ -1,0 +1,74 @@
+/* ══════════════════════════════════════════════════════════════
+   engagement.css
+   Styles for the new "Team Audit" tab (Engagement Hub, Round
+   Management, Assignment Engine, Pairing, Counting, Compile,
+   Dashboard, Reports). Purely additive — css/app.css is untouched
+   so the original single-auditor screens render exactly as before.
+   Reuses the same CSS custom properties defined in app.css.
+   ══════════════════════════════════════════════════════════════ */
+
+.val-gold { background: var(--gold-bg); color: var(--gold); }
+.val-navy { background: #E7ECF5; color: var(--navy); }
+
+/* ── Scope Selection ── */
+.scope-company-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 4px; border-bottom: 1px solid var(--light); cursor: pointer;
+}
+.scope-company-name-wrap { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.scope-company-name { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.3; }
+.scope-company-count { font-size: 11px; color: var(--grey); font-weight: 600; }
+
+/* ── Engagement header ── */
+.engagement-header-card {
+  background: var(--white); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 14px; margin-bottom: 6px;
+}
+
+/* ── Round state strip ── */
+.round-state-strip { display: flex; gap: 4px; justify-content: center; padding: 6px 0; }
+.round-state-dot { width: 22px; height: 6px; border-radius: 4px; background: var(--light); }
+.round-state-dot.active { background: var(--green); }
+
+/* ── Assignment Engine ── */
+.auditor-chip {
+  display: flex; align-items: center; gap: 6px; padding: 6px 12px;
+  border: 1.5px solid var(--border); border-radius: 20px; font-size: 12px;
+  font-weight: 700; color: var(--navy); background: var(--light); cursor: pointer;
+}
+.auditor-chip input { width: 14px; height: 14px; margin: 0; }
+.auditor-chip.selected { background: var(--navy); color: var(--white); border-color: var(--navy); }
+
+.assignment-card { border: 1.5px solid var(--border); }
+.movable-rows-wrap { max-height: 220px; overflow: auto; }
+.movable-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 0; border-bottom: 1px solid var(--light); font-size: 12px; color: var(--text);
+  gap: 8px;
+}
+.movable-row:last-child { border-bottom: none; }
+.move-target-select { min-width: 110px; }
+
+/* ── Counting Module (Sub-Auditor) ── */
+.counting-note-input {
+  display: block; width: 100%; margin-top: 4px; padding: 4px 6px;
+  font-size: 10px; border: 1px dashed var(--border); border-radius: 6px;
+  background: #FAFBFD; color: var(--grey);
+}
+.counting-note-input:focus { outline: none; border-color: var(--gold); color: var(--text); }
+
+.prev-variance-line {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-top: 5px; padding: 4px 7px;
+  font-size: 10px; font-weight: 700; color: #92400E;
+  background: var(--gold-bg, #FFFBEB); border: 1px solid #FCD34D; border-radius: 6px;
+}
+.btn-same {
+  flex-shrink: 0; border: none; border-radius: 5px; padding: 3px 9px;
+  font-size: 10px; font-weight: 800; cursor: pointer;
+  background: var(--gold); color: #fff;
+}
+.btn-same:disabled { opacity: 0.5; cursor: not-allowed; }
+tr.row-confirmed-same { background: #FFFBEB; }
+tr.row-confirmed-same .prev-variance-line { background: #FEF3C7; border-color: var(--gold); }
+tr.row-confirmed-same .btn-same { background: #B45309; }
