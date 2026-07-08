@@ -494,3 +494,10 @@
   .empty-state-icon { font-size: 44px; margin-bottom: 12px; }
   .empty-state-title { font-weight: 700; font-size: 15px; color: var(--text); margin-bottom: 6px; }
   .empty-state-sub { font-size: 12px; color: var(--grey); line-height: 1.5; }
+
+  /* ── Inventory tab ────────────────────────────────────────── */
+  .inv-group-header { background: var(--light); cursor: pointer; }
+  .inv-group-header:active { background: #EEF2F7; }
+  .inv-group-header .arrow-toggle.open { transform: rotate(90deg); }
+  .inv-subtotal-row td { background: var(--gold-bg) !important; border-top: 1.5px solid var(--gold); border-bottom: none; }
+  .company-card.active { border-color: var(--navy); box-shadow: 0 2px 12px rgba(27,58,107,0.18); background: #F3F6FB; }

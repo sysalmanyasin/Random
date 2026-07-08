@@ -58,11 +58,20 @@ async function setStaffAccessExpiry(client, staffId, accessExpiresAt) {
 
 // ── Engagements ──
 function _rowToEngagement(row) {
-  return { id: row.id, name: row.name, status: row.status, scope: { type: row.scope_type, companies: row.scope_companies || [] }, createdAt: row.created_at };
+  return {
+    id: row.id, name: row.name, status: row.status,
+    // scope.codes only set when scope.type === 'template' — an exact
+    // product-code list carried alongside the auto-derived company list
+    // (see engagement-actions.js createEngagement) so all the existing
+    // company-based UI keeps working untouched.
+    scope: { type: row.scope_type, companies: row.scope_companies || [], codes: row.scope_codes || [] },
+    createdAt: row.created_at,
+  };
 }
 async function insertEngagement(client, e) {
   const { data, error } = await client.from('engagements').insert({
     name: e.name, status: e.status, scope_type: e.scope.type, scope_companies: e.scope.companies,
+    scope_codes: e.scope.codes || [],
   }).select().single();
   if (error) throw error;
   return _rowToEngagement(data);
@@ -74,7 +83,9 @@ async function updateEngagementStatus(client, id, status) {
 // Expanding scope.companies mid-engagement (Main Auditor adds newly
 // discovered companies without disturbing existing rounds/history).
 async function updateEngagementScope(client, id, scope) {
-  const { error } = await client.from('engagements').update({ scope_type: scope.type, scope_companies: scope.companies }).eq('id', id);
+  const { error } = await client.from('engagements')
+    .update({ scope_type: scope.type, scope_companies: scope.companies, scope_codes: scope.codes || [] })
+    .eq('id', id);
   if (error) throw error;
 }
 // Deletes the engagement row outright. Rounds, assignments, submissions,
@@ -250,6 +261,36 @@ async function fetchAuditLog(client) {
   return (data || []).map(row => ({ id: row.id, actor: row.actor, role: row.role, action: row.action, details: row.details, ts: row.ts }));
 }
 
+// ── Audit Templates (Inventory tab — saved product-code lists) ──
+// Local IndexedDB (repository/templates.js) is the offline source of
+// truth; this is a best-effort cloud mirror so a template made on one
+// device shows up on another. Callers always catch/ignore errors here
+// when offline — see inventory-actions.js.
+function _rowToTemplate(row) {
+  return { id: row.id, name: row.name, codes: row.codes || [], createdAt: row.created_at, updatedAt: row.updated_at };
+}
+async function fetchTemplates(client) {
+  const { data, error } = await client.from('audit_templates').select('*').order('updated_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(_rowToTemplate);
+}
+async function insertTemplate(client, t) {
+  const { data, error } = await client.from('audit_templates').insert({ id: t.id, name: t.name, codes: t.codes }).select().single();
+  if (error) throw error;
+  return _rowToTemplate(data);
+}
+async function updateTemplate(client, id, patch) {
+  const { data, error } = await client.from('audit_templates')
+    .update({ name: patch.name, codes: patch.codes, updated_at: new Date().toISOString() })
+    .eq('id', id).select().single();
+  if (error) throw error;
+  return _rowToTemplate(data);
+}
+async function deleteTemplateRemote(client, id) {
+  const { error } = await client.from('audit_templates').delete().eq('id', id);
+  if (error) throw error;
+}
+
 export const SupabaseRepo = {
   buildSupabaseClient, signInWithPhonePin, signOut, getSession, onAuthStateChange, callAdminAction,
   fetchMyStaffProfile, fetchAllStaff, setStaffAccessExpiry,
@@ -260,4 +301,5 @@ export const SupabaseRepo = {
   insertCompiledRound, fetchCompiledRoundsByRound,
   insertFinalSnapshot, fetchFinalSnapshotsByEngagement,
   insertAuditLogEntry, fetchAuditLog,
+  fetchTemplates, insertTemplate, updateTemplate, deleteTemplateRemote,
 };

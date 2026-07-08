@@ -291,6 +291,49 @@ create index if not exists idx_compiled_round on compiled_rounds(round_id);
 create index if not exists idx_final_engagement on final_snapshots(engagement_id);
 
 -- ══════════════════════════════════════════════════════════════
+-- INVENTORY TAB — saved audit templates + exact-code Team Audit scope.
+-- Safe to re-run, same "if not exists / or replace" convention as
+-- the rest of this file.
+-- ══════════════════════════════════════════════════════════════
+
+-- A template is deliberately dumb storage: just a name + a list of
+-- product codes. All "what does this mean right now" logic happens at
+-- LOAD time (resolved against current live inventory client-side), not
+-- here — so a template survives Dropbox/CSV re-syncs and discontinued
+-- codes without ever going stale in the database.
+create table if not exists audit_templates (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  codes text[] not null default '{}',
+  created_by uuid references staff(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table audit_templates enable row level security;
+drop policy if exists "templates main all" on audit_templates;
+create policy "templates main all" on audit_templates for all using (is_main_auditor());
+-- Any valid staff member can read templates (not just the Main
+-- Auditor) so a Sub-Auditor's device can also launch an Individual
+-- Random Audit from a template shared with them.
+drop policy if exists "templates read all staff" on audit_templates;
+create policy "templates read all staff" on audit_templates for select using (is_access_valid());
+
+create index if not exists idx_templates_created_by on audit_templates(created_by);
+
+-- Team Audit launched directly from a template: scope_type = 'template'
+-- carries the exact code list in scope_codes, alongside the normal
+-- scope_companies (auto-derived client-side from those codes, so every
+-- existing company-based UI — chips, progress views, sub-rounds — keeps
+-- working without modification). round-actions.js intersects the
+-- company-scoped item snapshot with scope_codes at Round 1 creation, so
+-- sub-auditors only ever see the exact codes, never the whole company.
+alter table engagements drop constraint if exists engagements_scope_type_check;
+alter table engagements add constraint engagements_scope_type_check
+  check (scope_type in ('full','selected','single','template'));
+alter table engagements add column if not exists scope_codes text[] not null default '{}';
+
+-- ══════════════════════════════════════════════════════════════
 -- ONE-TIME: create your own Main Auditor login.
 -- Do this AFTER deploying the create-staff Edge Function (see
 -- supabase/admin-actions/index.ts) — call it once with your own

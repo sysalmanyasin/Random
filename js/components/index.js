@@ -9,6 +9,7 @@ import * as DashboardC from './dashboard-components.js';
 import * as ReportC from './report-components.js';
 import * as LoginC from './login-components.js';
 import * as StaffC from './staff-components.js';
+import * as InventoryC from './inventory-components.js';
 
 /* ══════════════════════════════════════════════════════════════
    FLOOR 4 — COMPONENTS (barrel)
@@ -28,4 +29,5 @@ export const Components = {
   ...ReportC,
   ...LoginC,
   ...StaffC,
+  ...InventoryC,
 };

@@ -63,6 +63,13 @@ export const LegacyActions = (() => {
       }
     }
 
+    // Saved audit templates (Inventory tab) — local cache loads before
+    // login so they're usable offline; a Main Auditor's cloud copies get
+    // pulled/merged separately once auth:loggedIn fires (see actions/index.js).
+    const templates = await Repo.loadTemplates();
+    Store.setState({ templates });
+    Bus.emit('templates:changed', templates);
+
     Bus.emit('branding:changed', { branchName: getBranchName() });
     Bus.emit('settings:dropboxStatusChanged', { linked: !!getDropboxToken() });
 
@@ -109,6 +116,8 @@ export const LegacyActions = (() => {
       price: parseFloat(fetchField('Retail Price', 'Price', 'RetailPrice')) || 0,
       company: fetchField('Manufacture', 'Company', 'Manufacturer', 'Brand') || 'Unassigned Manufacturer',
       generic: fetchField('Generic Detail', 'Generic', 'GenericDetail'),
+      supplier: fetchField('Supplier') || 'Unassigned Supplier',
+      conversionFactor: parseFloat(fetchField('Conversion Factor')) || 1,
     };
   }
 
@@ -138,6 +147,8 @@ export const LegacyActions = (() => {
         code: item.code || '', name: item.name || '', qty: item.stock || 0,
         price: item.unitPrice || 0, company: item.company || 'Unassigned Manufacturer',
         generic: item.generic || '',
+        supplier: item.supplier || 'Unassigned Supplier',
+        conversionFactor: item.conversionFactor || 1,
       }));
       Store.setState({ products });
       Repo.saveProducts(products);
@@ -179,11 +190,20 @@ export const LegacyActions = (() => {
   }
 
   // ── Audit session lifecycle ────────────────────────────
+  // Shared by the normal single-company flow AND the Inventory tab's
+  // "Individual Random Audit" launch (a cross-company sampled item list,
+  // from a live selection or a resolved Template). `label` is just what
+  // shows in the workspace header — renderAuditTableBody() never assumes
+  // every item shares one company, so a mixed-company item list works
+  // here without any further changes.
+  function startAuditSessionForItems(label, items) {
+    Store.setState({ activeCompany: label, activeItems: items, counts: {}, auditFilterMode: 'all' });
+    Bus.emit('audit:sessionStarted', { company: label });
+  }
   function startAuditSession(company) {
     const { products } = Store.getState();
     const activeItems = products.filter(m => m.company === company);
-    Store.setState({ activeCompany: company, activeItems, counts: {}, auditFilterMode: 'all' });
-    Bus.emit('audit:sessionStarted', { company });
+    startAuditSessionForItems(company, activeItems);
   }
 
   function reopenHistoryAudit(entryId) {
@@ -695,7 +715,7 @@ export const LegacyActions = (() => {
     getBranchName, getEffectiveDropboxAppKey, getDropboxToken, getSettingsPin,
     isAutoSyncEnabled, isPwaInstallDismissed, dismissPwaInstall,
     bootstrapLegacy, importCSVFile, importInventoryFromDropbox, ingestSharedHardwarePackage,
-    startAuditSession, reopenHistoryAudit, recordCount, markAllRemainingAsMatch,
+    startAuditSession, startAuditSessionForItems, reopenHistoryAudit, recordCount, markAllRemainingAsMatch,
     setAuditFilter, toggleSortOrder, toggleCompanySortOrder, abandonActiveSession,
     signOffAudit, purgeHistoryEntries, purgeHistoryByCompanies,
     saveBranchName, saveDropboxAppKey, exportFullBackup, restoreFullBackup,

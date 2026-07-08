@@ -11,6 +11,7 @@
    ══════════════════════════════════════════════════════════════ */
 import { DbCore } from './repository/db.js';
 import { LegacyRepo } from './repository/legacy.js';
+import { TemplatesRepo } from './repository/templates.js';
 import { LS, SS } from './repository/storage.js';
 import { DropboxRepo } from './repository/dropbox.js';
 import { SupabaseRepo } from './repository/supabase.js';
@@ -21,6 +22,9 @@ export const Repo = {
 
   // legacy single-auditor stores (inventory, session checkpoint, history)
   ...LegacyRepo,
+
+  // saved audit templates (Inventory tab, local-first)
+  ...TemplatesRepo,
 
   // localStorage / sessionStorage
   LS, SS,

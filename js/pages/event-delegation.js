@@ -5,6 +5,7 @@ import { initEngagementPages, renderTeamTab } from './engagement-pages.js';
 import { initSubPages, renderTeamTabForSubAuditor } from './sub-pages.js';
 import { initAuthPages, renderAuthRoot } from './auth-pages.js';
 import { initStaffPages, renderStaffTab } from './staff-pages.js';
+import { initInventoryPages } from './inventory-pages.js';
 import { Components } from '../components.js';
 
 /* ══════════════════════════════════════════════════════════════
@@ -65,11 +66,12 @@ export function initPages() {
   const sub = initSubPages();
   const auth = initAuthPages();
   const staff = initStaffPages();
+  const inventory = initInventoryPages();
 
-  const clickHandlers = { ...legacy.clickHandlers, ...engagement.clickHandlers, ...sub.clickHandlers, ...auth.clickHandlers, ...staff.clickHandlers };
-  const inputHandlers = { ...legacy.inputHandlers, ...engagement.inputHandlers, ...sub.inputHandlers, ...auth.inputHandlers, ...staff.inputHandlers };
-  const changeHandlers = { ...legacy.changeHandlers, ...engagement.changeHandlers, ...sub.changeHandlers, ...auth.changeHandlers, ...staff.changeHandlers };
-  const keydownHandlers = { ...legacy.keydownHandlers, ...engagement.keydownHandlers, ...sub.keydownHandlers, ...auth.keydownHandlers, ...staff.keydownHandlers };
+  const clickHandlers = { ...legacy.clickHandlers, ...engagement.clickHandlers, ...sub.clickHandlers, ...auth.clickHandlers, ...staff.clickHandlers, ...inventory.clickHandlers };
+  const inputHandlers = { ...legacy.inputHandlers, ...engagement.inputHandlers, ...sub.inputHandlers, ...auth.inputHandlers, ...staff.inputHandlers, ...inventory.inputHandlers };
+  const changeHandlers = { ...legacy.changeHandlers, ...engagement.changeHandlers, ...sub.changeHandlers, ...auth.changeHandlers, ...staff.changeHandlers, ...inventory.changeHandlers };
+  const keydownHandlers = { ...legacy.keydownHandlers, ...engagement.keydownHandlers, ...sub.keydownHandlers, ...auth.keydownHandlers, ...staff.keydownHandlers, ...inventory.keydownHandlers };
 
   app.addEventListener('click', (e) => {
     const el = e.target.closest('[data-action]');

@@ -14,6 +14,7 @@ import { DifferenceActions } from './difference-actions.js';
 import { SnapshotActions } from './snapshot-actions.js';
 import { ReportActions } from './report-actions.js';
 import { DashboardActions } from './dashboard-actions.js';
+import { InventoryActions } from './inventory-actions.js';
 
 /* ══════════════════════════════════════════════════════════════
    FLOOR 3 — ACTIONS (barrel)
@@ -44,6 +45,7 @@ Bus.on('auth:loggedIn', async (profile) => {
   } else {
     await CountingActions.loadMyAssignments();
   }
+  await InventoryActions.pullCloudTemplates();
   if (profile.interactive) Bus.emit('nav:goto', 'team');
 });
 
@@ -60,6 +62,7 @@ export const Actions = {
   ...SnapshotActions,
   ...ReportActions,
   ...DashboardActions,
+  ...InventoryActions,
   bootstrap,
   logAudit,
 };

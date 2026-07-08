@@ -60,7 +60,15 @@ async function createRound() {
   }
   // The cutoff: whatever is in the live inventory right now, for every
   // company in this engagement's scope, frozen for the rest of this round's life.
-  const itemSnapshot = ItemKey.snapshotScopeItems(products, engagement.scope.companies);
+  let itemSnapshot = ItemKey.snapshotScopeItems(products, engagement.scope.companies);
+  // Template-scoped engagement (launched from the Inventory tab): narrow
+  // the company-level snapshot down to the exact codes the template
+  // named, so sub-auditors only ever see those SKUs — not everything
+  // from the companies they happen to belong to.
+  if (engagement.scope.type === 'template' && engagement.scope.codes && engagement.scope.codes.length) {
+    const codeSet = new Set(engagement.scope.codes);
+    itemSnapshot = itemSnapshot.filter(item => codeSet.has(item.code));
+  }
   try {
     const round = await Repo.insertRound(sbClient, {
       engagementId: currentEngagementId,

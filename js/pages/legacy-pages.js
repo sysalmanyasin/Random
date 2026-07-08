@@ -23,7 +23,11 @@ export function executeViewNavigation(viewIdentifierToken) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   const pageEl = $('page-' + viewIdentifierToken);
   if (pageEl) pageEl.classList.add('active');
-  const tabNode = $('tab-' + viewIdentifierToken);
+  const tabNode = $('tab-' + viewIdentifierToken)
+    // "Inventory" and "Tools" are sub-pages of the "Sync" sidebar icon,
+    // same as "settings" always has been — keep it highlighted for all
+    // three instead of leaving the sidebar with nothing active.
+    || (['inventory', 'settings'].includes(viewIdentifierToken) ? $('tab-import') : null);
   if (tabNode) tabNode.classList.add('active');
 
   if (viewIdentifierToken === 'audit') {

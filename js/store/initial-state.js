@@ -53,5 +53,13 @@ export function createInitialState() {
 
     // ── UI-only working state for the new Engagement Hub ──
     engagementDraftScope: { type: 'full', companies: [] },
+
+    // ── Inventory tab (searchable/groupable browser + Templates) ──
+    inventorySearchQuery: '',
+    inventoryGroupBy: 'none',        // 'none' | 'company' | 'supplier'
+    inventorySelectedCodes: [],      // product codes checked in the browser right now
+    templates: [],                   // saved {id, name, codes, createdAt, updatedAt}
+    activeTemplateId: null,          // which saved template is currently loaded, if any
+    resolvedTemplateMatch: null,     // { matched, total } for the loaded template/selection
   };
 }

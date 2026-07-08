@@ -11,7 +11,10 @@ export const DB_NAME = 'FazalDinPharmaPlus_AuditEngine';
 // AuditLog) moved OUT of IndexedDB and into Supabase — see
 // repository/supabase.js. Legacy stores (products / sessionState /
 // historyLedger) are untouched, so existing installs keep working.
-export const DB_VERSION = 4;
+// v4 → v5: added `templates` (Inventory tab — saved random-audit
+// code lists). Local-first, same as products; best-effort synced to
+// Supabase's audit_templates table by repository/supabase.js.
+export const DB_VERSION = 5;
 
 let db = null;
 
@@ -28,6 +31,7 @@ function openDB() {
         const hs = d.createObjectStore('historyLedger', { keyPath: 'id' });
         hs.createIndex('byCompany', 'company', { unique: false });
       }
+      if (!d.objectStoreNames.contains('templates')) d.createObjectStore('templates', { keyPath: 'id' });
     };
   });
 }

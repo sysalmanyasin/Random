@@ -31,6 +31,24 @@ async function createEngagement(name, scope) {
     return null;
   }
   if (normalizedScope.type === 'single') normalizedScope.companies = normalizedScope.companies.slice(0, 1);
+  // Launched from the Inventory tab's Team Audit button: scope carries an
+  // exact product-code list (from a saved Template or a live selection),
+  // not a company pick. Companies are auto-derived here so every existing
+  // company-based UI (chips, progress views, sub-round add-flow) keeps
+  // working — the codes are what actually narrows the round, applied in
+  // round-actions.js createRound().
+  if (normalizedScope.type === 'template') {
+    if (!normalizedScope.codes || normalizedScope.codes.length === 0) {
+      Bus.emit('toast', { msg: 'That template/selection has no product codes', kind: 'error' });
+      return null;
+    }
+    const codeSet = new Set(normalizedScope.codes);
+    normalizedScope.companies = [...new Set(products.filter(p => codeSet.has(p.code)).map(p => p.company))];
+    if (normalizedScope.companies.length === 0) {
+      Bus.emit('toast', { msg: 'None of those product codes match current inventory', kind: 'error' });
+      return null;
+    }
+  }
 
   try {
     const engagement = await Repo.insertEngagement(sbClient, {
