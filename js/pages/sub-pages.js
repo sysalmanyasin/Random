@@ -15,6 +15,7 @@ const $ = (id) => document.getElementById(id);
 let countingSearchToken = ''; // ephemeral UI-only filter state
 let countingFilterMode = 'all'; // all | shorts | overs | unverified
 let countingSortAscending = true;
+let collapsedCompanyGroups = new Set(); // company names currently collapsed in the counting table
 
 // Renders the assignment-picker + counting workspace. Originally
 // Sub-Auditor-only; now also used by the Main Auditor whenever they
@@ -105,6 +106,24 @@ function _visibleItemGroups() {
   return companies.map(company => ({ company, items: items.filter(it => it.company === company) }));
 }
 
+function _refreshGroupHeaderImpact(company) {
+  const tbody = $('sub-counting-rows');
+  if (!tbody) return;
+  const headerTr = tbody.querySelector(`tr[data-action="toggle-company-group"][data-company="${CSS.escape(company)}"]`);
+  if (!headerTr) return;
+  const { myAssignments, activeAssignmentId, myCounts } = Store.getState();
+  const assignment = myAssignments.find(a => a.id === activeAssignmentId);
+  if (!assignment) return;
+  const companyItems = assignment.items.filter(it => it.company === company);
+  const impact = companyItems.reduce((sum, it) => {
+    const c = myCounts[it.itemKey];
+    return c === undefined ? sum : sum + (c - it.qty) * it.price;
+  }, 0);
+  const collapsed = collapsedCompanyGroups.has(company);
+  const fresh = Components.companyGroupHeaderRow(company, impact, collapsed);
+  headerTr.innerHTML = fresh.innerHTML;
+}
+
 function renderCountingRows() {
   const tbody = $('sub-counting-rows');
   if (!tbody) return;
@@ -119,7 +138,22 @@ function renderCountingRows() {
     return;
   }
   groups.forEach(group => {
-    if (group.company) tbody.appendChild(Components.companyGroupHeaderRow(group.company));
+    if (group.company) {
+      // Running variance value for the WHOLE company (from the
+      // assignment's full item list), not just the currently-visible/
+      // filtered subset in `group.items` — otherwise applying a search
+      // or Shorts/Overs filter would silently change the displayed
+      // total, and it would visibly jump the moment you type (since the
+      // per-keystroke updater below already used the full list).
+      const companyItems = activeAssignment ? activeAssignment.items.filter(it => it.company === group.company) : group.items;
+      const companyImpact = companyItems.reduce((sum, it) => {
+        const c = myCounts[it.itemKey];
+        return c === undefined ? sum : sum + (c - it.qty) * it.price;
+      }, 0);
+      const collapsed = collapsedCompanyGroups.has(group.company);
+      tbody.appendChild(Components.companyGroupHeaderRow(group.company, companyImpact, collapsed));
+      if (collapsed) return;
+    }
     group.items.forEach(item => tbody.appendChild(Components.countingRow(item, myCounts[item.itemKey], (myNotes || {})[item.itemKey], readOnly, !!(myConfirms || {})[item.itemKey])));
   });
 }
@@ -148,11 +182,12 @@ Bus.on('counting:countChanged', refreshDashboardCard);
 export function initSubPages() {
   const clickHandlers = {
     'sub-open-assignment': async (el) => {
+      collapsedCompanyGroups = new Set();
       await Actions.openMyAssignment(el.dataset.assignmentId);
     },
     'sub-back-to-list': () => {
       Actions.closeMyAssignment();
-      countingSearchToken = ''; countingFilterMode = 'all'; countingSortAscending = true;
+      countingSearchToken = ''; countingFilterMode = 'all'; countingSortAscending = true; collapsedCompanyGroups = new Set();
       renderTeamTabForSubAuditor();
     },
     'team-back-to-manage': () => Bus.emit('team:viewManage'),
@@ -165,6 +200,12 @@ export function initSubPages() {
     'apply-same-variance': (el) => Actions.applySameVariance(el.dataset.itemKey),
     'set-counting-filter': (el) => { countingFilterMode = el.dataset.mode; renderTeamTabForSubAuditor(); },
     'toggle-counting-sort': () => { countingSortAscending = !countingSortAscending; renderCountingRows(); refreshDashboardCard(); },
+    'toggle-company-group': (el) => {
+      const company = el.dataset.company;
+      if (collapsedCompanyGroups.has(company)) collapsedCompanyGroups.delete(company);
+      else collapsedCompanyGroups.add(company);
+      renderCountingRows();
+    },
   };
 
   const inputHandlers = {
@@ -176,6 +217,7 @@ export function initSubPages() {
       const item = assignment && assignment.items.find(it => it.itemKey === el.dataset.itemKey);
       const varianceCell = el.parentElement.nextElementSibling;
       if (item && varianceCell) varianceCell.innerHTML = Components.varianceCellHTML(myCounts[el.dataset.itemKey], item.qty, item.price);
+      if (item) _refreshGroupHeaderImpact(item.company);
     },
     'record-assignment-note': (el) => Actions.recordMyNote(el.dataset.itemKey, el.value),
   };

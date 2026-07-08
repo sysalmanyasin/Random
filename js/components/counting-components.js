@@ -6,9 +6,22 @@ import { varianceCellHTML } from './legacy-components.js';
    Blueprint §Counting Module (Sub-Auditor) — pure render only.
    ══════════════════════════════════════════════════════════════ */
 
-export function companyGroupHeaderRow(companyName) {
+export function companyGroupHeaderRow(companyName, varianceValue, collapsed) {
   const tr = document.createElement('tr');
-  tr.innerHTML = `<td colspan="4" style="background:var(--light); font-weight:800; color:var(--navy); font-size:11px; padding:8px 10px; text-transform:uppercase; letter-spacing:0.3px;">${esc(companyName)}</td>`;
+  tr.dataset.action = 'toggle-company-group';
+  tr.dataset.company = companyName;
+  tr.style.cursor = 'pointer';
+  const hasImpact = varianceValue !== undefined && varianceValue !== 0;
+  const impactColor = varianceValue < 0 ? 'var(--red)' : 'var(--green)';
+  const impactHTML = hasImpact
+    ? `<span style="color:${impactColor}; font-weight:800;">${varianceValue < 0 ? '-' : '+'}Rs ${Math.abs(Math.round(varianceValue)).toLocaleString()}</span>`
+    : `<span style="color:var(--grey); font-weight:600;">Rs 0</span>`;
+  tr.innerHTML = `<td colspan="4" style="background:var(--light); padding:8px 10px;">
+    <div style="display:flex; align-items:center; justify-content:space-between;">
+      <span style="font-weight:800; color:var(--navy); font-size:11px; text-transform:uppercase; letter-spacing:0.3px;">${collapsed ? '▸' : '▾'} ${esc(companyName)}</span>
+      <span style="font-size:11px;">${impactHTML}</span>
+    </div>
+  </td>`;
   return tr;
 }
 
@@ -29,9 +42,7 @@ export function countingRow(item, countedVal, noteVal, readOnly, confirmedSame) 
   tr.innerHTML = `
     <td style="padding-left:10px;">
       <div style="font-size:13px; font-weight:700; color:var(--navy); line-height:1.3;">${esc(item.name)}</div>
-      <div style="font-size:10px; color:var(--grey); margin-top:2px;">${esc(item.company)} · ${item.code ? esc(item.code) : 'No SKU'}</div>
-      <input type="text" class="counting-note-input" placeholder="+ note / flag" value="${esc(noteVal || '')}"
-        data-input-action="record-assignment-note" data-item-key="${esc(item.itemKey)}" ${dis}>
+      <div style="font-size:10px; color:var(--grey); margin-top:2px;">${item.code ? esc(item.code) : 'No SKU'} · Rs ${item.price}</div>
       ${prevLineHTML}
     </td>
     <td style="text-align:right; font-weight:700; color:var(--navy); font-size:14px;">${item.qty}</td>

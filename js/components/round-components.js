@@ -17,9 +17,10 @@ export function roundCard(round, isLatest) {
   card.className = 'company-card';
   card.dataset.action = 'open-round';
   card.dataset.roundId = round.id;
+  const label = round.roundNumber + (round.roundSuffix || '');
   card.innerHTML = `
     <div style="flex:1; min-width:0;">
-      <div class="company-card-name">Round ${round.roundNumber} ${isLatest ? '(current)' : ''}</div>
+      <div class="company-card-name">Round ${label} ${isLatest ? '(current)' : ''}</div>
       <div class="company-card-meta">Unit: ${round.unit === 'company' ? 'Company-level' : 'Company + Item'} · Created ${new Date(round.createdAt).toLocaleDateString('en-PK')}</div>
     </div>
     <div class="company-card-badges">

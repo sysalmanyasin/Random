@@ -109,6 +109,7 @@ function _itemVolumeBuckets(round, companies, staffList) {
 function _buildSplitPreview(round, staffList, buckets, method) {
   return {
     method,
+    unit: 'company',
     roundId: round.id,
     totalCompanies: buckets.reduce((sum, b) => sum + b.length, 0),
     rows: staffList.map((staffMember, i) => {
@@ -191,12 +192,11 @@ function _buildItemAssignment(round, staffMember, items, method) {
   };
 }
 
-async function splitItemsAcrossAuditors(round, items, staffList, byVolume) {
-  if (!_guardDraftRound(round)) return [];
-  if (!_guardNoExistingAssignments(round)) return [];
-  if (round.unit !== 'item') { Bus.emit('toast', { msg: 'This round is company-level — use Auto-Split by Count/Volume instead', kind: 'error' }); return []; }
-  if (staffList.length === 0) { Bus.emit('toast', { msg: 'Add at least one staff member', kind: 'error' }); return []; }
-
+// ── Item-level split (Round 2+, unit = item) — same preview-before-commit
+// pattern as the company-level split above, so the Main Auditor always
+// picks staff and reviews the split before anything is assigned, instead
+// of it happening automatically the moment the round is generated. ──
+function _itemBuckets(items, staffList, byVolume) {
   const buckets = staffList.map(() => []);
   if (byVolume) {
     // Greedy-balance by each item's financial exposure (qty × price)
@@ -211,9 +211,38 @@ async function splitItemsAcrossAuditors(round, items, staffList, byVolume) {
   } else {
     items.forEach((item, i) => buckets[i % staffList.length].push(item));
   }
-  const drafts = staffList.map((staffMember, i) => _buildItemAssignment(round, staffMember, buckets[i], byVolume ? 'auto-volume' : 'auto-count'));
+  return buckets;
+}
+
+function previewSplitItems(round, items, staffList, byVolume) {
+  if (!_guardDraftRound(round)) return null;
+  if (round.unit !== 'item') { Bus.emit('toast', { msg: 'This round is company-level — use Auto-Split by Count/Volume instead', kind: 'error' }); return null; }
+  if (!_guardNoExistingAssignments(round)) return null;
+  if (staffList.length === 0) { Bus.emit('toast', { msg: 'Add at least one staff member', kind: 'error' }); return null; }
+  const buckets = _itemBuckets(items, staffList, byVolume);
+  return {
+    method: byVolume ? 'auto-volume' : 'auto-count',
+    unit: 'item',
+    roundId: round.id,
+    totalCompanies: items.length, // reused by splitPreviewHTML as the "total lines" figure
+    rows: staffList.map((staffMember, i) => {
+      const bucket = buckets[i] || [];
+      return { staffId: staffMember.id, staffName: staffMember.name, companies: [...new Set(bucket.map(it => it.company))], itemCount: bucket.length, items: bucket };
+    }),
+  };
+}
+
+// Persists exactly what was previewed — same guarantee as commitSplitPreview.
+async function commitItemSplitPreview(round, staffList, preview) {
+  if (!preview || preview.roundId !== round.id) return [];
+  if (!_guardDraftRound(round)) return [];
+  if (round.unit !== 'item') return [];
+  if (!_guardNoExistingAssignments(round)) return [];
+  const drafts = staffList.map((staffMember, i) => _buildItemAssignment(round, staffMember, preview.rows[i].items, preview.method));
   const created = await _persistNewAssignments(drafts);
-  logAudit('assignment:itemSplit', { roundId: round.id, itemCount: items.length, staffCount: staffList.length, byVolume: !!byVolume });
+  logAudit(preview.method === 'auto-volume' ? 'assignment:itemSplitByVolume' : 'assignment:itemSplitByCount', { roundId: round.id, itemCount: preview.totalCompanies, staffCount: staffList.length });
+  const byLabel = preview.method === 'auto-volume' ? 'by value' : 'by count';
+  Bus.emit('toast', { msg: 'Split ' + preview.totalCompanies + ' item(s) across ' + staffList.length + ' staff member(s) ' + byLabel, kind: 'success' });
   return created;
 }
 
@@ -365,6 +394,6 @@ async function reopenAssignment(assignmentId) {
 
 export const AssignmentActions = {
   loadAssignmentsForRound, previewSplitByCompanyCount, previewSplitByItemVolume, commitSplitPreview,
-  assignMainAuditorToSelf, splitItemsAcrossAuditors,
+  assignMainAuditorToSelf, previewSplitItems, commitItemSplitPreview,
   manualMoveCompany, manualMoveItem, revokeAssignment, reopenAssignment,
 };

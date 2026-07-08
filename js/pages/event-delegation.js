@@ -103,7 +103,13 @@ export function initPages() {
   // sub-auditor counting table, which intentionally reuse the same class
   // (.audit-count-input) for identical styling/UX.
   app.addEventListener('focusin', (e) => {
-    if (e.target.matches && e.target.matches('.audit-count-input')) highlightAuditRow(e.target);
+    if (e.target.matches && e.target.matches('.audit-count-input')) {
+      highlightAuditRow(e.target);
+      // Select the existing value on focus (tap or Tab/Next into the
+      // field) so typing a new count replaces it immediately instead of
+      // requiring a manual delete first.
+      e.target.select();
+    }
   });
   app.addEventListener('focusout', (e) => {
     if (e.target.matches && e.target.matches('.audit-count-input')) unhighlightAuditRow(e.target);

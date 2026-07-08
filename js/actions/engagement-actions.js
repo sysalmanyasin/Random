@@ -121,7 +121,33 @@ async function deleteEngagementForever(engagementId) {
   }
 }
 
+// Adding newly-discovered companies mid-engagement (see round-actions.js
+// createSubRound — this just expands scope.companies; the sub-round
+// itself is created separately once the scope includes them).
+async function addCompaniesToEngagementScope(engagementId, newCompanies) {
+  const { engagements, sbClient } = Store.getState();
+  const eng = engagements.find(e => e.id === engagementId);
+  if (!eng) { Bus.emit('toast', { msg: 'Engagement not found', kind: 'error' }); return null; }
+  const toAdd = (newCompanies || []).filter(c => !eng.scope.companies.includes(c));
+  if (toAdd.length === 0) { Bus.emit('toast', { msg: 'Those companies are already in scope', kind: 'error' }); return null; }
+  const newScope = Object.assign({}, eng.scope, { companies: eng.scope.companies.concat(toAdd) });
+  try {
+    await Repo.updateEngagementScope(sbClient, engagementId, newScope);
+    eng.scope = newScope;
+    const newEngagements = engagements.slice();
+    Store.setState({ engagements: newEngagements });
+    logAudit('engagement:scopeExpanded', { engagementId, addedCompanies: toAdd });
+    Bus.emit('engagements:changed', newEngagements);
+    Bus.emit('toast', { msg: toAdd.length + ' compan' + (toAdd.length === 1 ? 'y' : 'ies') + ' added to scope', kind: 'success' });
+    return eng;
+  } catch (err) {
+    Bus.emit('toast', { msg: 'Could not update scope: ' + err.message, kind: 'error' });
+    return null;
+  }
+}
+
 export const EngagementActions = {
   loadEngagementsList, createEngagement, openEngagement, closeEngagementView,
   archiveEngagement, reopenEngagement, closeEngagementPermanently, deleteEngagementForever,
+  addCompaniesToEngagementScope,
 };

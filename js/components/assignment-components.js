@@ -81,16 +81,20 @@ export function assignmentCard(assignment, allAssignments, roundState) {
 }
 
 export function splitPreviewHTML(preview) {
+  const isItem = preview.unit === 'item';
   const rows = preview.rows.map(r => `
     <div class="movable-row">
       <span><strong>${esc(r.staffName)}</strong><br><span style="font-size:10px; color:var(--grey);">${r.companies.map(esc).join(', ') || '— none —'}</span></span>
       <span class="val-badge val-grey">${r.itemCount} item(s)</span>
     </div>`).join('');
-  const emptyWarning = preview.rows.some(r => r.companies.length === 0)
-    ? `<div style="font-size:11px; color:var(--red); margin-top:8px;">⚠️ At least one staff member would get 0 companies with this split — add fewer staff, or use manual rebalance after confirming.</div>`
+  const emptyWarning = preview.rows.some(r => r.itemCount === 0)
+    ? `<div style="font-size:11px; color:var(--red); margin-top:8px;">⚠️ At least one staff member would get 0 items with this split — add fewer staff, or use manual rebalance after confirming.</div>`
     : '';
+  const totalLabel = isItem
+    ? `${preview.totalCompanies} item${preview.totalCompanies === 1 ? '' : 's'}`
+    : `${preview.totalCompanies} compan${preview.totalCompanies === 1 ? 'y' : 'ies'}`;
   return `
-    <div class="card-title">Preview — ${preview.totalCompanies} compan${preview.totalCompanies === 1 ? 'y' : 'ies'} across ${preview.rows.length} staff member(s)</div>
+    <div class="card-title">Preview — ${totalLabel} across ${preview.rows.length} staff member(s)</div>
     <div class="card">
       ${rows}
       ${emptyWarning}

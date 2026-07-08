@@ -71,6 +71,12 @@ async function updateEngagementStatus(client, id, status) {
   const { error } = await client.from('engagements').update({ status }).eq('id', id);
   if (error) throw error;
 }
+// Expanding scope.companies mid-engagement (Main Auditor adds newly
+// discovered companies without disturbing existing rounds/history).
+async function updateEngagementScope(client, id, scope) {
+  const { error } = await client.from('engagements').update({ scope_type: scope.type, scope_companies: scope.companies }).eq('id', id);
+  if (error) throw error;
+}
 // Deletes the engagement row outright. Rounds, assignments, submissions,
 // compiled_rounds, and final_snapshots all have ON DELETE CASCADE on
 // engagement_id in the schema, so this cleans up everything in one go.
@@ -87,14 +93,14 @@ async function fetchEngagements(client) {
 // ── Rounds ──
 function _rowToRound(row) {
   return {
-    id: row.id, engagementId: row.engagement_id, roundNumber: row.round_number, unit: row.unit,
+    id: row.id, engagementId: row.engagement_id, roundNumber: row.round_number, roundSuffix: row.round_suffix || null, unit: row.unit,
     state: row.state, baseRoundId: row.base_round_id, itemSnapshot: row.item_snapshot || [], createdAt: row.created_at,
     lockedAt: row.locked_at, compiledAt: row.compiled_at, finalizedAt: row.finalized_at,
   };
 }
 async function insertRound(client, r) {
   const { data, error } = await client.from('rounds').insert({
-    engagement_id: r.engagementId, round_number: r.roundNumber, unit: r.unit, state: r.state, base_round_id: r.baseRoundId,
+    engagement_id: r.engagementId, round_number: r.roundNumber, round_suffix: r.roundSuffix || null, unit: r.unit, state: r.state, base_round_id: r.baseRoundId,
     item_snapshot: r.itemSnapshot || [],
   }).select().single();
   if (error) throw error;
@@ -120,7 +126,8 @@ function _rowToAssignment(row) {
   return {
     id: row.id, roundId: row.round_id, engagementId: row.engagement_id, auditorId: row.auditor_id,
     auditorName: row.auditor_name, unit: row.unit, companies: row.companies || [], items: row.items || [],
-    method: row.method, status: row.status, progressCount: row.progress_count || 0, createdAt: row.created_at,
+    method: row.method, status: row.status, progressCount: row.progress_count || 0,
+    liveSnapshot: row.live_snapshot || {}, createdAt: row.created_at,
   };
 }
 async function insertAssignments(client, list) {
@@ -139,6 +146,7 @@ async function updateAssignment(client, id, patch) {
   if (patch.items !== undefined) dbPatch.items = patch.items;
   if (patch.method !== undefined) dbPatch.method = patch.method;
   if (patch.progressCount !== undefined) dbPatch.progress_count = patch.progressCount;
+  if (patch.liveSnapshot !== undefined) dbPatch.live_snapshot = patch.liveSnapshot;
   const { error } = await client.from('assignments').update(dbPatch).eq('id', id);
   if (error) throw error;
 }
@@ -146,6 +154,14 @@ async function fetchAssignmentsByRound(client, roundId) {
   const { data, error } = await client.from('assignments').select('*').eq('round_id', roundId);
   if (error) throw error;
   return (data || []).map(_rowToAssignment);
+}
+// Single fresh row, bypassing the Store's cache — used for the Main
+// Auditor's "tap the progress bar" live-snapshot popup, which is
+// explicitly a manual refresh/re-fetch rather than a live subscription.
+async function fetchAssignmentById(client, id) {
+  const { data, error } = await client.from('assignments').select('*').eq('id', id).single();
+  if (error) throw error;
+  return _rowToAssignment(data);
 }
 // The one query a Sub-Auditor's device actually runs — RLS guarantees
 // this can only ever return assignments that belong to them.
@@ -237,9 +253,9 @@ async function fetchAuditLog(client) {
 export const SupabaseRepo = {
   buildSupabaseClient, signInWithPhonePin, signOut, getSession, onAuthStateChange, callAdminAction,
   fetchMyStaffProfile, fetchAllStaff, setStaffAccessExpiry,
-  insertEngagement, updateEngagementStatus, deleteEngagement, fetchEngagements,
+  insertEngagement, updateEngagementStatus, updateEngagementScope, deleteEngagement, fetchEngagements,
   insertRound, updateRound, fetchRoundsByEngagement,
-  insertAssignments, updateAssignment, fetchAssignmentsByRound, fetchMyAssignments,
+  insertAssignments, updateAssignment, fetchAssignmentsByRound, fetchAssignmentById, fetchMyAssignments,
   upsertSubmission, fetchSubmissionsByRound, fetchMySubmission,
   insertCompiledRound, fetchCompiledRoundsByRound,
   insertFinalSnapshot, fetchFinalSnapshotsByEngagement,

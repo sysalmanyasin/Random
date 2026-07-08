@@ -29,33 +29,135 @@ async function loadRoundsForCurrentEngagement() {
   return rounds;
 }
 
-async function createRound(baseRoundId) {
+// A "round family" is every round sharing the same roundNumber — the
+// plain round plus any lettered siblings (1, 1A, 1B, 1C...). Round N+1
+// can't start until every member of round N's family has been compiled
+// (or finalized) — otherwise work still in flight for round N would be
+// silently orphaned once the Difference Engine moves on.
+function _familyRounds(rounds, roundNumber) {
+  return rounds.filter(r => r.roundNumber === roundNumber);
+}
+function _isFamilyFullyCompiled(rounds, roundNumber) {
+  const family = _familyRounds(rounds, roundNumber);
+  return family.length > 0 && family.every(r => r.state === 'compiled' || r.state === 'final');
+}
+function _familyLabel(rounds, roundNumber) {
+  const family = _familyRounds(rounds, roundNumber);
+  const labels = family.map(r => roundNumber + (r.roundSuffix || '')).sort();
+  return labels.join(', ');
+}
+
+async function createRound() {
   const { currentEngagementId, rounds, engagements, products, sbClient } = Store.getState();
   const engagement = engagements.find(e => e.id === currentEngagementId);
   if (!engagement) { Bus.emit('toast', { msg: 'Open an engagement first', kind: 'error' }); return null; }
-
-  const roundNumber = rounds.length + 1;
+  if (rounds.length > 0) {
+    // This path is Round 1 only. Round 2+ goes through createItemRound
+    // (Difference Engine) and new-companies-mid-engagement goes through
+    // createSubRound — both apply their own, more specific gating.
+    Bus.emit('toast', { msg: 'Round 1 already exists for this engagement', kind: 'error' });
+    return null;
+  }
   // The cutoff: whatever is in the live inventory right now, for every
   // company in this engagement's scope, frozen for the rest of this round's life.
   const itemSnapshot = ItemKey.snapshotScopeItems(products, engagement.scope.companies);
   try {
     const round = await Repo.insertRound(sbClient, {
       engagementId: currentEngagementId,
-      roundNumber,
-      unit: roundNumber === 1 ? 'company' : 'item',
+      roundNumber: 1,
+      roundSuffix: null,
+      unit: 'company',
       state: 'draft',
-      baseRoundId: baseRoundId || null,
+      baseRoundId: null,
       itemSnapshot,
     });
     const newRounds = rounds.concat([round]);
     Store.setState({ rounds: newRounds, assignments: [], submissions: [] });
-    logAudit('round:created', { roundId: round.id, engagementId: currentEngagementId, roundNumber, itemCount: itemSnapshot.length });
+    logAudit('round:created', { roundId: round.id, engagementId: currentEngagementId, roundNumber: 1, itemCount: itemSnapshot.length });
     Bus.emit('rounds:changed', newRounds);
     Bus.emit('round:opened', round);
-    Bus.emit('toast', { msg: 'Round ' + roundNumber + ' created — ' + itemSnapshot.length + ' item(s) cut off from current inventory', kind: 'success' });
+    Bus.emit('toast', { msg: 'Round 1 created — ' + itemSnapshot.length + ' item(s) cut off from current inventory', kind: 'success' });
     return round;
   } catch (err) {
     Bus.emit('toast', { msg: 'Could not create round: ' + err.message, kind: 'error' });
+    return null;
+  }
+}
+
+// Round 2+ — always item-level, always generated from a compiled round via
+// the Difference Engine. `items` is whatever buildItemsForMode() produced
+// (Differences Only / Full Company Recount / Random Spot-Check).
+async function createItemRound(baseRoundId, items) {
+  const { currentEngagementId, rounds, sbClient } = Store.getState();
+  const baseRound = rounds.find(r => r.id === baseRoundId);
+  if (!baseRound) { Bus.emit('toast', { msg: 'Could not find the round this was compiled from', kind: 'error' }); return null; }
+  if (!_isFamilyFullyCompiled(rounds, baseRound.roundNumber)) {
+    Bus.emit('toast', {
+      msg: 'Compile every Round ' + _familyLabel(rounds, baseRound.roundNumber) + ' sub-round first — the next round can\'t start while any of them is still open',
+      kind: 'error',
+    });
+    return null;
+  }
+  const maxRoundNumber = Math.max(...rounds.map(r => r.roundNumber));
+  const roundNumber = maxRoundNumber + 1;
+  try {
+    const round = await Repo.insertRound(sbClient, {
+      engagementId: currentEngagementId,
+      roundNumber,
+      roundSuffix: null,
+      unit: 'item',
+      state: 'draft',
+      baseRoundId,
+      itemSnapshot: items,
+    });
+    const newRounds = rounds.concat([round]);
+    Store.setState({ rounds: newRounds, assignments: [], submissions: [] });
+    logAudit('round:created', { roundId: round.id, engagementId: currentEngagementId, roundNumber, itemCount: items.length });
+    Bus.emit('rounds:changed', newRounds);
+    Bus.emit('round:opened', round);
+    Bus.emit('toast', { msg: 'Round ' + roundNumber + ' created — ' + items.length + ' item(s) to recount', kind: 'success' });
+    return round;
+  } catch (err) {
+    Bus.emit('toast', { msg: 'Could not create round: ' + err.message, kind: 'error' });
+    return null;
+  }
+}
+
+// New companies discovered mid-engagement: creates a lettered sub-round
+// (1A, 1B, 1C…) scoped to ONLY those new companies — the original round's
+// items/history are untouched. Always attaches to the current, still-open
+// round family (the highest roundNumber that hasn't yet advanced past —
+// i.e. no round N+1 exists yet); once Round 2 exists, that family is
+// closed and a new sub-round can no longer be added to it.
+async function createSubRound(newCompanies) {
+  const { currentEngagementId, rounds, products, sbClient } = Store.getState();
+  if (!newCompanies || newCompanies.length === 0) { Bus.emit('toast', { msg: 'Select at least one company to add', kind: 'error' }); return null; }
+  const engRounds = rounds.filter(r => r.engagementId === currentEngagementId);
+  if (engRounds.length === 0) { Bus.emit('toast', { msg: 'Create Round 1 first', kind: 'error' }); return null; }
+  const maxRoundNumber = Math.max(...engRounds.map(r => r.roundNumber));
+  const family = _familyRounds(engRounds, maxRoundNumber);
+  const usedLetters = family.map(r => r.roundSuffix).filter(Boolean);
+  const roundSuffix = String.fromCharCode(65 + usedLetters.length); // 'A', 'B', 'C'...
+  const itemSnapshot = ItemKey.snapshotScopeItems(products, newCompanies);
+  try {
+    const round = await Repo.insertRound(sbClient, {
+      engagementId: currentEngagementId,
+      roundNumber: maxRoundNumber,
+      roundSuffix,
+      unit: 'company',
+      state: 'draft',
+      baseRoundId: null,
+      itemSnapshot,
+    });
+    const newRounds = rounds.concat([round]);
+    Store.setState({ rounds: newRounds });
+    logAudit('round:subRoundCreated', { roundId: round.id, engagementId: currentEngagementId, roundNumber: maxRoundNumber, roundSuffix, companies: newCompanies });
+    Bus.emit('rounds:changed', newRounds);
+    Bus.emit('round:opened', round);
+    Bus.emit('toast', { msg: 'Round ' + maxRoundNumber + roundSuffix + ' created for ' + newCompanies.length + ' new compan' + (newCompanies.length === 1 ? 'y' : 'ies'), kind: 'success' });
+    return round;
+  } catch (err) {
+    Bus.emit('toast', { msg: 'Could not create sub-round: ' + err.message, kind: 'error' });
     return null;
   }
 }
@@ -120,7 +222,11 @@ async function finalizeRoundDirect(roundId) {
   Bus.emit('round:readyForSnapshot', { roundId });
 }
 
+export function isFamilyFullyCompiled(rounds, roundNumber) { return _isFamilyFullyCompiled(rounds, roundNumber); }
+export function familyLabel(rounds, roundNumber) { return _familyLabel(rounds, roundNumber); }
+
 export const RoundActions = {
-  loadRoundsForCurrentEngagement, createRound, updateRoundState,
+  loadRoundsForCurrentEngagement, createRound, createItemRound, createSubRound, updateRoundState,
   lockRound, beginCounting, finalizeRoundDirect, noteAssignmentActivity,
+  isFamilyFullyCompiled, familyLabel,
 };

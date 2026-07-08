@@ -29,14 +29,21 @@ function _scheduleProgressSync() {
   _progressSyncTimer = setTimeout(_pushProgressNow, 1500);
 }
 async function _pushProgressNow() {
-  const { sbClient } = Store.getState();
+  const { sbClient, myCounts, myConfirms } = Store.getState();
   const assignment = _activeAssignment();
   if (!sbClient || !assignment || assignment.status === 'submitted' || assignment.status === 'revoked') return;
   const counted = countingProgress().counted;
-  if (assignment.progressCount === counted) return; // nothing changed, skip the round-trip
+  // No "nothing changed" early-return here anymore: the aggregate counted
+  // total can stay identical even when a specific item's value just
+  // changed (e.g. correcting 10 to 12 on an already-counted item), and
+  // the Main Auditor's live-snapshot popup needs that new value, not just
+  // a changed total. The 1.5s debounce above is what keeps this from
+  // hammering the network, not this check.
   try {
-    await Repo.updateAssignment(sbClient, assignment.id, { progressCount: counted });
+    const liveSnapshot = { counts: myCounts, confirms: myConfirms || {}, updatedAt: new Date().toISOString() };
+    await Repo.updateAssignment(sbClient, assignment.id, { progressCount: counted, liveSnapshot });
     assignment.progressCount = counted;
+    assignment.liveSnapshot = liveSnapshot;
   } catch (err) {
     console.error('[Counting] Could not sync progress (non-fatal, will retry on next save):', err);
   }

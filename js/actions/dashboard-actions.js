@@ -1,4 +1,5 @@
 import { Store } from '../store.js';
+import { Repo } from '../repository.js';
 
 /* ══════════════════════════════════════════════════════════════
    FLOOR 3 — ACTIONS / dashboard-actions.js
@@ -7,12 +8,20 @@ import { Store } from '../store.js';
    numbers to render; Components just render whatever they're given.
    ══════════════════════════════════════════════════════════════ */
 
-function mainAuditorDashboard(engagementId) {
+function mainAuditorDashboard(engagementId, focusRoundId) {
   const { engagements, rounds, assignments, submissions, compiledRounds } = Store.getState();
   const engagement = engagements.find(e => e.id === engagementId);
   if (!engagement) return null;
   const engRounds = rounds.filter(r => r.engagementId === engagementId).sort((a, b) => a.roundNumber - b.roundNumber);
-  const latestRound = engRounds[engRounds.length - 1] || null;
+  // Bug fix: this used to always summarize the engagement's latest round by
+  // roundNumber, even while the Main Auditor had an EARLIER round open (e.g.
+  // reviewing Round 1 after Round 2 already exists, or working inside a
+  // lettered sub-round like 1B) — so "Company Coverage" showed Unassigned
+  // for companies that were actually assigned, just in the round on screen.
+  // Now it reflects whichever round is actually open; only falls back to
+  // "latest" when nothing is open (e.g. the plain engagement list view).
+  const focusRound = (focusRoundId && engRounds.find(r => r.id === focusRoundId)) || null;
+  const latestRound = focusRound || engRounds[engRounds.length - 1] || null;
   const roundAssignments = latestRound ? assignments.filter(a => a.roundId === latestRound.id && a.status !== 'revoked') : [];
   const roundSubmissions = latestRound ? submissions.filter(s => s.roundId === latestRound.id) : [];
   const compiled = latestRound ? compiledRounds.filter(c => c.roundId === latestRound.id).pop() : null;
@@ -31,7 +40,14 @@ function mainAuditorDashboard(engagementId) {
     };
   });
 
-  const companyStatus = engagement.scope.companies.map(company => ({
+  // Only list companies actually present in the round being viewed — for an
+  // item-level round (Differences Only etc.) that's usually a small subset
+  // of the engagement's full scope, so showing every scope company here
+  // would just be noise ("Unassigned" for companies with zero items this round).
+  const companiesInFocus = latestRound
+    ? [...new Set(latestRound.itemSnapshot.map(it => it.company))].sort((a, b) => a.localeCompare(b))
+    : engagement.scope.companies;
+  const companyStatus = companiesInFocus.map(company => ({
     company,
     assigned: roundAssignments.some(a => a.companies.includes(company)),
     auditor: (roundAssignments.find(a => a.companies.includes(company)) || {}).auditorName || '—',
@@ -39,7 +55,7 @@ function mainAuditorDashboard(engagementId) {
 
   return {
     engagementStatus: engagement.status,
-    roundStatus: latestRound ? { number: latestRound.roundNumber, state: latestRound.state } : null,
+    roundStatus: latestRound ? { number: latestRound.roundNumber, suffix: latestRound.roundSuffix || '', state: latestRound.state } : null,
     companyStatus,
     auditorProgress,
     assignmentProgress: { total: roundAssignments.length, submitted: roundSubmissions.length },
@@ -71,4 +87,18 @@ function subAuditorDashboard() {
   };
 }
 
-export const DashboardActions = { mainAuditorDashboard, subAuditorDashboard };
+// Manual "refreshing snapshot" for the Main Auditor's progress-bar tap —
+// a fresh single-row fetch (not a live subscription), showing whatever
+// the Sub-Auditor's device last synced via its own debounce.
+async function fetchLiveAssignmentSnapshot(assignmentId) {
+  const { sbClient } = Store.getState();
+  if (!sbClient) return null;
+  try {
+    return await Repo.fetchAssignmentById(sbClient, assignmentId);
+  } catch (err) {
+    console.error('[Dashboard] Could not fetch live snapshot:', err);
+    return null;
+  }
+}
+
+export const DashboardActions = { mainAuditorDashboard, subAuditorDashboard, fetchLiveAssignmentSnapshot };
