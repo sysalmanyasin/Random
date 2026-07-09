@@ -65,34 +65,52 @@ export function mainDashboardHTML(dash, openSections) {
   `;
 }
 
-export function subDashboardHTML(dash, filterMode, sortAscending, readOnly) {
+// Collapsed by default, same .history-item pattern as the Main Auditor
+// dashboard — this card was a wall of text (every assigned company run
+// together in one paragraph) sitting above the counting table the
+// sub-auditor actually needs to reach. `open` is kept by the page layer
+// across re-renders since this redraws on every single count entered.
+export function subDashboardHTML(dash, filterMode, sortAscending, readOnly, open, groupByCompany) {
   if (!dash) return '<div class="card">Not paired to an assignment.</div>';
   const netCls = dash.netImpact < 0 ? 'val-red' : (dash.netImpact > 0 ? 'val-green' : 'val-grey');
   const netSign = dash.netImpact > 0 ? '+' : '';
   const chip = (mode, label) => `<button class="filter-btn${filterMode === mode ? ' filter-btn-active' : ''}" data-action="set-counting-filter" data-mode="${mode}">${label}</button>`;
+  const multiCompany = dash.assignedCompanies.length > 1;
   return `
-    <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
-        <div class="card-title" style="margin:0;">Your Assignment</div>
-        <span class="val-badge ${netCls}">Net Impact: ${netSign}Rs ${Math.abs(dash.netImpact).toLocaleString()}</span>
+    <div class="history-item${open ? ' open' : ''}">
+      <div class="history-header" data-action="toggle-sub-dashboard-card" style="align-items:flex-start;">
+        <div style="min-width:0;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="arrow-toggle">&#9658;</span>
+            <strong style="color:var(--navy); font-size:13px;">Your Assignment</strong>
+          </div>
+          <div style="font-size:11px; color:var(--grey); margin:2px 0 0 22px;">${dash.assignedCompanies.length} compan${dash.assignedCompanies.length === 1 ? 'y' : 'ies'} · ${dash.progress.counted}/${dash.progress.total} counted (${dash.progress.pct}%)</div>
+        </div>
+        <span class="val-badge ${netCls}" style="flex-shrink:0;">Net Impact: ${netSign}Rs ${Math.abs(dash.netImpact).toLocaleString()}</span>
       </div>
-      <div style="font-size:12px; color:var(--grey); margin-bottom:8px;">${dash.assignedCompanies.map(esc).join(', ')}</div>
-      <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700; color:var(--grey); margin-bottom:4px;">
-        <span>${dash.progress.counted} / ${dash.progress.total} counted (${dash.progress.pct}%)</span>
-        ${readOnly ? '' : '<span style="color:var(--gold); cursor:pointer; text-decoration:underline;" data-action="mark-remaining-match-counting">Mark Remaining as Match</span>'}
-      </div>
-      <div style="background:var(--light); border-radius:6px; height:6px; overflow:hidden; margin-bottom:10px;">
-        <div style="height:100%; background:var(--green); border-radius:6px; width:${dash.progress.pct}%;"></div>
-      </div>
-      <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:700; margin-bottom:10px;">
-        <div style="color:var(--red);">Short: ${dash.short}</div>
-        <div style="color:var(--green);">Over: ${dash.over}</div>
-        <div style="color:var(--grey);">Match: ${dash.match}</div>
-        <div style="color:var(--gold);">Rem: ${dash.rem}</div>
-      </div>
-      <div style="display:flex; gap:6px; flex-wrap:wrap;">
-        ${chip('all', 'All')}${chip('shorts', 'Shorts ▼')}${chip('overs', 'Overs ▲')}${chip('unverified', 'Unverified')}
-        <button class="sort-btn" data-action="toggle-counting-sort" style="margin-left:auto;">↕️ ${sortAscending ? 'A-Z' : 'Z-A'}</button>
+      <div class="history-content">
+        <div style="font-size:12px; color:var(--grey); margin:8px 0;">${dash.assignedCompanies.map(esc).join(', ')}</div>
+        <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700; color:var(--grey); margin-bottom:4px;">
+          <span>${dash.progress.counted} / ${dash.progress.total} counted (${dash.progress.pct}%)</span>
+          ${readOnly ? '' : '<span style="color:var(--gold); cursor:pointer; text-decoration:underline;" data-action="mark-remaining-match-counting">Mark Remaining as Match</span>'}
+        </div>
+        <div style="background:var(--light); border-radius:6px; height:6px; overflow:hidden; margin-bottom:10px;">
+          <div style="height:100%; background:var(--green); border-radius:6px; width:${dash.progress.pct}%;"></div>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:700; margin-bottom:10px;">
+          <div style="color:var(--red);">Short: ${dash.short}</div>
+          <div style="color:var(--green);">Over: ${dash.over}</div>
+          <div style="color:var(--grey);">Match: ${dash.match}</div>
+          <div style="color:var(--gold);">Rem: ${dash.rem}</div>
+        </div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+          ${chip('all', 'All')}${chip('shorts', 'Shorts ▼')}${chip('overs', 'Overs ▲')}${chip('unverified', 'Unverified')}
+          <button class="sort-btn" data-action="toggle-counting-sort" style="margin-left:auto;">↕️ ${sortAscending ? 'A-Z' : 'Z-A'}</button>
+        </div>
+        ${multiCompany ? `
+        <label style="display:flex; align-items:center; gap:5px; font-size:11px; font-weight:700; color:var(--grey); margin-top:10px; cursor:pointer;">
+          <input type="checkbox" class="custom-checkbox" data-action="toggle-counting-group-by-company" ${groupByCompany ? 'checked' : ''}> Group items by company
+        </label>` : ''}
       </div>
     </div>`;
 }

@@ -16,6 +16,8 @@ let countingSearchToken = ''; // ephemeral UI-only filter state
 let countingFilterMode = 'all'; // all | shorts | overs | unverified
 let countingSortAscending = true;
 let collapsedCompanyGroups = new Set(); // company names currently collapsed in the counting table
+let countingGroupByCompany = true; // whether multi-company assignments show company headers at all
+let subDashboardOpen = false; // "Your Assignment" card — collapsed by default
 
 // Renders the assignment-picker + counting workspace. Originally
 // Sub-Auditor-only; now also used by the Main Auditor whenever they
@@ -38,7 +40,7 @@ export function renderTeamTabForSubAuditor() {
   const dash = Actions.subAuditorDashboard();
   container.innerHTML = `
     <button class="sort-btn" data-action="sub-back-to-list" style="margin-bottom:10px;">← My Assignments</button>
-    <div id="sub-dashboard-holder">${Components.subDashboardHTML(dash, countingFilterMode, countingSortAscending, isLocked)}</div>
+    <div id="sub-dashboard-holder">${Components.subDashboardHTML(dash, countingFilterMode, countingSortAscending, isLocked, subDashboardOpen, countingGroupByCompany)}</div>
     ${isLocked
       ? '<div class="card" style="margin:12px 0; background:#EFF6FF; border:1px solid #BFDBFE; text-align:center; font-size:12px; font-weight:700; color:var(--navy); padding:10px;">✓ Submitted — ask the Main Auditor to reopen this if you need to make changes</div>'
       : `<div class="no-print" style="display:flex; gap:8px; margin:12px 0;">
@@ -100,7 +102,7 @@ function _visibleItemGroups() {
   });
   items = items.slice().sort((a, b) => countingSortAscending ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name));
 
-  const multiCompany = new Set(assignment.items.map(it => it.company)).size > 1;
+  const multiCompany = countingGroupByCompany && new Set(assignment.items.map(it => it.company)).size > 1;
   if (!multiCompany) return [{ company: null, items }];
   const companies = [...new Set(items.map(it => it.company))].sort();
   return companies.map(company => ({ company, items: items.filter(it => it.company === company) }));
@@ -164,7 +166,7 @@ function refreshDashboardCard() {
   const activeAssignment = myAssignments.find(a => a.id === activeAssignmentId);
   const isLocked = !!activeAssignment && activeAssignment.status === 'submitted';
   const holder = $('sub-dashboard-holder');
-  if (holder) holder.innerHTML = Components.subDashboardHTML(dash, countingFilterMode, countingSortAscending, isLocked);
+  if (holder) holder.innerHTML = Components.subDashboardHTML(dash, countingFilterMode, countingSortAscending, isLocked, subDashboardOpen, countingGroupByCompany);
 }
 
 // NOTE: no unconditional Bus.on('myAssignments:changed', ...) here on
@@ -183,11 +185,13 @@ export function initSubPages() {
   const clickHandlers = {
     'sub-open-assignment': async (el) => {
       collapsedCompanyGroups = new Set();
+      subDashboardOpen = false;
       await Actions.openMyAssignment(el.dataset.assignmentId);
     },
     'sub-back-to-list': () => {
       Actions.closeMyAssignment();
       countingSearchToken = ''; countingFilterMode = 'all'; countingSortAscending = true; collapsedCompanyGroups = new Set();
+      subDashboardOpen = false; countingGroupByCompany = true;
       renderTeamTabForSubAuditor();
     },
     'team-back-to-manage': () => Bus.emit('team:viewManage'),
@@ -206,6 +210,8 @@ export function initSubPages() {
       else collapsedCompanyGroups.add(company);
       renderCountingRows();
     },
+    'toggle-sub-dashboard-card': () => { subDashboardOpen = !subDashboardOpen; refreshDashboardCard(); },
+    'toggle-counting-group-by-company': () => { countingGroupByCompany = !countingGroupByCompany; collapsedCompanyGroups = new Set(); renderCountingRows(); },
   };
 
   const inputHandlers = {
