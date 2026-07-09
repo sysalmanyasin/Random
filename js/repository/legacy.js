@@ -10,9 +10,16 @@ import { DbCore } from './db.js';
 function saveProducts(items) { DbCore.clearStore('products'); DbCore.putAll('products', items); }
 function loadProducts() { return DbCore.getAll('products'); }
 
-function saveSessionCheckpoint(company, counts) {
+// `items` is the exact activeItems array the counts were entered against
+// (code/name/qty/price) — stored alongside the counts so recovery can
+// rebuild the session from this frozen snapshot instead of re-deriving
+// "company's items" from whatever inventory happens to be loaded at
+// recovery time. Without it, a re-sync between saving and recovering a
+// checkpoint (reordered/added/removed SKUs in that company) would misalign
+// index-keyed counts onto the wrong products. See bootstrapLegacy().
+function saveSessionCheckpoint(company, counts, items) {
   if (!company) return;
-  DbCore.put('sessionState', { company, counts, updatedAt: Date.now() });
+  DbCore.put('sessionState', { company, counts, items: items || null, updatedAt: Date.now() });
 }
 function clearSessionCheckpoint(company) {
   if (!company) return;

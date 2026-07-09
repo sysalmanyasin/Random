@@ -6,8 +6,16 @@ import { countingProgressBarHTML } from './counting-components.js';
    Blueprint §Dashboard — pure render only.
    ══════════════════════════════════════════════════════════════ */
 
-export function mainDashboardHTML(dash) {
+// Sections default to collapsed — reuses the same .history-item /
+// toggle-accordion pattern as Verify Stock History and the Reports list,
+// so the Main Auditor lands on a short scannable summary instead of three
+// always-expanded cards. `openSections` is a Set of section keys the page
+// layer keeps around across re-renders so a section a user opened stays
+// open through live progress updates instead of snapping shut.
+export function mainDashboardHTML(dash, openSections) {
   if (!dash) return '<div class="card">No engagement selected.</div>';
+  const isOpen = (key) => !!(openSections && openSections.has(key));
+
   const auditorRows = dash.auditorProgress.map(a => `
     <div class="movable-row" style="flex-direction:column; align-items:stretch; gap:4px;${!a.submitted && a.status !== 'assigned' ? ' cursor:pointer;' : ''}"
       ${!a.submitted && a.status !== 'assigned' ? `data-action="view-live-snapshot" data-assignment-id="${a.assignmentId}"` : ''}>
@@ -26,18 +34,34 @@ export function mainDashboardHTML(dash) {
       <span style="font-size:11px; color:${c.assigned ? 'var(--green)' : 'var(--grey)'};">${c.assigned ? esc(c.auditor) : 'Unassigned'}</span>
     </div>`).join('');
 
+  const assignedCount = dash.companyStatus.filter(c => c.assigned).length;
+  const submittedCount = dash.auditorProgress.filter(a => a.submitted).length;
+  const compileSummary = typeof dash.compileStatus === 'string'
+    ? esc(dash.compileStatus)
+    : dash.compileStatus.variances + ' variance(s) as of ' + new Date(dash.compileStatus.compiledAt).toLocaleString('en-PK');
+  const compileBadge = typeof dash.compileStatus === 'string' ? '' : `${dash.compileStatus.variances} variance(s)`;
+
+  const section = (key, title, summary, bodyHTML) => `
+    <div class="history-item${isOpen(key) ? ' open' : ''}">
+      <div class="history-header" data-action="toggle-dashboard-section" data-section="${key}">
+        <div style="display:flex; align-items:center; gap:8px; overflow:hidden;">
+          <span class="arrow-toggle">&#9658;</span>
+          <strong style="color:var(--navy); font-size:12.5px;">${title}</strong>
+        </div>
+        <span style="font-size:11px; color:var(--grey); flex-shrink:0; margin-left:8px;">${summary}</span>
+      </div>
+      <div class="history-content">${bodyHTML}</div>
+    </div>`;
+
   return `
     <div class="card">
       <div class="card-title" style="margin:0 0 8px;">Engagement</div>
       <span class="val-badge val-navy">${esc(dash.engagementStatus)}</span>
       ${dash.roundStatus ? `<span class="val-badge val-gold" style="margin-left:6px;">Round ${dash.roundStatus.number}${esc(dash.roundStatus.suffix || '')} · ${esc(dash.roundStatus.state)}</span>` : ''}
     </div>
-    <div class="card-title">Auditor Progress</div>
-    <div class="card">${auditorRows}</div>
-    <div class="card-title">Company Coverage</div>
-    <div class="card">${companyRows}</div>
-    <div class="card-title">Compile Status</div>
-    <div class="card">${typeof dash.compileStatus === 'string' ? esc(dash.compileStatus) : dash.compileStatus.variances + ' variance(s) as of ' + new Date(dash.compileStatus.compiledAt).toLocaleString('en-PK')}</div>
+    ${section('auditor-progress', 'Auditor Progress', `${submittedCount}/${dash.auditorProgress.length} submitted`, auditorRows)}
+    ${section('company-coverage', 'Company Coverage', `${assignedCount}/${dash.companyStatus.length} assigned`, companyRows)}
+    ${section('compile-status', 'Compile Status', compileBadge, compileSummary)}
   `;
 }
 

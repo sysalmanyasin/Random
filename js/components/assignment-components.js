@@ -27,7 +27,7 @@ export function auditorChip(staffMember, selected) {
 // roundState: the current state of the round this assignment belongs to.
 // Move to… selects are only shown while the round is still in 'draft' —
 // once locked/counting, companies are committed and cannot be redistributed.
-export function assignmentCard(assignment, allAssignments, roundState) {
+export function assignmentCard(assignment, allAssignments, roundState, groupByCompany) {
   const card = document.createElement('div');
   card.className = 'card assignment-card';
   const unitLabel = assignment.unit === 'company'
@@ -49,17 +49,38 @@ export function assignmentCard(assignment, allAssignments, roundState) {
         .map(a => `<option value="${esc(a.id)}">${esc(a.auditorName)}</option>`).join('')
     : '';
 
-  const movableRows = assignment.unit === 'company'
-    ? assignment.companies.map(c => `
-        <div class="movable-row">
-          <span>${esc(c)}</span>
-          ${canMove ? `<select class="settings-input move-target-select" data-change-action="move-target-selected" data-move-kind="company" data-move-value="${esc(c)}" data-from-assignment="${esc(assignment.id)}" style="margin:0; width:auto; font-size:11px; padding:4px 6px;"><option value="">Move to…</option>${moveOptions}</select>` : ''}
-        </div>`).join('')
-    : assignment.items.slice(0, 12).map(it => `
+  const itemMoveRow = (it) => `
         <div class="movable-row">
           <span>${esc(it.company)} · ${esc(it.name)}</span>
           ${canMove ? `<select class="settings-input move-target-select" data-change-action="move-target-selected" data-move-kind="item" data-move-value="${esc(it.itemKey)}" data-from-assignment="${esc(assignment.id)}" style="margin:0; width:auto; font-size:11px; padding:4px 6px;"><option value="">Move to…</option>${moveOptions}</select>` : ''}
-        </div>`).join('') + (assignment.items.length > 12 ? `<div style="font-size:11px; color:var(--grey); padding:4px 0;">+ ${assignment.items.length - 12} more item(s)</div>` : '');
+        </div>`;
+
+  let movableRows;
+  if (assignment.unit === 'company') {
+    movableRows = assignment.companies.map(c => `
+        <div class="movable-row">
+          <span>${esc(c)}</span>
+          ${canMove ? `<select class="settings-input move-target-select" data-change-action="move-target-selected" data-move-kind="company" data-move-value="${esc(c)}" data-from-assignment="${esc(assignment.id)}" style="margin:0; width:auto; font-size:11px; padding:4px 6px;"><option value="">Move to…</option>${moveOptions}</select>` : ''}
+        </div>`).join('');
+  } else if (groupByCompany) {
+    // Grouped view — one heading per company, all its items listed
+    // underneath, in place of the flat 12-item-capped list.
+    const byCompany = new Map();
+    assignment.items.forEach(it => {
+      const key = it.company || 'Unassigned';
+      if (!byCompany.has(key)) byCompany.set(key, []);
+      byCompany.get(key).push(it);
+    });
+    movableRows = [...byCompany.keys()].sort().map(companyName => {
+      const items = byCompany.get(companyName);
+      return `
+        <div style="font-size:11px; font-weight:800; color:var(--navy); margin:8px 0 2px;">${esc(companyName)} <span style="font-weight:600; color:var(--grey);">· ${items.length} item(s)</span></div>
+        ${items.map(itemMoveRow).join('')}`;
+    }).join('');
+  } else {
+    movableRows = assignment.items.slice(0, 12).map(itemMoveRow).join('')
+      + (assignment.items.length > 12 ? `<div style="font-size:11px; color:var(--grey); padding:4px 0;">+ ${assignment.items.length - 12} more item(s)</div>` : '');
+  }
 
   card.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">

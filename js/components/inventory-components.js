@@ -66,6 +66,18 @@ export function inventorySubtotalRow(label, items) {
   return tr;
 }
 
+// Appears at the bottom of the (windowed) product list whenever more
+// filtered rows exist than are currently rendered — keeps the DOM small
+// on a 5000+ SKU inventory instead of building every row up front.
+export function inventoryLoadMoreRow(remainingCount) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td colspan="7" style="padding:12px 6px; text-align:center;">
+      <button class="btn btn-sm" data-action="inventory-load-more">Show ${Math.min(remainingCount, 150)} more (${remainingCount.toLocaleString()} remaining)</button>
+    </td>`;
+  return tr;
+}
+
 export function templateListItem(template, isActive, matchInfo) {
   const div = document.createElement('div');
   div.className = 'company-card' + (isActive ? ' active' : '');

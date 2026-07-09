@@ -50,13 +50,22 @@ export const LegacyActions = (() => {
 
       const checkpoint = await Repo.loadLatestSessionCheckpoint();
       if (checkpoint && checkpoint.company && checkpoint.counts) {
-        const matchingItems = products.filter(m => m.company === checkpoint.company);
         const countedEntries = Object.keys(checkpoint.counts).length;
-        if (matchingItems.length > 0 && countedEntries > 0) {
+        // Prefer the checkpoint's own frozen item snapshot — recovering
+        // against whatever `products` currently is would misalign
+        // index-keyed counts onto the wrong items if inventory was
+        // re-synced (reordered/added/removed SKUs in this company) since
+        // the checkpoint was saved. Older checkpoints saved before this
+        // fix won't have `items` — fall back to the old live-lookup
+        // behavior for those only.
+        const recoveredItems = (checkpoint.items && checkpoint.items.length > 0)
+          ? checkpoint.items
+          : products.filter(m => m.company === checkpoint.company);
+        if (recoveredItems.length > 0 && countedEntries > 0) {
           if (confirm('Recovered interrupted audit for "' + checkpoint.company + '" (' + countedEntries + ' items entered).\n\nRestore session?')) {
             const counts = {};
             Object.keys(checkpoint.counts).forEach(k => { counts[parseInt(k)] = parseFloat(checkpoint.counts[k]); });
-            Store.setState({ activeCompany: checkpoint.company, activeItems: matchingItems, counts });
+            Store.setState({ activeCompany: checkpoint.company, activeItems: recoveredItems, counts });
             Bus.emit('session:restored', { company: checkpoint.company, count: countedEntries });
           }
         }
@@ -125,8 +134,12 @@ export const LegacyActions = (() => {
     const text = await file.text();
     const rawRows = parseCSVFileLines(text);
     if (rawRows.length === 0) { Bus.emit('toast', { msg: 'Data streams corrupted', kind: 'error' }); return; }
-    // Zero-stock SKUs are skipped on import — only items with positive quantity are loaded.
-    const products = rawRows.map(mapNormalizedSchema).filter(m => m.name && m.qty > 0);
+    // Zero/negative-stock SKUs are kept, not skipped — a shrinkage audit
+    // needs to see a SKU that's now at zero (or negative, i.e. oversold)
+    // just as much as a positive one, especially if a prior round already
+    // flagged a variance on it and it needs re-verifying, not silently
+    // dropping out of view.
+    const products = rawRows.map(mapNormalizedSchema).filter(m => m.name);
     Store.setState({ products });
     Repo.saveProducts(products);
     pushToCloudIfLinked();
@@ -142,8 +155,9 @@ export const LegacyActions = (() => {
     try {
       const json = await Repo.dropboxDownloadJSON(dbxClient, DBX_INVENTORY_PATH);
       if (!Array.isArray(json) || json.length === 0) throw new Error('Inventory file is empty.');
-      // Zero-stock SKUs are skipped on import — only items with positive quantity are loaded.
-      const products = json.filter(item => item.name && item.stock > 0).map(item => ({
+      // Zero/negative-stock SKUs are kept, not skipped — see importCSVFile
+      // for why.
+      const products = json.filter(item => item.name).map(item => ({
         code: item.code || '', name: item.name || '', qty: item.stock || 0,
         price: item.unitPrice || 0, company: item.company || 'Unassigned Manufacturer',
         generic: item.generic || '',
@@ -161,6 +175,12 @@ export const LegacyActions = (() => {
     } catch (err) {
       const msg = String(err.message || err);
       Bus.emit('dbxInventoryFetch:error', { msg });
+      // "online" access-type Dropbox tokens deliberately expire (~4h) with no
+      // refresh token — this is the ONE fetch path that skipped the app's
+      // existing friendly-expiry handling and just surfaced the raw SDK
+      // error instead ("Response failed with a 401 code"). Route it through
+      // the same handler syncPullFromCloud already uses.
+      if (isAuthError(err)) { handleCloudAuthExpired(silent); return; }
       if (!silent) Bus.emit('toast', { msg: 'Fetch failed: ' + msg, kind: 'error' });
     }
   }
@@ -183,7 +203,7 @@ export const LegacyActions = (() => {
     Object.keys(externalObject.counts).forEach(k => { counts[k] = parseFloat(externalObject.counts[k]); });
     const activeItems = products.filter(m => m.company === externalObject.company);
     Store.setState({ activeCompany: externalObject.company, activeItems, counts });
-    Repo.saveSessionCheckpoint(externalObject.company, counts);
+    Repo.saveSessionCheckpoint(externalObject.company, counts, activeItems);
     Bus.emit('audit:sessionStarted', { company: externalObject.company });
     Bus.emit('toast', { msg: 'External metrics consolidated cleanly!', kind: 'success' });
     return true;
@@ -236,7 +256,7 @@ export const LegacyActions = (() => {
       newCounts[itemIndex] = v;
     }
     Store.setState({ counts: newCounts });
-    Repo.saveSessionCheckpoint(Store.getState().activeCompany, newCounts);
+    Repo.saveSessionCheckpoint(Store.getState().activeCompany, newCounts, Store.getState().activeItems);
     Bus.emit('audit:countChanged', { itemIndex, value: newCounts[itemIndex] });
   }
 
@@ -246,7 +266,7 @@ export const LegacyActions = (() => {
     const newCounts = Object.assign({}, counts);
     activeItems.forEach((med, i) => { if (newCounts[i] === undefined) newCounts[i] = med.qty; });
     Store.setState({ counts: newCounts });
-    Repo.saveSessionCheckpoint(Store.getState().activeCompany, newCounts);
+    Repo.saveSessionCheckpoint(Store.getState().activeCompany, newCounts, activeItems);
     Bus.emit('audit:bulkMarked', {});
     Bus.emit('toast', { msg: 'Remaining items marked as match', kind: 'success' });
   }

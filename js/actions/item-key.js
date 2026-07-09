@@ -11,6 +11,15 @@ function buildItemKey(company, indexWithinCompany) {
   return company + '::' + indexWithinCompany;
 }
 
+// Used only for SKUs discovered fresh at Round 2+ cutoff time (a product
+// added to an already-in-scope company since the round family's original
+// snapshot) — keyed by code rather than position so it can never collide
+// with the company::index keys already in use by items carried over from
+// the prior round's frozen snapshot.
+function buildNewItemKey(company, code) {
+  return company + '::new:' + code;
+}
+
 // Snapshot every product belonging to `company` into addressable line
 // items, keyed and ready to travel through assignments/submissions.
 function snapshotCompanyItems(products, company) {
@@ -35,4 +44,4 @@ function snapshotScopeItems(products, companies) {
   return companies.flatMap(c => snapshotCompanyItems(products, c));
 }
 
-export const ItemKey = { buildItemKey, snapshotCompanyItems, snapshotScopeItems };
+export const ItemKey = { buildItemKey, buildNewItemKey, snapshotCompanyItems, snapshotScopeItems };

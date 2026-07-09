@@ -379,6 +379,32 @@
       <button class="filter-btn inv-group-btn" data-action="set-inventory-group" data-group="supplier">By Supplier</button>
     </div>
 
+    <!-- Templates + Random Audit launch — placed above the (potentially
+         5000+ row) product table so they're reachable without scrolling
+         past the whole inventory list. -->
+    <div class="card">
+      <div class="card-title" style="margin-top:0;">Saved Templates</div>
+      <div style="border: 2px dashed var(--border); padding: 16px; text-align: center; border-radius: 12px; cursor: pointer; background: var(--light); margin-bottom:12px;" data-action="trigger-file-input" data-target="inv-codes-file-input">
+        <span style="font-size:22px;">📂</span>
+        <div style="font-size:11px; font-weight:700; color:var(--grey); margin-top:6px;">Load a code list from file</div>
+      </div>
+      <input type="file" id="inv-codes-file-input" accept=".csv,.txt" style="display:none" data-change-action="handle-inventory-codes-file">
+      <div id="inv-templates-list"></div>
+    </div>
+
+    <div class="card" style="margin-top:12px;">
+      <div class="card-title" style="margin-top:0;">🎲 Start Random Audit From This Selection</div>
+      <div style="font-size:11px; color:var(--grey); margin-bottom:10px;">Check items in the list below (or load a Template above), then launch — Individual samples a subset into your own workspace, Team creates an engagement scoped to exactly these codes.</div>
+      <label style="font-size:11px; font-weight:700; color:var(--grey);">Sample size (Individual)</label>
+      <input type="number" id="inv-sample-size" class="settings-input" value="10" min="1" style="margin:6px 0 12px;">
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-primary" style="flex:1;" data-action="start-individual-random-audit">🧍 Individual</button>
+        <button class="btn btn-primary" style="flex:1; background:var(--green);" data-action="start-team-random-audit">👥 Team</button>
+      </div>
+    </div>
+
+    <button class="btn btn-block" style="margin:12px 0;" data-action="generate-inventory-report">📄 Generate Report (selection, or all filtered rows if nothing selected)</button>
+
     <div id="inv-empty-state" class="empty-state" style="display:none;">
       <div style="font-size:34px;">📦</div>
       <div style="font-weight:700; margin-top:8px;">No inventory loaded yet</div>
@@ -409,31 +435,6 @@
         <button class="btn btn-sm" data-action="save-selection-as-template">💾 Save as Template</button>
         <button class="btn btn-sm" data-action="generate-inventory-report">📄 Report</button>
         <button class="btn btn-sm" data-action="clear-inventory-selection">✕ Clear</button>
-      </div>
-    </div>
-
-    <button class="btn btn-block" style="margin-top:12px;" data-action="generate-inventory-report">📄 Generate Report (visible rows)</button>
-
-    <!-- Templates -->
-    <div class="card" style="margin-top:16px;">
-      <div class="card-title" style="margin-top:0;">Saved Templates</div>
-      <div style="border: 2px dashed var(--border); padding: 16px; text-align: center; border-radius: 12px; cursor: pointer; background: var(--light); margin-bottom:12px;" data-action="trigger-file-input" data-target="inv-codes-file-input">
-        <span style="font-size:22px;">📂</span>
-        <div style="font-size:11px; font-weight:700; color:var(--grey); margin-top:6px;">Load a code list from file</div>
-      </div>
-      <input type="file" id="inv-codes-file-input" accept=".csv,.txt" style="display:none" data-change-action="handle-inventory-codes-file">
-      <div id="inv-templates-list"></div>
-    </div>
-
-    <!-- Random Audit launch -->
-    <div class="card" style="margin-top:16px;">
-      <div class="card-title" style="margin-top:0;">🎲 Start Random Audit From This Selection</div>
-      <div style="font-size:11px; color:var(--grey); margin-bottom:10px;">Check items above (or load a Template), then launch — Individual samples a subset into your own workspace, Team creates an engagement scoped to exactly these codes.</div>
-      <label style="font-size:11px; font-weight:700; color:var(--grey);">Sample size (Individual)</label>
-      <input type="number" id="inv-sample-size" class="settings-input" value="10" min="1" style="margin:6px 0 12px;">
-      <div style="display:flex; gap:8px;">
-        <button class="btn btn-primary" style="flex:1;" data-action="start-individual-random-audit">🧍 Individual</button>
-        <button class="btn btn-primary" style="flex:1; background:var(--green);" data-action="start-team-random-audit">👥 Team</button>
       </div>
     </div>
 

@@ -13,6 +13,15 @@ import { Components } from '../components.js';
 const $ = (id) => document.getElementById(id);
 const collapsedGroups = new Set(); // page-local UI state, not worth putting in the store
 
+// With 5000+ SKUs, building every <tr> on each keystroke/filter change was
+// the main source of lag. Render only a page of product rows at a time
+// (across all groups combined) and grow it on demand via "Show more" —
+// group headers/subtotals still reflect the full filtered set, only the
+// individual product rows are windowed.
+const PAGE_SIZE = 150;
+let renderLimit = PAGE_SIZE;
+let searchDebounceTimer = null;
+
 function _visibleProducts() {
   const { products, inventorySearchQuery } = Store.getState();
   const q = (inventorySearchQuery || '').toLowerCase().trim();
@@ -42,9 +51,16 @@ function renderInventoryTable() {
     return;
   }
 
+  // Number of *product rows* rendered this pass is capped at renderLimit,
+  // regardless of grouping — group headers/subtotals below still describe
+  // the full filtered set so totals stay accurate even when collapsed.
+  let rowBudget = renderLimit;
+
   if (inventoryGroupBy === 'none') {
-    visible.forEach(p => tbody.appendChild(Components.inventoryRow(p, selectedSet.has(p.code))));
+    const page = visible.slice(0, rowBudget);
+    page.forEach(p => tbody.appendChild(Components.inventoryRow(p, selectedSet.has(p.code))));
     tbody.appendChild(Components.inventorySubtotalRow('Visible total', visible));
+    if (visible.length > page.length) tbody.appendChild(Components.inventoryLoadMoreRow(visible.length - page.length));
     return;
   }
 
@@ -55,16 +71,24 @@ function renderInventoryTable() {
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push(p);
   });
+  let shownCount = 0;
+  let truncated = false;
   [...groups.keys()].sort().forEach(groupName => {
     const items = groups.get(groupName);
     const groupAllSelected = items.length > 0 && items.every(p => selectedSet.has(p.code));
     const collapsed = collapsedGroups.has(groupName);
     tbody.appendChild(Components.inventoryGroupHeader(groupName, items, groupAllSelected, collapsed));
     if (!collapsed) {
-      items.forEach(p => tbody.appendChild(Components.inventoryRow(p, selectedSet.has(p.code))));
+      if (rowBudget <= 0) { truncated = true; return; }
+      const page = items.slice(0, rowBudget);
+      page.forEach(p => tbody.appendChild(Components.inventoryRow(p, selectedSet.has(p.code))));
       tbody.appendChild(Components.inventorySubtotalRow(groupName, items));
+      rowBudget -= page.length;
+      shownCount += page.length;
+      if (page.length < items.length) truncated = true;
     }
   });
+  if (truncated) tbody.appendChild(Components.inventoryLoadMoreRow(visible.length - shownCount));
 }
 
 function renderTemplatesList() {
@@ -95,12 +119,12 @@ function renderInventoryTab() {
   renderTemplatesList();
   renderSelectionBar();
 }
-Bus.on('products:changed', renderInventoryTab);
-Bus.on('inventory:filterChanged', renderInventoryTable);
+Bus.on('products:changed', () => { renderLimit = PAGE_SIZE; renderInventoryTab(); });
+Bus.on('inventory:filterChanged', () => { renderLimit = PAGE_SIZE; renderInventoryTable(); });
 Bus.on('inventory:selectionChanged', () => { renderInventoryTable(); renderSelectionBar(); renderTemplatesList(); });
 Bus.on('templates:changed', renderTemplatesList);
 Bus.on('templates:loaded', () => { renderTemplatesList(); renderInventoryTable(); });
-Bus.on('view:activated', (page) => { if (page === 'inventory') renderInventoryTab(); });
+Bus.on('view:activated', (page) => { if (page === 'inventory') { renderLimit = PAGE_SIZE; renderInventoryTab(); } });
 
 // ── Report generation — builds a fresh D-26-style report into the
 //    shared #printable-report-canvas (same element/@media-print trick
@@ -177,9 +201,16 @@ export function initInventoryPages() {
       if (name) Actions.startTeamRandomAudit(name);
     },
     'generate-inventory-report': generateInventoryReport,
+    'inventory-load-more': () => { renderLimit += PAGE_SIZE; renderInventoryTable(); },
   };
   const inputHandlers = {
-    'inventory-search': (el) => Actions.setInventorySearch(el.value),
+    // Debounced — with 5000+ rows, re-filtering and re-rendering on every
+    // keystroke was the other big source of lag on the Inventory tab.
+    'inventory-search': (el) => {
+      const value = el.value;
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => Actions.setInventorySearch(value), 250);
+    },
   };
   const changeHandlers = {
     'toggle-inventory-row': (el) => Actions.toggleInventorySelection(el.dataset.code),

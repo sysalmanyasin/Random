@@ -23,6 +23,14 @@ let openRoundId = null;
 let selectedStaffIds = [];
 let showSubRoundPicker = false;
 let subRoundSelectedCompanies = new Set();
+// Which Main-Auditor dashboard sections (Auditor Progress / Company
+// Coverage / Compile Status) are expanded — all start collapsed. Kept
+// here rather than read off the DOM because refreshDashboard() replaces
+// the holder's innerHTML wholesale on every live update.
+let dashboardOpenSections = new Set();
+// Whether item-unit assignment cards show a flat item list or grouped
+// by company — page-local UI state, not worth putting in the store.
+let assignmentGroupByCompany = false;
 
 // ── Root render dispatcher for the whole Team tab ──
 export function renderTeamTab() {
@@ -290,7 +298,12 @@ function renderDraftAssignmentUI(round) {
         <button class="btn btn-gold" style="flex:1; font-size:11px; padding:10px;" data-action="team-auto-split-volume" data-round-id="${round.id}">By Value</button>
       </div>
       <div id="split-preview-holder"></div>
-      <div class="card-title">Assignments</div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div class="card-title" style="margin-bottom:0;">Assignments</div>
+        <label style="display:flex; align-items:center; gap:5px; font-size:11px; font-weight:700; color:var(--grey); cursor:pointer;">
+          <input type="checkbox" class="custom-checkbox" data-action="toggle-assignment-grouping" ${assignmentGroupByCompany ? 'checked' : ''}> Group by company
+        </label>
+      </div>
       <div id="assignment-cards-holder"></div>
       <button class="btn" style="width:100%; margin:10px 0; background:var(--green); color:white; padding:12px; font-weight:700;" data-action="team-lock-round" data-round-id="${round.id}">🔒 Lock Round</button>
     `;
@@ -332,7 +345,7 @@ function refreshAssignmentCards() {
   const roundAssignments = assignments.filter(a => a.roundId === openRoundId && a.status !== 'revoked');
   holder.innerHTML = '';
   if (roundAssignments.length === 0) { holder.appendChild(Components.noAssignmentsEmptyState()); return; }
-  roundAssignments.forEach(a => holder.appendChild(Components.assignmentCard(a, roundAssignments, round?.state)));
+  roundAssignments.forEach(a => holder.appendChild(Components.assignmentCard(a, roundAssignments, round?.state, assignmentGroupByCompany)));
 }
 Bus.on('assignments:changed', () => {
   if (openRoundId) refreshAssignmentCards();
@@ -473,7 +486,7 @@ function refreshDashboard() {
   if (!holder) return;
   const { currentEngagementId } = Store.getState();
   const dash = Actions.mainAuditorDashboard(currentEngagementId, openRoundId);
-  holder.innerHTML = Components.mainDashboardHTML(dash);
+  holder.innerHTML = Components.mainDashboardHTML(dash, dashboardOpenSections);
 }
 
 // ── §Reporting ──
@@ -490,7 +503,13 @@ export function initEngagementPages() {
       currentSubView = 'detail'; openRoundId = null;
       renderTeamTab();
     },
-    'team-back-to-list': () => { Actions.closeEngagementView(); currentSubView = 'list'; openRoundId = null; renderTeamTab(); },
+    'team-back-to-list': () => { Actions.closeEngagementView(); currentSubView = 'list'; openRoundId = null; dashboardOpenSections = new Set(); renderTeamTab(); },
+    'toggle-dashboard-section': (el) => {
+      const key = el.dataset.section;
+      dashboardOpenSections.has(key) ? dashboardOpenSections.delete(key) : dashboardOpenSections.add(key);
+      refreshDashboard();
+    },
+    'toggle-assignment-grouping': () => { assignmentGroupByCompany = !assignmentGroupByCompany; refreshAssignmentCards(); },
     'team-view-my-work': () => Bus.emit('team:viewMyWork'),
     'create-engagement': async () => {
       const name = $('new-engagement-name').value;
@@ -641,15 +660,17 @@ export function initEngagementPages() {
       const compiled = compiledRounds.find(c => c.id === el.dataset.compiledId);
       if (!compiled) return;
       const engagement = engagements.find(e => e.id === compiled.engagementId);
-      const { rounds } = Store.getState();
+      const { rounds, products } = Store.getState();
       const sourceRound = rounds.find(r => r.id === compiled.roundId);
       const sourceRoundLabel = sourceRound ? (sourceRound.roundNumber + (sourceRound.roundSuffix || '')) : null;
-      const items = Actions.buildItemsForMode(compiled, mode, { companies: engagement.scope.companies, sampleSize: 10, sourceRoundNumber: sourceRoundLabel });
+      const items = Actions.buildItemsForMode(compiled, mode, { companies: engagement.scope.companies, sampleSize: 10, sourceRoundNumber: sourceRoundLabel, liveProducts: products });
       if (items.length === 0) { Bus.emit('toast', { msg: 'Nothing to send — no variances found', kind: 'error' }); return; }
       const round = await Actions.createItemRound(compiled.roundId, items);
       if (!round) return;
       selectedStaffIds = [];
       Actions.logDifferenceRoundGenerated(round.id, mode, items.length);
+      const newSkuCount = items.filter(it => it.isNewSinceLastRound).length;
+      if (newSkuCount > 0) Bus.emit('toast', { msg: newSkuCount + ' newly-stocked item(s) since the last round were pulled into this recount too', kind: 'success' });
       await openRound(round.id);
     },
     'team-finalize-engagement': async () => {

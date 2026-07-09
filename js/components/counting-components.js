@@ -38,10 +38,12 @@ export function countingRow(item, countedVal, noteVal, readOnly, confirmedSame) 
         <span>Last round: Var ${prevSign}${item.prevVariance}${item.prevRoundNumber ? ' (R' + item.prevRoundNumber + ')' : ''}</span>
         <button type="button" class="btn-same" data-action="apply-same-variance" data-item-key="${esc(item.itemKey)}" ${dis}>${confirmedSame ? '✓ Same' : 'Same'}</button>
       </div>` : '';
+  const newSkuBadge = item.isNewSinceLastRound
+    ? `<span class="val-badge val-gold" style="margin-left:6px; font-size:9px;">NEW — not in prior round</span>` : '';
 
   tr.innerHTML = `
     <td style="padding-left:10px;">
-      <div style="font-size:13px; font-weight:700; color:var(--navy); line-height:1.3;">${esc(item.name)}</div>
+      <div style="font-size:13px; font-weight:700; color:var(--navy); line-height:1.3;">${esc(item.name)}${newSkuBadge}</div>
       <div style="font-size:10px; color:var(--grey); margin-top:2px;">${item.code ? esc(item.code) : 'No SKU'} · Rs ${item.price}</div>
       ${prevLineHTML}
     </td>
