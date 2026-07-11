@@ -1,33 +1,44 @@
 /* ══════════════════════════════════════════════════════════════
-   DESKTOP LAYER — activates only at >=1024px.
-   Everything below this width is untouched: mobile keeps the
-   exact stacked layout + bottom tab bar it already has.
+   DESKTOP LAYER — activates only at >=1024px, with a transitional
+   tablet/small-laptop tier at 768–1023px. Below 768px, everything
+   is untouched: mobile keeps its exact stacked layout + bottom tab
+   bar.
 
-   Strategy: no new markup, no JS changes. The existing .header
-   and .tabbar elements (with their real data-action wiring) are
-   simply repositioned by CSS into a single fixed left sidebar —
-   .header becomes the sidebar's brand block, .tabbar becomes the
-   sidebar's vertical nav directly beneath it.
+   Strategy unchanged from before: no new markup, no JS changes.
+   Every improvement below targets classes/ids the app already
+   renders. The existing .header and .tabbar elements are still
+   what becomes the fixed left sidebar; everything past that is new
+   polish layered on top — real hover states, multi-column grids for
+   list-shaped content, a proper data-table treatment, centered
+   full-viewport auth screens, and two desktop-only visual bugs
+   fixed (the cloud-sync bar and the logged-in name bar both used to
+   ignore the sidebar and float across the whole viewport).
    ══════════════════════════════════════════════════════════════ */
 
 @media (min-width: 1024px) {
 
   :root {
-    --sidebar-w: 232px;
+    --sidebar-w: 248px;
     /* Left edge of the (centered, max-width:1280px) #app shell,
        valid whether the viewport is narrower or wider than 1280px —
        avoids a fixed-position sidebar drifting off #app's real edge
        at in-between widths (e.g. a 1100px laptop window). */
     --shell-left: max(0px, calc((100vw - 1280px) / 2));
+    /* Comfortable reading width for single-column forms/screens —
+       stretching a login card or a "New Engagement" form to the
+       full content width just makes it harder to scan, not easier. */
+    --form-w: 480px;
   }
 
-  html, body { background: #EEF1F6; }
+  html, body { background: #EDF0F5; }
+  body { font-size: 15px; } /* desktop reading distance is farther than a phone in hand */
 
   #app {
     max-width: 1280px;
     padding-bottom: 0;
-    box-shadow: var(--shadow-md);
+    box-shadow: 0 0 0 1px rgba(15,23,42,0.04), var(--shadow-md);
     min-height: 100vh;
+    background: var(--light);
   }
 
   /* ── Sidebar brand block (was the top header) ───────────── */
@@ -35,74 +46,268 @@
     position: fixed;
     top: 0; left: var(--shell-left);
     width: var(--sidebar-w);
-    height: 128px;
+    height: 132px;
     flex-direction: column;
     align-items: flex-start;
-    padding: 20px 16px 0;
+    padding: 22px 20px 0;
     box-shadow: none;
     z-index: 120;
+    background: linear-gradient(165deg, var(--navy) 0%, #142E56 100%);
   }
   .header-brand-wrap { padding-bottom: 18px; border-bottom: 1px solid rgba(255,255,255,0.12); width: 100%; }
+  .header-title { font-size: 17px; }
   #action-header-sync-btn { margin-top: 14px; }
+  #action-header-sync-btn .btn { width: 100%; }
 
   /* ── Sidebar nav (was the bottom tab bar) ───────────────── */
   .tabbar {
     position: fixed;
-    top: 128px; left: var(--shell-left);
+    top: 132px; left: var(--shell-left);
     width: var(--sidebar-w);
-    height: calc(100vh - 128px);
-    background: var(--navy);
+    height: calc(100vh - 132px);
+    background: linear-gradient(180deg, var(--navy) 0%, #16305A 100%);
     border-top: none;
     flex-direction: column;
-    gap: 2px;
-    padding: 14px 10px 20px;
+    gap: 3px;
+    padding: 16px 12px 20px;
+    box-shadow: inset -1px 0 0 rgba(255,255,255,0.05);
   }
   .tab-btn {
     flex-direction: row;
     justify-content: flex-start;
     align-items: center;
-    gap: 12px;
-    padding: 11px 12px;
+    gap: 13px;
+    padding: 11px 13px;
     border-radius: 10px;
     border-left: 3px solid transparent;
+    transition: background 0.15s ease, border-color 0.15s ease;
   }
-  .tab-btn:hover { background: rgba(255,255,255,0.06); }
-  .tab-btn:active { background: rgba(255,255,255,0.10); }
-  .tab-icon { color: rgba(255,255,255,0.65); }
-  .tab-label { color: rgba(255,255,255,0.65); font-size: 13px; }
-  .tab-btn.active { background: rgba(255,255,255,0.10); border-left-color: var(--gold); }
+  .tab-btn:hover { background: rgba(255,255,255,0.07); }
+  .tab-btn:active { background: rgba(255,255,255,0.12); }
+  .tab-icon { color: rgba(255,255,255,0.65); font-size: 16px; transition: color 0.15s ease; }
+  .tab-label { color: rgba(255,255,255,0.65); font-size: 13.5px; font-weight: 600; transition: color 0.15s ease; }
+  .tab-btn.active { background: rgba(255,255,255,0.12); border-left-color: var(--gold); }
   .tab-btn.active .tab-icon,
   .tab-btn.active .tab-label { color: var(--white); }
   .tab-dot { display: none !important; }
 
+  /* A little breathing room + a subtle divider before the last
+     (Sync) item, since Home/Random/Team read as one group and Sync
+     reads as a second, separate one — matches how the app itself
+     groups "Sync & Tools" apart from the audit workflow. */
+  #tab-team { margin-bottom: 3px; }
+  #tab-import { position: relative; margin-top: 11px; }
+  #tab-import::before {
+    content: ''; position: absolute; top: -8px; left: 13px; right: 13px;
+    height: 1px; background: rgba(255,255,255,0.10);
+  }
+
   /* ── Main content area shifts right of the fixed sidebar ── */
-  .page { padding: 28px 32px; max-width: 1000px; }
+  .page { padding: 32px 40px 48px; max-width: 1080px; }
   #auth-root ~ #app-shell-below-auth,
   #app-shell-below-auth { padding-left: var(--sidebar-w); }
 
-  #cloud-sync-bar, #pwa-install-banner { margin-left: var(--sidebar-w); }
+  /* ── Logged-in name bar + cloud sync bar + PWA banner ─────
+     All three are `position: fixed` full-viewport bars in the
+     mobile layout. On desktop they need to dock into the content
+     column instead of floating over/behind the sidebar — margin-left
+     alone doesn't reliably shift a `left:50%; transform:translateX(-50%)`
+     element, so each gets its positioning properties overridden
+     outright rather than just nudged. */
+  #auth-root .sticky-controls {
+    margin-left: var(--sidebar-w);
+    position: sticky; top: 0; z-index: 115;
+    border-radius: 0;
+  }
+  #cloud-sync-bar {
+    left: var(--shell-left) !important;
+    transform: none !important;
+    width: auto !important;
+    max-width: none !important;
+    right: max(0px, calc(100vw - var(--shell-left) - 1280px));
+    margin-left: var(--sidebar-w);
+  }
+  #pwa-install-banner {
+    margin-left: var(--sidebar-w);
+  }
+
+  /* ── Full-viewport centering for the (sidebar-less) Supabase
+     config / login screens — the only things ever rendered into
+     #auth-root as a `.card` rather than the `.sticky-controls` name
+     bar, so this selector never collides with the logged-in state. */
+  #auth-root:has(> .card) {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 40px; background: radial-gradient(circle at 20% 15%, #24417a 0%, var(--navy) 55%, #0F2547 100%);
+  }
+  #auth-root:has(> .card) > .card {
+    max-width: var(--form-w); width: 100%;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+    padding: 36px 32px;
+  }
+
+  /* ── Section sub-tabs: a cleaner, wider underline-tab strip
+     instead of the boxed mobile card — this is the second-level
+     nav within a sidebar section (e.g. Engagements/Staff), so it
+     reads better as a plain tab row than as its own little card. */
+  .section-nav-bar {
+    background: transparent; box-shadow: none; border: none;
+    margin-bottom: 22px; border-bottom: 1px solid var(--border);
+  }
+  .section-nav-label { padding: 0 0 10px; font-size: 11px; }
+  .section-sub-tabs { gap: 4px; }
+  .section-sub-tab { flex: 0 0 auto; padding: 0 4px 14px; font-size: 13px; }
+  .section-sub-tab + .section-sub-tab { border-left: none; margin-left: 22px; }
+  .section-sub-tab.active::after { left: 0; right: 0; }
+
+  /* ── Hover affordances everywhere a tap target exists ─────
+     Guarded by (hover:hover) + (pointer:fine) so a touch laptop
+     doesn't get a "stuck" hover state after a tap. */
+  @media (hover: hover) and (pointer: fine) {
+    .btn:not(:disabled):hover { filter: brightness(1.08); }
+    .btn-primary:hover { box-shadow: 0 4px 14px rgba(27,58,107,0.30); }
+    .btn-gold:hover     { box-shadow: 0 4px 14px rgba(245,158,11,0.30); }
+    .btn-danger:hover   { box-shadow: 0 4px 14px rgba(220,38,38,0.30); }
+    .sort-btn:hover, .filter-btn:hover:not(.filter-btn-active) { border-color: var(--navy); color: var(--navy); background: var(--white); }
+    .card.assignment-card:hover,
+    .company-card:hover,
+    [role="button"]:hover {
+      box-shadow: 0 6px 18px rgba(15,23,42,0.10);
+      transform: translateY(-1px);
+    }
+    .company-card, .card.assignment-card, [role="button"] { transition: box-shadow 0.15s ease, transform 0.15s ease, border-color 0.15s ease; }
+    .movable-row:hover { background: var(--light); }
+    .section-tile:hover { box-shadow: 0 10px 28px rgba(0,0,0,0.16); transform: translateY(-2px); }
+    .section-tile { transition: box-shadow 0.15s ease, transform 0.15s ease; }
+  }
 
   /* ── Home screen: tiles side-by-side instead of stacked ─── */
   .home-screen {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-    max-width: 1000px;
+    gap: 18px;
+    max-width: 1080px;
   }
-  .home-welcome { grid-column: 1 / -1; text-align: left; padding: 4px 0 8px; }
+  .home-welcome { grid-column: 1 / -1; text-align: left; padding: 4px 0 10px; }
+  .home-greeting { font-size: 22px; }
   .section-tile {
     flex-direction: column;
     align-items: flex-start;
     gap: 10px;
     margin-bottom: 0;
-    min-height: 150px;
+    min-height: 158px;
   }
   .section-tile-chevron { position: absolute; top: 16px; right: 16px; }
   .section-tile-body { width: 100%; }
+
+  /* ── Card-list content: engagement list, company list, staff
+     list, saved templates, sub-auditor assignment picker — all of
+     these render as a simple repeated stack of `.card`/`.company-card`
+     items via existing containers. Turning each container into a
+     grid (with a graceful single-column fallback for the last odd
+     item) uses the desktop width instead of one narrow centered
+     column with a wall of empty space either side. */
+  #engagement-cards-holder,
+  #assignment-cards-holder,
+  #staff-tab-root,
+  #history-accordion-container,
+  #inv-templates-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+    align-items: start;
+  }
+  /* Full-width items that should never be squeezed into a grid cell:
+     accordions, section titles, and anything explicitly full-bleed. */
+  #history-accordion-container > .history-item,
+  .card-title,
+  #inv-templates-list > .card-title {
+    grid-column: 1 / -1;
+  }
+  .company-card, .card.assignment-card { margin-bottom: 0; height: 100%; }
+
+  /* Dashboard: the three collapsible summary sections (Auditor
+     Progress / Company Coverage / Compile Status) read far better
+     side-by-side on a wide screen than stacked full-width, since
+     each one is a short list, not a page in itself. */
+  #dashboard-holder {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 14px;
+    align-items: start;
+  }
+  #dashboard-holder > .card:first-child { grid-column: 1 / -1; }
+
+  /* ── Forms: New Engagement, Settings, Staff, PIN change, login —
+     a form is not a dashboard; constrain it to a comfortable reading
+     width instead of letting it stretch across the whole content
+     column edge-to-edge. Targeted by the specific input each form is
+     built around, so this only ever touches actual form cards. */
+  .card:has(#new-engagement-name),
+  .card:has(#settings-branch-name),
+  .card:has(#settings-pin-current),
+  .card:has(#supabase-url-input),
+  .card:has(#new-staff-name-input),
+  .card:has(#conn-token-input) {
+    max-width: var(--form-w);
+  }
+
+  /* ── Tables: Verify Stock, Sub-Auditor counting, Inventory browser —
+     sticky header + a real hover row instead of the mobile
+     alternating-row-only treatment, since a mouse can actually track
+     a hovered row on a dense desktop table. */
+  .audit-table thead th {
+    position: sticky; top: 0; background: var(--white); z-index: 2;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .audit-table tbody tr:hover td { background: var(--gold-bg); }
+  }
+  .audit-table td, .audit-table th { padding: 12px 10px; }
+  .audit-table input[type=number] { width: 90px; }
+
+  /* ── Modals: a touch more presence on a large display — bigger
+     backdrop blur reads as more deliberate than a flat dark tint,
+     and the dialog itself can afford a little more max-width. */
+  #export-modal-overlay, #live-snapshot-overlay, #force-submit-overlay, #pin-gate-overlay {
+    backdrop-filter: blur(3px);
+  }
+  #export-modal-overlay > div, #force-submit-overlay > div { max-width: 460px; }
+  #live-snapshot-overlay > div { max-width: 560px; }
+
+  /* ── Sticky in-page controls (filter bars, search rows) no longer
+     need to clear a fixed top header bar — that's the sidebar now,
+     not stacked above the content column. */
+  .sticky-controls { top: 0; }
 }
 
 /* Slightly narrower breakpoint: collapse sidebar to icons only,
-   still wider than a phone but not full desktop width. */
+   still wider than a phone but not full desktop width. Tablet /
+   small-laptop-window territory — the sidebar's text labels are the
+   first thing to give up the fight for space here. */
 @media (min-width: 768px) and (max-width: 1023px) {
+  :root { --sidebar-w: 76px; --shell-left: max(0px, calc((100vw - 1280px) / 2)); }
+
+  .header {
+    position: fixed; top: 0; left: var(--shell-left); width: var(--sidebar-w);
+    height: 100vh; flex-direction: column; align-items: center; justify-content: flex-start;
+    padding: 18px 8px; box-shadow: none; z-index: 120;
+  }
+  .header-brand-wrap { display: none; }
+  .header-loc { display: none; }
+  #action-header-sync-btn { display: none !important; }
+
+  .tabbar {
+    position: fixed; top: 0; left: var(--shell-left); width: var(--sidebar-w);
+    height: 100vh; background: var(--navy); border-top: none;
+    flex-direction: column; justify-content: flex-start; gap: 4px; padding: 96px 8px 20px;
+  }
+  .tab-btn { flex-direction: column; gap: 3px; padding: 10px 4px; border-radius: 10px; border-left: none; }
+  .tab-btn.active { border-left: none; box-shadow: inset 0 0 0 1.5px rgba(245,158,11,0.6); }
+  .tab-label { font-size: 9.5px; }
+  .tab-dot { display: none !important; }
+
+  #app-shell-below-auth, #auth-root ~ #app-shell-below-auth { padding-left: var(--sidebar-w); }
+  #auth-root .sticky-controls { margin-left: var(--sidebar-w); }
+  #cloud-sync-bar, #pwa-install-banner { margin-left: var(--sidebar-w); }
+
   .page { padding: 18px 22px; }
 }

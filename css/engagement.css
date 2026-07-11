@@ -7,7 +7,7 @@
    Reuses the same CSS custom properties defined in app.css.
    ══════════════════════════════════════════════════════════════ */
 
-.val-gold { background: var(--gold-bg); color: var(--gold); }
+.val-gold { background: var(--gold-bg); color: var(--gold-ink); }
 .val-navy { background: #E7ECF5; color: var(--navy); }
 
 /* ── Scope Selection ── */
@@ -55,7 +55,7 @@
   font-size: 10px; border: 1px dashed var(--border); border-radius: 6px;
   background: #FAFBFD; color: var(--grey);
 }
-.counting-note-input:focus { outline: none; border-color: var(--gold); color: var(--text); }
+.counting-note-input:focus { outline: none; border-color: var(--gold); color: var(--text); box-shadow: 0 0 0 3px rgba(180,83,9,0.28); }
 
 .prev-variance-line {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;

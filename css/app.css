@@ -5,8 +5,16 @@
     --navy2:      #2151A0;
     --gold:       #F59E0B;
     --gold-bg:    #FFFBEB;
+    /* Text-safe darker variants: --gold and --green fail WCAG AA
+       (2.15:1 and 3.77:1 against white) when used as text color rather
+       than a background/border/icon fill. Use these instead any time
+       the color itself is the only thing carrying meaning in text
+       (e.g. a "Short"/"Over" label, a warning line) — both pass
+       4.5:1+ against white and var(--light). */
+    --gold-ink:   #B45309;
     --green:      #059669;
     --green-bg:   #ECFDF5;
+    --green-ink:  #047857;
     --red:        #DC2626;
     --red-bg:     #FEF2F2;
     --grey:       #64748B;
@@ -179,7 +187,7 @@
     border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--text);
     background: var(--light); transition: border-color 0.15s;
   }
-  .search-input:focus { outline: none; border-color: var(--navy); background: var(--white); }
+  .search-input:focus { outline: none; border-color: var(--navy); background: var(--white); box-shadow: 0 0 0 3px rgba(27,58,107,0.25); }
   .sort-btn {
     background: var(--light); border: 1.5px solid var(--border); border-radius: 10px;
     padding: 0 12px; font-size: 12px; font-weight: 700; color: var(--navy); cursor: pointer;
@@ -246,7 +254,7 @@
   .val-badge { font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 12px; white-space: nowrap; }
   .val-grey   { background: var(--light);    color: var(--grey); }
   .val-red    { background: var(--red-bg);   color: var(--red); }
-  .val-green  { background: var(--green-bg); color: var(--green); }
+  .val-green  { background: var(--green-bg); color: var(--green-ink); }
 
   /* ── Tables ─────────────────────────────────────────────── */
   .audit-table { width: 100%; border-collapse: collapse; }
@@ -262,11 +270,10 @@
     background: var(--white); transition: border-color 0.15s, box-shadow 0.15s;
   }
   .audit-table input[type=number]:focus {
-    outline: none; border-color: var(--gold);
-    box-shadow: 0 0 0 3px rgba(245,158,11,0.15);
+    outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(180,83,9,0.28);
   }
 
-  .diff-pos  { color: var(--green); font-weight: 800; font-size: 14px; background: var(--green-bg); padding: 2px 6px; border-radius: 4px; }
+  .diff-pos  { color: var(--green-ink); font-weight: 800; font-size: 14px; background: var(--green-bg); padding: 2px 6px; border-radius: 4px; }
   .diff-neg  { color: var(--red);   font-weight: 800; font-size: 14px; background: var(--red-bg);   padding: 2px 6px; border-radius: 4px; }
   .diff-zero { color: var(--grey);  font-weight: 700; font-size: 14px; }
 
@@ -332,9 +339,10 @@
     position: fixed; top: 0; left: 50%; transform: translateX(-50%);
     width: 100%; max-width: 540px; height: 26px;
     display: flex; align-items: center; justify-content: center; gap: 7px;
-    font-size: 11px; font-weight: 700; letter-spacing: 0.2px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.2px; font-family: inherit;
     cursor: pointer; z-index: 200; transition: background 0.3s, color 0.3s;
-    border-bottom: 1px solid rgba(0,0,0,0.07);
+    border: none; border-bottom: 1px solid rgba(0,0,0,0.07); padding: 0;
+    appearance: none; -webkit-appearance: none;
     user-select: none; -webkit-tap-highlight-color: transparent;
   }
   #cloud-sync-bar.state-synced   { background: #ECFDF5; color: #059669; }
@@ -370,7 +378,7 @@
     font-weight: 600; font-size: 14px; margin-bottom: 14px; color: var(--navy);
     background: var(--light); transition: border-color 0.15s;
   }
-  .settings-input:focus { outline: none; border-color: var(--navy); background: var(--white); }
+  .settings-input:focus { outline: none; border-color: var(--navy); background: var(--white); box-shadow: 0 0 0 3px rgba(27,58,107,0.25); }
 
   /* ── History date-range & select-all bar ───────────────── */
   .history-filter-bar {
@@ -401,7 +409,7 @@
   .company-card-meta { font-size: 11px; color: var(--grey); font-weight: 600; }
   .company-card-badges { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; margin-left: 10px; }
   .company-items-badge { font-size: 11px; font-weight: 800; background: var(--light); color: var(--navy); border-radius: 10px; padding: 3px 9px; }
-  .company-value-badge { font-size: 10px; font-weight: 700; background: var(--gold-bg); color: var(--gold); border-radius: 10px; padding: 3px 9px; }
+  .company-value-badge { font-size: 10px; font-weight: 700; background: var(--gold-bg); color: var(--gold-ink); border-radius: 10px; padding: 3px 9px; }
 
   /* ── Audit row cursor highlight ─────────────────────────── */
   .audit-row-focused { border-left: 3px solid var(--gold) !important; }
@@ -413,7 +421,7 @@
     border-radius: 10px; font-size: 13px; font-weight: 600; margin-bottom: 10px;
     background: var(--light); color: var(--text);
   }
-  #history-search-input:focus { outline: none; border-color: var(--navy); background: var(--white); }
+  #history-search-input:focus { outline: none; border-color: var(--navy); background: var(--white); box-shadow: 0 0 0 3px rgba(27,58,107,0.25); }
 
   /* ── PIN Gate overlay ───────────────────────────────────── */
   #pin-gate-overlay {
@@ -483,9 +491,9 @@
   .metric-cell-value { font-size: 16px; font-weight: 800; line-height: 1.1; }
   .metric-cell-sub   { font-size: 9px; font-weight: 600; color: var(--grey); margin-top: 1px; }
   .metric-short  { color: var(--red); }
-  .metric-over   { color: var(--green); }
+  .metric-over   { color: var(--green-ink); }
   .metric-match  { color: var(--grey); }
-  .metric-rem    { color: var(--gold); }
+  .metric-rem    { color: var(--gold-ink); }
 
   /* ── Empty state ─────────────────────────────────────────── */
   .empty-state {
@@ -501,3 +509,60 @@
   .inv-group-header .arrow-toggle.open { transform: rotate(90deg); }
   .inv-subtotal-row td { background: var(--gold-bg) !important; border-top: 1.5px solid var(--gold); border-bottom: none; }
   .company-card.active { border-color: var(--navy); box-shadow: 0 2px 12px rgba(27,58,107,0.18); background: #F3F6FB; }
+
+  /* ── Accessibility ────────────────────────────────────────
+     Applies across the whole app, on top of the component-specific
+     focus styles already set above (search/settings inputs etc).
+     A keyboard user must always be able to see where focus is —
+     removing outline without a visible replacement is never done
+     anywhere in this file. ── */
+
+  /* Any element that reaches focus but has no more specific focus
+     rule of its own (buttons, links, custom-checkbox, cards acting
+     as buttons, the skip link) gets this ring. `:focus-visible`
+     keeps it from showing on a plain mouse click, matching how
+     browsers already treat native controls. */
+  a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible,
+  textarea:focus-visible, [tabindex]:focus-visible, [role="button"]:focus-visible {
+    outline: 3px solid var(--navy2);
+    outline-offset: 2px;
+  }
+  /* Fallback for the (now rare) browser without :focus-visible support —
+     better a slightly-too-eager ring than an invisible one. */
+  .no-focus-visible-support a:focus, .no-focus-visible-support button:focus,
+  .no-focus-visible-support [tabindex]:focus { outline: 3px solid var(--navy2); outline-offset: 2px; }
+
+  .skip-link {
+    position: absolute; left: 8px; top: -48px; z-index: 1000;
+    background: var(--navy); color: var(--white); font-weight: 700; font-size: 13px;
+    padding: 10px 16px; border-radius: 8px; transition: top .15s ease;
+  }
+  .skip-link:focus { top: 8px; }
+
+  /* Visually-hidden but still announced by screen readers — for labels
+     that would be redundant/cluttered if shown, but are still needed
+     for anyone not reading the screen visually. */
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+
+  /* Resets so a real <button> can stand in for what used to be a
+     clickable <div> (keyboard/AT-reachable by default) without
+     inheriting default button chrome. */
+  .file-trigger-tile { display: block; appearance: none; -webkit-appearance: none; }
+  .link-btn { appearance: none; -webkit-appearance: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  }
+
+  /* ── Scrollbars — a thin, unobtrusive scrollbar reads as a
+     considered desktop app rather than a resized mobile page.
+     Firefox via scrollbar-width/color, WebKit/Chromium via
+     ::-webkit-scrollbar. Purely cosmetic, no effect on touch. */
+  * { scrollbar-width: thin; scrollbar-color: #C7D0DC transparent; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #C7D0DC; border-radius: 20px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: #A9B6C8; background-clip: padding-box; }
