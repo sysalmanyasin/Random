@@ -20,15 +20,17 @@ function toast(message, kind = 'success') { Bus.emit('toast', { msg: message, ki
 // ── Navigation (shared — every page module calls this to switch tabs) ──
 export function executeViewNavigation(viewIdentifierToken) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('active'); b.removeAttribute('aria-current'); });
   const pageEl = $('page-' + viewIdentifierToken);
   if (pageEl) pageEl.classList.add('active');
   const tabNode = $('tab-' + viewIdentifierToken)
     // "Inventory" and "Tools" are sub-pages of the "Sync" sidebar icon,
-    // same as "settings" always has been — keep it highlighted for all
-    // three instead of leaving the sidebar with nothing active.
-    || (['inventory', 'settings'].includes(viewIdentifierToken) ? $('tab-import') : null);
-  if (tabNode) tabNode.classList.add('active');
+    // same as "settings" always has been, and "Staff"/"Individual" are
+    // sub-pages of "Team" — keep the right bottom tab highlighted for
+    // all of them instead of leaving the sidebar with nothing active.
+    || (['inventory', 'settings'].includes(viewIdentifierToken) ? $('tab-import') : null)
+    || (['staff', 'individual'].includes(viewIdentifierToken) ? $('tab-team') : null);
+  if (tabNode) { tabNode.classList.add('active'); tabNode.setAttribute('aria-current', 'page'); }
 
   if (viewIdentifierToken === 'audit') {
     const { products, activeCompany } = Store.getState();
@@ -134,7 +136,7 @@ Bus.on('dbxInventoryFetch:start', () => {
 Bus.on('dbxInventoryFetch:success', ({ count, fetchedAt }) => {
   $('dbx-fetch-btn').disabled = false;
   $('dbx-fetch-status').textContent = '✓ ' + count.toLocaleString() + ' products loaded';
-  $('dbx-fetch-status').style.color = 'var(--green)';
+  $('dbx-fetch-status').style.color = 'var(--green-ink)';
   const fill = $('dbx-bar-fill'); if (fill) { fill.style.width = '100%'; fill.style.background = 'var(--green)'; }
   updateLastFetchedLabel(fetchedAt);
   setTimeout(() => { const bg = $('dbx-bar-bg'); if (bg) bg.style.display = 'none'; }, 1800);
@@ -728,7 +730,7 @@ Bus.on('settings:dropboxStatusChanged', () => {
 
   const linked = !!Actions.getDropboxToken();
   if (linked) {
-    el.textContent = 'Connected securely'; el.style.color = 'var(--green)';
+    el.textContent = 'Connected securely'; el.style.color = 'var(--green-ink)';
     if (dot) { dot.style.background = 'var(--green)'; dot.style.boxShadow = '0 0 5px var(--green)'; }
   } else {
     el.textContent = 'Not linked'; el.style.color = 'var(--grey)';
@@ -803,7 +805,12 @@ export function initLegacyPages() {
     'close-export-overlay': () => closeExportConfigOverlay(),
     'abandon-session': () => Actions.abandonActiveSession(),
     'clear-history-filters': () => clearHistoryFilters(),
-    'toggle-accordion': (el) => { const item = el.closest('.history-item'); if (item) item.classList.toggle('open'); },
+    'toggle-accordion': (el) => {
+      const item = el.closest('.history-item');
+      if (!item) return;
+      item.classList.toggle('open');
+      el.setAttribute('aria-expanded', item.classList.contains('open') ? 'true' : 'false');
+    },
     'reopen-history-audit': (el) => Actions.reopenHistoryAudit(el.dataset.entryId),
     'export-history-xlsx': (el) => exportHistoryEntryXLSX(el.dataset.entryId),
     'print-history-pdf': (el) => printHistoryEntryPDF(el.dataset.entryId),

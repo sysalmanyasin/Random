@@ -59,6 +59,72 @@ Bus.on('auth:loggedOut', renderAuthRoot);
 Bus.on('auth:needsLogin', renderAuthRoot);
 Bus.on('auth:needsConfig', renderAuthRoot);
 
+// ── Modal dialogs — focus management ──────────────────────────
+// Centralized here (rather than repeated in every place that opens one
+// of these overlays across engagement-pages.js/legacy-pages.js/etc.) by
+// watching each overlay's own `style` attribute instead: the moment one
+// flips to visible, focus moves inside it and Escape/Tab start behaving
+// like a dialog; the moment it's hidden again, focus returns to
+// whatever was focused before it opened. New overlays just need adding
+// to this list — no per-handler wiring required.
+const DIALOG_OVERLAY_IDS = ['pin-gate-overlay', 'export-modal-overlay', 'live-snapshot-overlay', 'force-submit-overlay'];
+// Maps each overlay to the click-handler name that closes it, so Escape
+// can reuse the exact same close logic as its own visible "✕"/Cancel
+// button rather than just hiding the element and leaving app state
+// (e.g. which assignment the popup was open for) stale.
+const DIALOG_CLOSE_ACTION = {
+  'pin-gate-overlay': 'close-pin-gate',
+  'export-modal-overlay': 'close-export-overlay',
+  'live-snapshot-overlay': 'close-live-snapshot',
+  'force-submit-overlay': 'close-force-submit',
+};
+let _lastFocusedBeforeDialog = null;
+function _isVisible(el) { return el && el.style.display !== 'none' && el.style.display !== ''; }
+function _focusableIn(el) {
+  return Array.from(el.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+    .filter(n => !n.disabled && n.offsetParent !== null);
+}
+function _setUpDialogFocusManagement(clickHandlers) {
+  DIALOG_OVERLAY_IDS.forEach(id => {
+    const overlay = $(id);
+    if (!overlay) return;
+    let wasVisible = _isVisible(overlay);
+    const observer = new MutationObserver(() => {
+      const nowVisible = _isVisible(overlay);
+      if (nowVisible && !wasVisible) {
+        _lastFocusedBeforeDialog = document.activeElement;
+        const focusables = _focusableIn(overlay);
+        (focusables[0] || overlay).focus();
+      } else if (!nowVisible && wasVisible) {
+        if (_lastFocusedBeforeDialog && document.body.contains(_lastFocusedBeforeDialog)) _lastFocusedBeforeDialog.focus();
+        _lastFocusedBeforeDialog = null;
+      }
+      wasVisible = nowVisible;
+    });
+    observer.observe(overlay, { attributes: true, attributeFilter: ['style'] });
+  });
+
+  document.addEventListener('keydown', (e) => {
+    const openId = DIALOG_OVERLAY_IDS.find(id => { const el = $(id); return el && _isVisible(el); });
+    if (!openId) return;
+    const overlay = $(openId);
+    if (e.key === 'Escape') {
+      const handler = clickHandlers[DIALOG_CLOSE_ACTION[openId]];
+      if (handler) handler(overlay);
+      return;
+    }
+    if (e.key === 'Tab') {
+      // Basic focus trap: Tab/Shift+Tab wrap within the open dialog
+      // instead of escaping to whatever's underneath it.
+      const focusables = _focusableIn(overlay);
+      if (focusables.length === 0) return;
+      const first = focusables[0], last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
+}
+
 export function initPages() {
   const app = $('app');
   const legacy = initLegacyPages();
@@ -73,9 +139,36 @@ export function initPages() {
   const changeHandlers = { ...legacy.changeHandlers, ...engagement.changeHandlers, ...sub.changeHandlers, ...auth.changeHandlers, ...staff.changeHandlers, ...inventory.changeHandlers };
   const keydownHandlers = { ...legacy.keydownHandlers, ...engagement.keydownHandlers, ...sub.keydownHandlers, ...auth.keydownHandlers, ...staff.keydownHandlers, ...inventory.keydownHandlers };
 
+  _setUpDialogFocusManagement(clickHandlers);
+
   app.addEventListener('click', (e) => {
     const el = e.target.closest('[data-action]');
     if (!el || !app.contains(el)) return;
+    const handler = clickHandlers[el.dataset.action];
+    if (handler) handler(el);
+  });
+
+  // Safety net for the clickable divs/rows across the app that stand in
+  // for a button (assignment cards, accordion headers, company/engagement
+  // cards, etc.) — each of those already gets tabindex="0" at render time,
+  // but Enter/Space activation isn't native on a non-<button> element, so
+  // it has to be wired up once, here, rather than repeated in every
+  // component that renders one.
+  app.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const el = e.target.closest('[data-action]');
+    if (!el || !app.contains(el)) return;
+    // Must be pressed directly on the data-action element itself, not
+    // bubbled up from some nested interactive child of it (e.g. a
+    // search input or a real <button> sitting inside a card that also
+    // carries its own data-action) — otherwise typing Enter in a
+    // nested field would wrongly trigger the card's own action instead
+    // of whatever the field itself does.
+    if (e.target !== el) return;
+    const nativelyHandlesItsOwnKeys = ['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName);
+    if (nativelyHandlesItsOwnKeys) return;
+    if (el.dataset.action === 'noop') return;
+    e.preventDefault(); // stop Space from also scrolling the page
     const handler = clickHandlers[el.dataset.action];
     if (handler) handler(el);
   });

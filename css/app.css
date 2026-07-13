@@ -17,6 +17,11 @@
     --green-ink:  #047857;
     --red:        #DC2626;
     --red-bg:     #FEF2F2;
+    /* --red vs --red-bg is 4.41:1 — just under AA's 4.5:1 for normal
+       text. Same fix as gold-ink/green-ink below: a slightly darker
+       shade for any place red is the text color rather than a border,
+       icon, or fill against plain white (where --red already passes). */
+    --red-ink:    #B91C1C;
     --grey:       #64748B;
     --light:      #F8FAFC;
     --white:      #ffffff;
@@ -253,7 +258,7 @@
   /* ── Valuation Badge Variant Styling ─────────────────────── */
   .val-badge { font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 12px; white-space: nowrap; }
   .val-grey   { background: var(--light);    color: var(--grey); }
-  .val-red    { background: var(--red-bg);   color: var(--red); }
+  .val-red    { background: var(--red-bg);   color: var(--red-ink); }
   .val-green  { background: var(--green-bg); color: var(--green-ink); }
 
   /* ── Tables ─────────────────────────────────────────────── */
@@ -274,7 +279,7 @@
   }
 
   .diff-pos  { color: var(--green-ink); font-weight: 800; font-size: 14px; background: var(--green-bg); padding: 2px 6px; border-radius: 4px; }
-  .diff-neg  { color: var(--red);   font-weight: 800; font-size: 14px; background: var(--red-bg);   padding: 2px 6px; border-radius: 4px; }
+  .diff-neg  { color: var(--red-ink);   font-weight: 800; font-size: 14px; background: var(--red-bg);   padding: 2px 6px; border-radius: 4px; }
   .diff-zero { color: var(--grey);  font-weight: 700; font-size: 14px; }
 
   /* ── Toast ───────────────────────────────────────────────── */
@@ -347,7 +352,7 @@
   }
   #cloud-sync-bar.state-synced   { background: #ECFDF5; color: #059669; }
   #cloud-sync-bar.state-syncing  { background: #FFFBEB; color: #D97706; }
-  #cloud-sync-bar.state-error    { background: var(--red-bg); color: var(--red); }
+  #cloud-sync-bar.state-error    { background: var(--red-bg); color: var(--red-ink); }
   #cloud-sync-bar.state-idle     { background: var(--light); color: var(--grey); }
   #cloud-sync-bar.state-unlinked { background: var(--light); color: var(--grey); }
   #cloud-sync-bar .sync-dot {
@@ -446,7 +451,11 @@
   .pin-key:hover  { background: rgba(255,255,255,0.18); }
   .pin-key:active { background: var(--gold); }
   .pin-key.wide { grid-column: span 2; font-size: 14px; }
-  .pin-error-msg { color: var(--red); font-size: 12px; font-weight: 700; min-height: 18px; }
+  /* --red is only 3.39:1 against this overlay's dark background —
+     fails AA. This is the one place in the app with a dark backdrop
+     behind body text, so it needs its own lighter shade rather than
+     the light-background --red/--red-ink tokens used everywhere else. */
+  .pin-error-msg { color: #F87171; font-size: 12px; font-weight: 700; min-height: 18px; }
 
   /* ── PWA Install Banner ─────────────────────────────────── */
   #pwa-install-banner {

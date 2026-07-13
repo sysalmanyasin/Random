@@ -42,9 +42,9 @@ const REPORT_INFO = [
 export function reportButtonsHTML() {
   return REPORT_INFO.map(r => `
     <div class="history-item">
-      <div class="history-header" data-action="toggle-accordion">
+      <div class="history-header" data-action="toggle-accordion" role="button" tabindex="0" aria-expanded="false">
         <div style="display:flex; align-items:center; gap:8px; max-width:70%; overflow:hidden;">
-          <span class="arrow-toggle">&#9658;</span>
+          <span class="arrow-toggle" aria-hidden="true">&#9658;</span>
           <span style="font-size:16px;">${r.icon}</span>
           <strong style="color:var(--navy); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.title}</strong>
         </div>

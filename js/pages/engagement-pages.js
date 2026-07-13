@@ -18,11 +18,83 @@ import { Components } from '../components.js';
 const $ = (id) => document.getElementById(id);
 
 // Local, ephemeral UI-only state — same pattern as legacy-pages' pinBuffer.
+
+// ── Individual Assignments (grouped-by-staff view) ─────────────
+let individualExpandedStaff = new Set(); // auditor names currently expanded
+let individualSelectedRounds = new Set(); // roundIds picked for recompile
+
+async function renderIndividualDashboard() {
+  const holder = $('individual-tab-root');
+  if (!holder) return;
+  holder.innerHTML = '<div class="card" style="text-align:center; padding:24px; color:var(--grey);">Loading…</div>';
+
+  const engagement = await Actions.getOrCreateCurrentIndividualEngagement();
+  if (!engagement) { holder.innerHTML = '<div class="card">Could not load Individual Assignments.</div>'; return; }
+
+  const { rounds, assignments, compiledRounds } = await Actions.loadIndividualDashboardData(engagement);
+  holder.innerHTML = _renderIndividualDashboardBody(engagement, rounds, assignments, compiledRounds);
+}
+
+function _renderIndividualDashboardBody(engagement, rounds, assignments, compiledRounds) {
+  const grouped = Actions.groupIndividualAssignmentsByStaff(rounds, assignments, compiledRounds);
+  const isCurrent = Actions.isCurrentIndividualMonth(engagement);
+
+  const staffSections = grouped.map(({ auditorName, items }) => {
+    const isOpen = individualExpandedStaff.has(auditorName);
+    const rows = items.map(it => `
+      <div class="movable-row">
+        <label style="display:flex; align-items:center; gap:8px; flex:1; min-width:0; cursor:pointer;">
+          <input type="checkbox" class="custom-checkbox" data-action="toggle-individual-round-select" data-round-id="${it.roundId}" ${individualSelectedRounds.has(it.roundId) ? 'checked' : ''} ${it.status !== 'compiled' ? 'disabled' : ''}>
+          <span style="min-width:0;">
+            <div style="font-size:12.5px; font-weight:700; color:var(--navy);">${Components.esc(it.label)}</div>
+            <div style="font-size:10.5px; color:var(--grey);">${new Date(it.date).toLocaleDateString('en-PK')}</div>
+          </span>
+        </label>
+        <span class="val-badge ${it.status === 'compiled' ? (it.varianceCount > 0 ? 'val-red' : 'val-green') : 'val-gold'}">
+          ${it.status === 'compiled' ? it.varianceCount + ' variance(s)' : it.status}
+        </span>
+      </div>`).join('');
+    return `
+      <div class="history-item${isOpen ? ' open' : ''}">
+        <div class="history-header" data-action="toggle-individual-staff" data-auditor="${Components.esc(auditorName)}" role="button" tabindex="0" aria-expanded="${isOpen ? 'true' : 'false'}">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="arrow-toggle" aria-hidden="true">&#9658;</span>
+            <strong style="color:var(--navy); font-size:13px;">${Components.esc(auditorName)}</strong>
+          </div>
+          <span style="font-size:11px; color:var(--grey);">${items.length} audit(s)</span>
+        </div>
+        <div class="history-content">${rows}</div>
+      </div>`;
+  }).join('') || '<div class="card" style="text-align:center; padding:24px; color:var(--grey);">No staff have started a random audit yet this month.</div>';
+
+  return `
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div style="font-weight:800; color:var(--navy); font-size:14px;">${Components.esc(engagement.name)}</div>
+          <div style="font-size:11px; color:var(--grey); margin-top:2px;">${grouped.reduce((s, g) => s + g.items.length, 0)} audit(s) from ${grouped.length} staff member(s)</div>
+        </div>
+        <span class="val-badge ${isCurrent ? 'val-green' : 'val-grey'}">${isCurrent ? 'this month' : 'closed'}</span>
+      </div>
+    </div>
+    ${staffSections}
+    ${individualSelectedRounds.size > 0 ? `
+    <div class="card" style="margin-top:14px; position:sticky; bottom:12px; box-shadow:var(--shadow-md);">
+      <div style="font-size:12px; font-weight:700; color:var(--navy); margin-bottom:8px;">${individualSelectedRounds.size} round(s) selected for recompile</div>
+      <input type="text" id="individual-recompile-name" class="settings-input" placeholder="Name for the new template" style="margin-bottom:8px;">
+      <button class="btn btn-primary btn-block" data-action="confirm-recompile-individual">Recompile → Save as Template</button>
+    </div>` : ''}
+  `;
+}
+
+
 let currentSubView = 'list';      // 'list' | 'detail'
 let openRoundId = null;
 let selectedStaffIds = [];
 let showSubRoundPicker = false;
 let subRoundSelectedCompanies = new Set();
+let subRoundSearchToken = '';
+let subRoundSortAscending = true;
 // Which Main-Auditor dashboard sections (Auditor Progress / Company
 // Coverage / Compile Status) are expanded — all start collapsed. Kept
 // here rather than read off the DOM because refreshDashboard() replaces
@@ -31,6 +103,13 @@ let dashboardOpenSections = new Set();
 // Whether item-unit assignment cards show a flat item list or grouped
 // by company — page-local UI state, not worth putting in the store.
 let assignmentGroupByCompany = false;
+// Live Snapshot popup state — reset each time it's opened for a
+// (possibly different) assignment, same lifecycle as the sub-dashboard's
+// filterMode/sortAscending.
+let liveSnapshotAssignmentId = null;
+let liveSnapshotFilterMode = 'all';
+let liveSnapshotSortMode = 'name-asc';
+const LIVE_SNAPSHOT_SORT_CYCLE = ['name-asc', 'name-desc', 'variance-desc', 'variance-asc', 'time-desc'];
 
 // ── Root render dispatcher for the whole Team tab ──
 export function renderTeamTab() {
@@ -88,9 +167,9 @@ function renderEngagementListHTML(engagements) {
     ${cardsHtml}
     <div class="card-title">New Engagement</div>
     <div class="card">
-      <label class="settings-label">Engagement Name</label>
+      <label class="settings-label" for="new-engagement-name">Engagement Name</label>
       <input type="text" id="new-engagement-name" class="settings-input" placeholder="e.g. Q3 2026 Full Audit">
-      <label class="settings-label">Scope</label>
+      <label class="settings-label" for="new-engagement-scope-type">Scope</label>
       <select id="new-engagement-scope-type" class="settings-input" data-change-action="scope-type-changed">
         <option value="full">Full Inventory (every company)</option>
         <option value="selected">Selected Companies</option>
@@ -148,31 +227,66 @@ function refreshEngagementCards() {
   engagements.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).forEach(e => holder.appendChild(Components.engagementCard(e)));
 }
 Bus.on('engagements:changed', () => { if (currentSubView === 'list') refreshEngagementCards(); });
+Bus.on('view:activated', (page) => { if (page === 'individual') renderIndividualDashboard(); });
 
 function renderSubRoundSection(engagement) {
   const { products } = Store.getState();
   const allCompanies = [...new Set(products.map(p => p.company))];
-  const newCompanies = allCompanies.filter(c => !engagement.scope.companies.includes(c)).sort((a, b) => a.localeCompare(b));
+  const newCompanies = allCompanies.filter(c => !engagement.scope.companies.includes(c));
 
   if (!showSubRoundPicker) {
     return `<button class="sort-btn" style="width:100%; margin-bottom:14px;" data-action="toggle-subround-picker">➕ Add New Companies (Sub-Round)</button>`;
   }
-  const rows = newCompanies.length === 0
-    ? `<div style="font-size:12px; color:var(--grey); padding:8px 0;">Every company in the current inventory is already in this engagement's scope.</div>`
-    : newCompanies.map(c => `
-      <label class="scope-company-row">
-        <input type="checkbox" class="custom-checkbox" data-action="toggle-subround-company" data-company="${c.replace(/"/g, '&quot;')}" ${subRoundSelectedCompanies.has(c) ? 'checked' : ''}>
-        <span class="scope-company-name-wrap"><span class="scope-company-name">${c}</span></span>
-      </label>`).join('');
   return `
     <div class="card" style="margin-bottom:14px;">
       <div class="card-title" style="margin:0 0 8px;">Add New Companies — creates a lettered sub-round (e.g. 1A) scoped to just these companies, without touching existing rounds. Compile it along with the rest of the round-1 family before Round 2 can start.</div>
-      <div style="max-height:220px; overflow:auto; margin-bottom:8px;">${rows}</div>
+      ${newCompanies.length === 0 ? `
+      <div style="font-size:12px; color:var(--grey); padding:8px 0;">Every company in the current inventory is already in this engagement's scope.</div>
+      ` : `
+      <div style="display:flex; gap:6px; margin-bottom:8px;">
+        <input type="text" id="subround-company-search" class="settings-input" placeholder="🔍 Search company…" style="margin:0; flex:1;" data-input-action="filter-subround-companies">
+        <button class="sort-btn" data-action="toggle-subround-sort">↕️ <span id="subround-sort-label">${subRoundSortAscending ? 'A-Z' : 'Z-A'}</span></button>
+      </div>
+      <div style="display:flex; gap:6px; margin-bottom:8px;">
+        <button class="btn" style="flex:1; font-size:11px; padding:8px; background:var(--light); color:var(--text);" data-action="subround-select-all">Select All (filtered)</button>
+        <button class="btn" style="flex:1; font-size:11px; padding:8px; background:var(--light); color:var(--text);" data-action="subround-clear-all">Clear All</button>
+      </div>
+      <div id="subround-company-picker" style="max-height:220px; overflow:auto; margin-bottom:6px;"></div>
+      <div id="subround-selected-count" style="font-size:11px; color:var(--grey); margin-bottom:8px;"></div>
+      `}
       <div style="display:flex; gap:8px;">
         <button class="btn btn-primary" style="flex:1;" data-action="create-subround" ${newCompanies.length === 0 ? 'disabled' : ''}>Create Sub-Round</button>
         <button class="btn" style="flex:1; background:var(--light); color:var(--text);" data-action="toggle-subround-picker">Cancel</button>
       </div>
     </div>`;
+}
+
+function renderSubRoundCompanyPicker(engagement) {
+  const holder = $('subround-company-picker');
+  const countLabel = $('subround-selected-count');
+  if (!holder) return;
+  const { products } = Store.getState();
+  const totals = {};
+  products.forEach(p => {
+    const t = totals[p.company] || { skus: 0, units: 0, value: 0 };
+    t.skus += 1; t.units += (p.qty || 0); t.value += (p.qty || 0) * (p.price || 0);
+    totals[p.company] = t;
+  });
+  let companies = Object.keys(totals).filter(c => !engagement.scope.companies.includes(c));
+  const query = subRoundSearchToken.toLowerCase().trim();
+  if (query) companies = companies.filter(c => c.toLowerCase().includes(query));
+  companies.sort((a, b) => subRoundSortAscending ? a.localeCompare(b) : b.localeCompare(a));
+
+  holder.innerHTML = '';
+  if (companies.length === 0) {
+    holder.innerHTML = '<div style="text-align:center; color:var(--grey); padding:16px; font-size:12px;">No companies match.</div>';
+  } else {
+    companies.forEach(c => {
+      const t = totals[c];
+      holder.appendChild(Components.scopeCompanyCheckboxRow(c, subRoundSelectedCompanies.has(c), t.skus, t.value, 'toggle-subround-company'));
+    });
+  }
+  if (countLabel) countLabel.textContent = subRoundSelectedCompanies.size + ' compan' + (subRoundSelectedCompanies.size === 1 ? 'y' : 'ies') + ' selected';
 }
 
 // ── Engagement detail: Round Management + Assignment + Compile + Dashboard + Reports ──
@@ -210,6 +324,7 @@ function refreshSubRoundSection() {
   const engagement = engagements.find(e => e.id === currentEngagementId);
   if (!engagement) return;
   holder.innerHTML = renderSubRoundSection(engagement);
+  if (showSubRoundPicker) renderSubRoundCompanyPicker(engagement);
 }
 
 function refreshRoundList() {
@@ -305,7 +420,7 @@ function renderDraftAssignmentUI(round) {
         </label>
       </div>
       <div id="assignment-cards-holder"></div>
-      <button class="btn" style="width:100%; margin:10px 0; background:var(--green); color:white; padding:12px; font-weight:700;" data-action="team-lock-round" data-round-id="${round.id}">🔒 Lock Round</button>
+      <button class="btn" style="width:100%; margin:10px 0; background:var(--green-ink); color:white; padding:12px; font-weight:700;" data-action="team-lock-round" data-round-id="${round.id}">🔒 Lock Round</button>
     `;
   }
   return `
@@ -322,7 +437,7 @@ function renderDraftAssignmentUI(round) {
     <div id="split-preview-holder"></div>
     <div class="card-title">Assignments</div>
     <div id="assignment-cards-holder"></div>
-    <button class="btn" style="width:100%; margin:10px 0; background:var(--green); color:white; padding:12px; font-weight:700;" data-action="team-lock-round" data-round-id="${round.id}">🔒 Lock Round</button>
+    <button class="btn" style="width:100%; margin:10px 0; background:var(--green-ink); color:white; padding:12px; font-weight:700;" data-action="team-lock-round" data-round-id="${round.id}">🔒 Lock Round</button>
   `;
 }
 
@@ -445,12 +560,26 @@ function renderCompiledRoundUI(round) {
   const varianceRows = visible.map(Components.varianceRowHTML).join('') || '<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--grey);">No variances match this filter.</td></tr>';
   const filtered = visible.length !== compiled.variances.length;
 
+  // The Difference Engine has to generate the next round from EVERY
+  // compiled sub-round in this family combined (Round 1 + 1A + 1B...),
+  // not just whichever one happens to be open on screen — otherwise
+  // generating Round 2 from Round 1A would silently drop Round 1's own
+  // variances. The variance table above still shows just this round's
+  // own results (useful on its own), but the counts/buttons below are
+  // family-wide once every sub-round is compiled.
+  const family = Actions.familyRounds(rounds, round.roundNumber);
+  const familyRoundIds = family.map(r => r.id);
+  const familyMerged = familyReady ? Actions.mergeFamilyCompiled(familyRoundIds, compiledRounds) : { variances: compiled.variances, mergedItems: compiled.mergedItems, memberCount: 1 };
+  const familyNote = family.length > 1
+    ? `<div style="font-size:11px; color:var(--grey); margin-bottom:8px;">Combining ${familyMerged.memberCount} compiled sub-round(s) in Round ${Actions.familyLabel(rounds, round.roundNumber)} — company-wise, deduplicated.</div>`
+    : '';
+
   return `
     ${Components.compileSummaryCardHTML(compiled)}
     <div class="card" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
       <button class="sort-btn" data-action="toggle-variance-sort">↕️ Impact ${varianceSortDesc ? '↓ (biggest first)' : '↑ (smallest first)'}</button>
-      <input type="number" id="variance-filter-min" class="search-input" placeholder="Min impact (Rs)" style="flex:1; min-width:100px;" value="${varianceFilterMin ?? ''}">
-      <input type="number" id="variance-filter-max" class="search-input" placeholder="Max impact (Rs)" style="flex:1; min-width:100px;" value="${varianceFilterMax ?? ''}">
+      <input type="number" id="variance-filter-min" class="search-input" placeholder="Min impact (Rs)" aria-label="Minimum variance impact in Rupees" style="flex:1; min-width:100px;" value="${varianceFilterMin ?? ''}">
+      <input type="number" id="variance-filter-max" class="search-input" placeholder="Max impact (Rs)" aria-label="Maximum variance impact in Rupees" style="flex:1; min-width:100px;" value="${varianceFilterMax ?? ''}">
       <button class="btn btn-primary" style="font-size:11px; padding:10px;" data-action="apply-variance-filter">Apply</button>
       ${filtered ? '<button class="sort-btn" data-action="clear-variance-filter">Clear filter</button>' : ''}
       ${filtered ? `<div style="width:100%; font-size:10px; color:var(--grey);">Showing ${visible.length} of ${compiled.variances.length} variance(s)</div>` : ''}
@@ -463,8 +592,9 @@ function renderCompiledRoundUI(round) {
     </div>
     <div class="card-title">Difference Engine — send the next round out</div>
     <div class="card">
+      ${familyNote}
       <label style="display:flex; align-items:center; gap:8px; margin-bottom:8px; cursor:pointer;">
-        <input type="radio" name="diff-mode" value="differences" checked> Differences Only (${compiled.variances.length} lines)
+        <input type="radio" name="diff-mode" value="differences" checked> Differences Only (${familyMerged.variances.length} lines)
       </label>
       <label style="display:flex; align-items:center; gap:8px; margin-bottom:8px; cursor:pointer;">
         <input type="radio" name="diff-mode" value="full"> Full Company Recount
@@ -474,13 +604,27 @@ function renderCompiledRoundUI(round) {
       </label>
       <div style="font-size:11px; color:var(--grey); margin-bottom:10px;">After generating, you'll pick staff and preview the split before it's assigned — same as Round 1.</div>
       ${!familyReady ? `<div style="font-size:11px; color:var(--red); margin-bottom:8px;">⚠️ Compile every Round ${Actions.familyLabel(rounds, round.roundNumber)} sub-round (including any lettered ones) before starting the next round.</div>` : ''}
-      <button class="btn btn-gold btn-block" data-action="team-generate-diff-round" data-compiled-id="${compiled.id}" ${!familyReady ? 'disabled' : ''}>Generate Next Round</button>
+      <button class="btn btn-gold btn-block" data-action="team-generate-diff-round" data-round-number="${round.roundNumber}" data-source-round-id="${compiled.roundId}" ${!familyReady ? 'disabled' : ''}>Generate Next Round</button>
     </div>
-    <button class="btn btn-block" style="background:var(--green); color:white; padding:12px; font-weight:700;" data-action="team-finalize-engagement">✅ Generate Final Snapshot (stop here)</button>
+    <button class="btn btn-block" style="background:var(--green-ink); color:white; padding:12px; font-weight:700;" data-action="team-finalize-engagement">✅ Generate Final Snapshot (stop here)</button>
   `;
 }
 
 // ── §Dashboard ──
+let _liveSnapshotAssignmentCache = null;
+async function _refreshLiveSnapshotContent(opts) {
+  const content = $('live-snapshot-content');
+  if (!content || !liveSnapshotAssignmentId) return;
+  const assignment = (opts && opts.skipFetch && _liveSnapshotAssignmentCache && _liveSnapshotAssignmentCache.id === liveSnapshotAssignmentId)
+    ? _liveSnapshotAssignmentCache
+    : await Actions.fetchLiveAssignmentSnapshot(liveSnapshotAssignmentId);
+  _liveSnapshotAssignmentCache = assignment;
+  const rows = assignment
+    ? Actions.sortLiveSnapshotRows(Actions.filterLiveSnapshotRows(Actions.buildLiveSnapshotRows(assignment), liveSnapshotFilterMode), liveSnapshotSortMode)
+    : [];
+  content.innerHTML = Components.liveSnapshotModalHTML(assignment, rows, liveSnapshotFilterMode, liveSnapshotSortMode);
+}
+
 function refreshDashboard() {
   const holder = $('dashboard-holder');
   if (!holder) return;
@@ -494,6 +638,15 @@ Bus.on('snapshot:generated', (snapshot) => {
   const holder = $('final-snapshot-holder');
   if (holder) holder.innerHTML = Components.finalSnapshotCardHTML(snapshot);
 });
+
+// Lets other page modules (Inventory tab's "Add to Existing Engagement")
+// jump straight into this engagement's detail view, same as tapping its
+// card would — rather than only opening it in Store and leaving
+// currentSubView on 'list'.
+export async function openEngagementDetailView(engagementId) {
+  await Actions.openEngagement(engagementId);
+  currentSubView = 'detail'; openRoundId = null;
+}
 
 /* ── Handler maps, consumed by pages/event-delegation.js ── */
 export function initEngagementPages() {
@@ -517,6 +670,28 @@ export function initEngagementPages() {
       const companies = Array.from(scopeSelectedCompanies);
       const engagement = await Actions.createEngagement(name, { type, companies });
       if (engagement) { currentSubView = 'detail'; renderTeamTab(); }
+    },
+    'toggle-individual-staff': (el) => {
+      const name = el.dataset.auditor;
+      if (individualExpandedStaff.has(name)) individualExpandedStaff.delete(name);
+      else individualExpandedStaff.add(name);
+      renderIndividualDashboard();
+    },
+    'toggle-individual-round-select': (el) => {
+      const id = el.dataset.roundId;
+      if (individualSelectedRounds.has(id)) individualSelectedRounds.delete(id);
+      else individualSelectedRounds.add(id);
+      renderIndividualDashboard();
+    },
+    'confirm-recompile-individual': async () => {
+      const nameInput = $('individual-recompile-name');
+      const name = nameInput ? nameInput.value.trim() : '';
+      if (!name) { Bus.emit('toast', { msg: 'Give the new template a name first', kind: 'error' }); return; }
+      const template = await Actions.recompileIndividualRounds(Array.from(individualSelectedRounds), name);
+      if (template) {
+        individualSelectedRounds = new Set();
+        renderIndividualDashboard();
+      }
     },
     'toggle-scope-company': (el) => {
       if (el.checked) scopeSelectedCompanies.add(el.dataset.company);
@@ -556,27 +731,100 @@ export function initEngagementPages() {
       const overlay = $('live-snapshot-overlay');
       const content = $('live-snapshot-content');
       if (!overlay || !content) return;
+      liveSnapshotAssignmentId = el.dataset.assignmentId;
+      liveSnapshotFilterMode = 'all';
+      liveSnapshotSortMode = 'name-asc';
       content.innerHTML = '<div style="text-align:center; padding:30px 0; color:var(--grey); font-size:13px;">Loading…</div>';
       overlay.style.display = 'flex';
-      const assignment = await Actions.fetchLiveAssignmentSnapshot(el.dataset.assignmentId);
-      content.innerHTML = Components.liveSnapshotModalHTML(assignment);
+      await _refreshLiveSnapshotContent();
     },
-    'refresh-live-snapshot': async (el) => {
-      const content = $('live-snapshot-content');
-      if (!content) return;
-      const assignment = await Actions.fetchLiveAssignmentSnapshot(el.dataset.assignmentId);
-      content.innerHTML = Components.liveSnapshotModalHTML(assignment);
+    'refresh-live-snapshot': async () => {
+      await _refreshLiveSnapshotContent();
       Bus.emit('toast', { msg: 'Refreshed', kind: 'success' });
+    },
+    'set-live-snapshot-filter': async (el) => {
+      liveSnapshotFilterMode = el.dataset.mode;
+      await _refreshLiveSnapshotContent({ skipFetch: true });
+    },
+    'cycle-live-snapshot-sort': async () => {
+      const i = LIVE_SNAPSHOT_SORT_CYCLE.indexOf(liveSnapshotSortMode);
+      liveSnapshotSortMode = LIVE_SNAPSHOT_SORT_CYCLE[(i + 1) % LIVE_SNAPSHOT_SORT_CYCLE.length];
+      await _refreshLiveSnapshotContent({ skipFetch: true });
     },
     'close-live-snapshot': () => {
       const overlay = $('live-snapshot-overlay');
       if (overlay) overlay.style.display = 'none';
+      liveSnapshotAssignmentId = null;
     },
-    'toggle-subround-picker': () => { showSubRoundPicker = !showSubRoundPicker; subRoundSelectedCompanies = new Set(); refreshSubRoundSection(); },
+    'open-force-submit': async (el) => {
+      const overlay = $('force-submit-overlay');
+      const content = $('force-submit-content');
+      if (!overlay || !content) return;
+      const assignment = await Actions.fetchLiveAssignmentSnapshot(el.dataset.assignmentId);
+      content.innerHTML = Components.forceSubmitModalHTML(assignment);
+      overlay.style.display = 'flex';
+    },
+    'close-force-submit': () => {
+      const overlay = $('force-submit-overlay');
+      if (overlay) overlay.style.display = 'none';
+    },
+    'confirm-force-submit': async (el) => {
+      const { currentAuditorName, assignments } = Store.getState();
+      const submission = await Actions.forceSubmitAssignment(el.dataset.assignmentId, el.dataset.mode, currentAuditorName);
+      const overlay = $('force-submit-overlay');
+      if (overlay) overlay.style.display = 'none';
+      if (submission) {
+        const assignment = assignments.find(a => a.id === el.dataset.assignmentId);
+        await Actions.autoCompileIfIndividual(assignment);
+        const liveOverlay = $('live-snapshot-overlay');
+        if (liveOverlay) liveOverlay.style.display = 'none';
+        liveSnapshotAssignmentId = null;
+        refreshDashboard();
+      }
+    },
+    'resolve-cross-round-conflict': async (el) => {
+      const { currentAuditorName } = Store.getState();
+      await Actions.resolveCrossRoundConflict(el.dataset.compiledRoundId, parseInt(el.dataset.conflictIndex, 10), el.dataset.side, currentAuditorName);
+      refreshDashboard();
+    },
+    'toggle-subround-picker': () => {
+      showSubRoundPicker = !showSubRoundPicker;
+      subRoundSelectedCompanies = new Set();
+      subRoundSearchToken = '';
+      subRoundSortAscending = true;
+      refreshSubRoundSection();
+    },
     'toggle-subround-company': (el) => {
       const c = el.dataset.company;
       if (subRoundSelectedCompanies.has(c)) subRoundSelectedCompanies.delete(c);
       else subRoundSelectedCompanies.add(c);
+      const countLabel = $('subround-selected-count');
+      if (countLabel) countLabel.textContent = subRoundSelectedCompanies.size + ' compan' + (subRoundSelectedCompanies.size === 1 ? 'y' : 'ies') + ' selected';
+    },
+    'toggle-subround-sort': () => {
+      subRoundSortAscending = !subRoundSortAscending;
+      const { engagements, currentEngagementId } = Store.getState();
+      const engagement = engagements.find(e => e.id === currentEngagementId);
+      const lbl = $('subround-sort-label');
+      if (lbl) lbl.textContent = subRoundSortAscending ? 'A-Z' : 'Z-A';
+      if (engagement) renderSubRoundCompanyPicker(engagement);
+    },
+    'subround-select-all': () => {
+      const { engagements, currentEngagementId, products } = Store.getState();
+      const engagement = engagements.find(e => e.id === currentEngagementId);
+      if (!engagement) return;
+      const query = subRoundSearchToken.toLowerCase().trim();
+      const companies = [...new Set(products.map(p => p.company))]
+        .filter(c => !engagement.scope.companies.includes(c))
+        .filter(c => !query || c.toLowerCase().includes(query));
+      companies.forEach(c => subRoundSelectedCompanies.add(c));
+      renderSubRoundCompanyPicker(engagement);
+    },
+    'subround-clear-all': () => {
+      subRoundSelectedCompanies.clear();
+      const { engagements, currentEngagementId } = Store.getState();
+      const engagement = engagements.find(e => e.id === currentEngagementId);
+      if (engagement) renderSubRoundCompanyPicker(engagement);
     },
     'create-subround': async () => {
       const { currentEngagementId } = Store.getState();
@@ -587,6 +835,8 @@ export function initEngagementPages() {
       const round = await Actions.createSubRound(companies);
       showSubRoundPicker = false;
       subRoundSelectedCompanies = new Set();
+      subRoundSearchToken = '';
+      subRoundSortAscending = true;
       if (round) { await openRound(round.id); } else { renderTeamTab(); }
     },
     'open-round': (el) => openRound(el.dataset.roundId),
@@ -656,16 +906,22 @@ export function initEngagementPages() {
     'compile-with-missing': async () => { if (openRoundId) { await Actions.compileRoundWithMissingOverride(openRoundId); renderRoundWorkspace(); } },
     'team-generate-diff-round': async (el) => {
       const mode = (document.querySelector('input[name="diff-mode"]:checked') || {}).value || 'differences';
-      const { compiledRounds, engagements } = Store.getState();
-      const compiled = compiledRounds.find(c => c.id === el.dataset.compiledId);
-      if (!compiled) return;
-      const engagement = engagements.find(e => e.id === compiled.engagementId);
-      const { rounds, products } = Store.getState();
-      const sourceRound = rounds.find(r => r.id === compiled.roundId);
-      const sourceRoundLabel = sourceRound ? (sourceRound.roundNumber + (sourceRound.roundSuffix || '')) : null;
-      const items = Actions.buildItemsForMode(compiled, mode, { companies: engagement.scope.companies, sampleSize: 10, sourceRoundNumber: sourceRoundLabel, liveProducts: products });
+      const { compiledRounds, engagements, rounds, products } = Store.getState();
+      const roundNumber = parseInt(el.dataset.roundNumber, 10);
+      const sourceRound = rounds.find(r => r.id === el.dataset.sourceRoundId);
+      if (!sourceRound) return;
+      const engagement = engagements.find(e => e.id === sourceRound.engagementId);
+      const family = Actions.familyRounds(rounds, roundNumber);
+      const familyRoundIds = family.map(r => r.id);
+      // Family-wide merge — see mergeFamilyCompiled in compile-actions.js —
+      // so generating Round 2 from a family with sub-rounds (1, 1A, 1B...)
+      // combines all of their compiled variances/items company-wise
+      // instead of silently only using whichever one was open on screen.
+      const familyCompiled = Actions.mergeFamilyCompiled(familyRoundIds, compiledRounds);
+      const sourceRoundLabel = Actions.familyLabel(rounds, roundNumber);
+      const items = Actions.buildItemsForMode(familyCompiled, mode, { companies: engagement.scope.companies, sampleSize: 10, sourceRoundNumber: sourceRoundLabel, liveProducts: products });
       if (items.length === 0) { Bus.emit('toast', { msg: 'Nothing to send — no variances found', kind: 'error' }); return; }
-      const round = await Actions.createItemRound(compiled.roundId, items);
+      const round = await Actions.createItemRound(sourceRound.id, items);
       if (!round) return;
       selectedStaffIds = [];
       Actions.logDifferenceRoundGenerated(round.id, mode, items.length);
@@ -741,6 +997,12 @@ export function initEngagementPages() {
 
   const inputHandlers = {
     'filter-scope-companies': (el) => { scopeSearchToken = el.value; renderScopeCompanyPicker(); },
+    'filter-subround-companies': (el) => {
+      subRoundSearchToken = el.value;
+      const { engagements, currentEngagementId } = Store.getState();
+      const engagement = engagements.find(e => e.id === currentEngagementId);
+      if (engagement) renderSubRoundCompanyPicker(engagement);
+    },
   };
 
   return { clickHandlers, changeHandlers, inputHandlers, keydownHandlers: {} };

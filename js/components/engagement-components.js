@@ -12,6 +12,9 @@ export function engagementCard(engagement) {
   card.className = 'company-card';
   card.dataset.action = 'open-engagement';
   card.dataset.engagementId = engagement.id;
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-label', 'Open engagement ' + engagement.name);
   const badgeCls = STATUS_BADGE[engagement.status] || 'val-grey';
   card.innerHTML = `
     <div style="flex:1; min-width:0;">
@@ -24,14 +27,14 @@ export function engagementCard(engagement) {
   return card;
 }
 
-export function scopeCompanyCheckboxRow(company, checked, skuCount, value) {
+export function scopeCompanyCheckboxRow(company, checked, skuCount, value, dataAction) {
   const row = document.createElement('label');
   row.className = 'scope-company-row';
   const meta = skuCount !== undefined
     ? `${skuCount.toLocaleString()} SKU${skuCount === 1 ? '' : 's'} · Rs ${Math.round(value).toLocaleString()}`
     : '';
   row.innerHTML = `
-    <input type="checkbox" class="custom-checkbox" data-action="toggle-scope-company" data-company="${esc(company)}" ${checked ? 'checked' : ''}>
+    <input type="checkbox" class="custom-checkbox" data-action="${esc(dataAction || 'toggle-scope-company')}" data-company="${esc(company)}" ${checked ? 'checked' : ''}>
     <span class="scope-company-name-wrap">
       <span class="scope-company-name">${esc(company)}</span>
       ${meta ? `<span class="scope-company-count">${meta}</span>` : ''}

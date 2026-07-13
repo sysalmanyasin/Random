@@ -63,15 +63,16 @@ function _rowToEngagement(row) {
     // scope.codes only set when scope.type === 'template' — an exact
     // product-code list carried alongside the auto-derived company list
     // (see engagement-actions.js createEngagement) so all the existing
-    // company-based UI keeps working untouched.
-    scope: { type: row.scope_type, companies: row.scope_companies || [], codes: row.scope_codes || [] },
+    // company-based UI keeps working untouched. scope.month only set
+    // when scope.type === 'individual' — see individual-actions.js.
+    scope: { type: row.scope_type, companies: row.scope_companies || [], codes: row.scope_codes || [], month: row.scope_month || null },
     createdAt: row.created_at,
   };
 }
 async function insertEngagement(client, e) {
   const { data, error } = await client.from('engagements').insert({
     name: e.name, status: e.status, scope_type: e.scope.type, scope_companies: e.scope.companies,
-    scope_codes: e.scope.codes || [],
+    scope_codes: e.scope.codes || [], scope_month: e.scope.month || null,
   }).select().single();
   if (error) throw error;
   return _rowToEngagement(data);
@@ -131,6 +132,25 @@ async function fetchRoundsByEngagement(client, engagementId) {
   if (error) throw error;
   return (data || []).map(_rowToRound);
 }
+// Used by individual-actions.js autoCompileIfIndividual — a
+// Sub-Auditor's session never bulk-loads rounds by engagement the way
+// a Main Auditor's does, so compiling their own just-submitted
+// individual round needs a way to fetch that one round directly.
+async function fetchRoundById(client, roundId) {
+  const { data, error } = await client.from('rounds').select('*').eq('id', roundId).maybeSingle();
+  if (error) throw error;
+  return data ? _rowToRound(data) : null;
+}
+// Used only for the Force-Submit/Sub-Round preventive overlap check —
+// "are any of these codes already being counted somewhere else right
+// now" — so it deliberately spans every engagement, not just the
+// current one. Joins the engagement name so the warning can name where
+// the overlap is, without a second round-trip.
+async function fetchOpenRoundsAcrossEngagements(client) {
+  const { data, error } = await client.from('rounds').select('*, engagements(name)').in('state', ['draft', 'locked', 'counting']);
+  if (error) throw error;
+  return (data || []).map(row => Object.assign(_rowToRound(row), { engagementName: row.engagements ? row.engagements.name : '' }));
+}
 
 // ── Assignments ──
 function _rowToAssignment(row) {
@@ -138,7 +158,7 @@ function _rowToAssignment(row) {
     id: row.id, roundId: row.round_id, engagementId: row.engagement_id, auditorId: row.auditor_id,
     auditorName: row.auditor_name, unit: row.unit, companies: row.companies || [], items: row.items || [],
     method: row.method, status: row.status, progressCount: row.progress_count || 0,
-    liveSnapshot: row.live_snapshot || {}, createdAt: row.created_at,
+    liveSnapshot: row.live_snapshot || {}, createdAt: row.created_at, startedAt: row.started_at || null,
   };
 }
 async function insertAssignments(client, list) {
@@ -158,6 +178,7 @@ async function updateAssignment(client, id, patch) {
   if (patch.method !== undefined) dbPatch.method = patch.method;
   if (patch.progressCount !== undefined) dbPatch.progress_count = patch.progressCount;
   if (patch.liveSnapshot !== undefined) dbPatch.live_snapshot = patch.liveSnapshot;
+  if (patch.startedAt !== undefined) dbPatch.started_at = patch.startedAt;
   const { error } = await client.from('assignments').update(dbPatch).eq('id', id);
   if (error) throw error;
 }
@@ -188,6 +209,9 @@ function _rowToSubmission(row) {
     id: row.id, assignmentId: row.assignment_id, roundId: row.round_id, engagementId: row.engagement_id,
     auditorId: row.auditor_id, auditorName: row.auditor_name, counts: row.counts || {}, notes: row.notes || {},
     confirms: row.confirms || {}, submittedAt: row.submitted_at,
+    extraNote: row.extra_note || '', forceSubmittedBy: row.force_submitted_by || null,
+    forceSubmitLeftoverMode: row.force_submit_leftover_mode || null, rowTimes: row.row_times || {},
+    autoMatched: row.auto_matched || {},
   };
 }
 // One live row per assignment — upsert on (assignment_id, auditor_id),
@@ -197,6 +221,9 @@ async function upsertSubmission(client, s) {
   const { data, error } = await client.from('submissions').upsert({
     assignment_id: s.assignmentId, round_id: s.roundId, engagement_id: s.engagementId,
     auditor_id: s.auditorId, auditor_name: s.auditorName, counts: s.counts, notes: s.notes, confirms: s.confirms || {},
+    extra_note: s.extraNote || '', force_submitted_by: s.forceSubmittedBy || null,
+    force_submit_leftover_mode: s.forceSubmitLeftoverMode || null, row_times: s.rowTimes || {},
+    auto_matched: s.autoMatched || {},
     submitted_at: new Date().toISOString(),
   }, { onConflict: 'assignment_id,auditor_id' }).select().single();
   if (error) throw error;
@@ -219,15 +246,40 @@ function _rowToCompiled(row) {
     id: row.id, roundId: row.round_id, engagementId: row.engagement_id, mergedItems: row.merged_items || [],
     variances: row.variances || [], missingAssignmentIds: row.missing_assignment_ids || [],
     compiledWithMissing: row.compiled_with_missing, compiledAt: row.compiled_at,
+    auditorNotes: row.auditor_notes || [], crossRoundConflicts: row.cross_round_conflicts || [],
   };
 }
 async function insertCompiledRound(client, c) {
   const { data, error } = await client.from('compiled_rounds').insert({
     round_id: c.roundId, engagement_id: c.engagementId, merged_items: c.mergedItems, variances: c.variances,
     missing_assignment_ids: c.missingAssignmentIds, compiled_with_missing: c.compiledWithMissing,
+    auditor_notes: c.auditorNotes || [], cross_round_conflicts: c.crossRoundConflicts || [],
   }).select().single();
   if (error) throw error;
   return _rowToCompiled(data);
+}
+// Used only to write back conflict-resolution decisions (which side the
+// Main Auditor kept) — never to touch merged_items/variances themselves.
+async function updateCompiledRoundConflicts(client, id, crossRoundConflicts) {
+  const { error } = await client.from('compiled_rounds').update({ cross_round_conflicts: crossRoundConflicts }).eq('id', id);
+  if (error) throw error;
+}
+// A Sub-Auditor's client has no direct write access to compiled_rounds
+// or UPDATE access to rounds (see schema.sql RLS) — both are Main
+// Auditor territory. This is the one deliberate, narrow exception:
+// compile_individual_round() is a security-definer Postgres function
+// that does the privileged INSERT/UPDATE on the caller's behalf, but
+// only after re-checking (server-side, not just trusted from the
+// client) that the round actually belongs to a scope_type='individual'
+// engagement and that the caller owns its one assignment. The
+// merge/variance computation itself stays in JS (buildMergedItems in
+// compile-actions.js) — this only carries the already-computed result
+// across the one privilege boundary that needs crossing.
+async function compileIndividualRoundRPC(client, roundId, mergedItems, variances) {
+  const { error } = await client.rpc('compile_individual_round', {
+    p_round_id: roundId, p_merged_items: mergedItems, p_variances: variances,
+  });
+  if (error) throw error;
 }
 async function fetchCompiledRoundsByRound(client, roundId) {
   const { data, error } = await client.from('compiled_rounds').select('*').eq('round_id', roundId).order('compiled_at', { ascending: true });
@@ -295,10 +347,10 @@ export const SupabaseRepo = {
   buildSupabaseClient, signInWithPhonePin, signOut, getSession, onAuthStateChange, callAdminAction,
   fetchMyStaffProfile, fetchAllStaff, setStaffAccessExpiry,
   insertEngagement, updateEngagementStatus, updateEngagementScope, deleteEngagement, fetchEngagements,
-  insertRound, updateRound, fetchRoundsByEngagement,
+  insertRound, updateRound, fetchRoundsByEngagement, fetchRoundById, fetchOpenRoundsAcrossEngagements,
   insertAssignments, updateAssignment, fetchAssignmentsByRound, fetchAssignmentById, fetchMyAssignments,
   upsertSubmission, fetchSubmissionsByRound, fetchMySubmission,
-  insertCompiledRound, fetchCompiledRoundsByRound,
+  insertCompiledRound, fetchCompiledRoundsByRound, updateCompiledRoundConflicts, compileIndividualRoundRPC,
   insertFinalSnapshot, fetchFinalSnapshotsByEngagement,
   insertAuditLogEntry, fetchAuditLog,
   fetchTemplates, insertTemplate, updateTemplate, deleteTemplateRemote,

@@ -96,7 +96,7 @@ create table if not exists submissions (
 
 create table if not exists compiled_rounds (
   id uuid primary key default gen_random_uuid(),
-  round_id uuid not null references rounds(id) on delete cascade,
+  round_id uuid not null references rounds(id) on delete cascade unique,
   engagement_id uuid not null references engagements(id) on delete cascade,
   merged_items jsonb not null default '[]',
   variances jsonb not null default '[]',
@@ -159,6 +159,53 @@ returns boolean language sql security definer stable as $$
   select exists (select 1 from assignments where id = p_assignment_id and status not in ('submitted','revoked'));
 $$;
 
+-- The one privileged write a Sub-Auditor's own client needs but can't
+-- have directly: compiling their own just-submitted Individual round
+-- (see individual-actions.js autoCompileIfIndividual). compiled_rounds
+-- has no Sub-Auditor policy at all, and rounds has none for UPDATE —
+-- both stay that way; this function is the sole, narrow crack,
+-- re-validating server-side (never trusting the caller) that:
+--   1. the round actually belongs to a scope_type='individual' engagement
+--   2. the caller either owns that round's one assignment, or is the Main Auditor
+-- The merge/variance numbers themselves are computed in JS
+-- (buildMergedItems, compile-actions.js) — identical logic to every
+-- other compile in the app — and just carried across this one
+-- privilege boundary as parameters, so there is exactly one place the
+-- actual variance rule lives, not one in JS and a second copy in SQL.
+create or replace function compile_individual_round(p_round_id uuid, p_merged_items jsonb, p_variances jsonb)
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_engagement_id uuid;
+  v_scope_type text;
+  v_owner uuid;
+begin
+  select engagement_id into v_engagement_id from rounds where id = p_round_id;
+  if v_engagement_id is null then
+    raise exception 'round not found';
+  end if;
+
+  select scope_type into v_scope_type from engagements where id = v_engagement_id;
+  if v_scope_type is distinct from 'individual' then
+    raise exception 'compile_individual_round can only be used on an Individual Assignments round';
+  end if;
+
+  select auditor_id into v_owner from assignments where round_id = p_round_id limit 1;
+  if v_owner is distinct from auth.uid() and not is_main_auditor() then
+    raise exception 'not your round';
+  end if;
+
+  insert into compiled_rounds (round_id, engagement_id, merged_items, variances, missing_assignment_ids, compiled_with_missing)
+  values (p_round_id, v_engagement_id, p_merged_items, p_variances, '{}', false)
+  on conflict (round_id) do update set
+    merged_items = excluded.merged_items, variances = excluded.variances, compiled_at = now();
+
+  update rounds set state = 'compiled', compiled_at = now() where id = p_round_id;
+end;
+$$;
+
+grant execute on function compile_individual_round(uuid, jsonb, jsonb) to authenticated;
+
 -- ── Row Level Security ──────────────────────────────────────────
 alter table staff enable row level security;
 alter table engagements enable row level security;
@@ -208,6 +255,37 @@ create policy "main only" on final_snapshots for all using (is_main_auditor());
 drop policy if exists "main only" on audit_log;
 create policy "main only" on audit_log for all using (is_main_auditor());
 
+-- Individual Assignments (staff self-service, see individual-actions.js):
+-- the one deliberate, narrow crack in "engagements/rounds are Main
+-- Auditor only" above. A Sub-Auditor may read and create rows in
+-- EITHER table, but ONLY where scope_type='individual' (the one
+-- evergreen monthly pool every self-pick lands in) — every other
+-- engagement/round in the system stays completely invisible to them,
+-- exactly as before.
+drop policy if exists "sub read individual engagements" on engagements;
+create policy "sub read individual engagements" on engagements for select
+  using (scope_type = 'individual');
+drop policy if exists "sub create individual engagements" on engagements;
+create policy "sub create individual engagements" on engagements for insert
+  with check (scope_type = 'individual');
+
+drop policy if exists "sub read individual rounds" on rounds;
+create policy "sub read individual rounds" on rounds for select
+  using (exists (select 1 from engagements e where e.id = rounds.engagement_id and e.scope_type = 'individual'));
+drop policy if exists "sub create individual rounds" on rounds;
+create policy "sub create individual rounds" on rounds for insert
+  with check (exists (select 1 from engagements e where e.id = rounds.engagement_id and e.scope_type = 'individual'));
+-- No sub-auditor UPDATE policy on rounds: the one time a round's state
+-- needs to change post-creation (compiling) goes through
+-- compile_individual_round() below instead, which runs with elevated
+-- privilege of its own rather than needing a broad UPDATE grant here.
+
+-- A unique index (not just a constraint check) so two Sub-Auditors
+-- can't race to create the same month's pool engagement twice — the
+-- second insert fails outright rather than silently forking the pool.
+create unique index if not exists uq_engagements_individual_month
+  on engagements(scope_month) where scope_type = 'individual';
+
 -- assignments: Main Auditor full access. A Sub-Auditor may ONLY read
 -- the assignment(s) that belong to them, and only while their access
 -- hasn't expired — this is the real, database-enforced isolation
@@ -222,6 +300,16 @@ drop policy if exists "assignments sub update own status" on assignments;
 create policy "assignments sub update own status" on assignments for update
   using (auditor_id = auth.uid() and is_access_valid())
   with check (auditor_id = auth.uid() and is_engagement_open(engagement_id));
+-- Individual self-pick: a Sub-Auditor may create exactly one
+-- assignment for THEMSELVES (auditor_id = auth.uid(), never anyone
+-- else's), and only inside a scope_type='individual' round — creating
+-- an assignment on any real Team round stays impossible for them.
+drop policy if exists "sub create own individual assignment" on assignments;
+create policy "sub create own individual assignment" on assignments for insert
+  with check (
+    auditor_id = auth.uid()
+    and exists (select 1 from rounds r join engagements e on e.id = r.engagement_id where r.id = assignments.round_id and e.scope_type = 'individual')
+  );
 
 -- submissions: Main Auditor full access. A Sub-Auditor may insert/update
 -- ONLY their own submission row, only while access is valid, and may
@@ -330,8 +418,83 @@ create index if not exists idx_templates_created_by on audit_templates(created_b
 -- sub-auditors only ever see the exact codes, never the whole company.
 alter table engagements drop constraint if exists engagements_scope_type_check;
 alter table engagements add constraint engagements_scope_type_check
-  check (scope_type in ('full','selected','single','template'));
+  check (scope_type in ('full','selected','single','template','individual'));
+
+-- One evergreen, auto-rolling engagement per calendar month holds every
+-- staff self-assigned "individual" audit (see individual-actions.js).
+-- scope_type='individual' identifies it structurally (not by parsing
+-- the display name); scope_month is the exact-match lookup key
+-- ('2026-07') used to find-or-create the current month's one and to
+-- auto-close the previous month's the moment a new one is needed.
+alter table engagements add column if not exists scope_month text;
 alter table engagements add column if not exists scope_codes text[] not null default '{}';
+
+-- Sub-Auditor free-text note ("items found but not in inventory"),
+-- carried alongside the itemKey-scoped `counts`/`notes` — see
+-- counting-actions.js myExtraNote. Not part of any variance
+-- calculation; purely an informational appendix surfaced post-compile
+-- grouped by auditor (compiled_rounds.auditor_notes below).
+alter table submissions add column if not exists extra_note text not null default '';
+-- Set only when a submission was written by Force Submit (Main
+-- Auditor acting on a Sub-Auditor's live_snapshot) rather than by the
+-- Sub-Auditor themselves — holds the Main Auditor's name, so reports
+-- can always distinguish a real submission from a forced one. Null for
+-- ordinary submissions.
+alter table submissions add column if not exists force_submitted_by text;
+-- How Force Submit should treat items the Sub-Auditor never got to:
+-- 'unverified' leaves them blank, 'match' auto-fills system qty. Null
+-- for ordinary (non-forced) submissions.
+alter table submissions add column if not exists force_submit_leftover_mode text
+  check (force_submit_leftover_mode in ('unverified','match'));
+
+-- Auditor Notes appendix, collected at compile time from every
+-- submission's extra_note in this round — see compile-actions.js
+-- collectAuditorNotes(). Kept fully separate from merged_items/
+-- variances so it can never affect variance counts.
+alter table compiled_rounds add column if not exists auditor_notes jsonb not null default '[]';
+-- Cross-round conflicts: same (company, code) counted with a
+-- different variance in another already-compiled round. Never
+-- auto-resolved — see compile-actions.js detectCrossRoundConflicts()
+-- and resolveCrossRoundConflict(). Each entry gains a `resolved` field
+-- (itemKey/roundId chosen + resolvedBy + resolvedAt) once the Main
+-- Auditor picks one side; until then it's flagged but both counts
+-- are kept exactly as compiled.
+alter table compiled_rounds add column if not exists cross_round_conflicts jsonb not null default '[]';
+
+-- For databases that ran this schema before the `unique` on
+-- compiled_rounds.round_id existed above: add it now, guarded so this
+-- is safe to re-run. (If duplicate rows already exist from a past
+-- double-click race, this will fail loudly rather than silently
+-- picking one to drop — resolve those manually first, they're rare.)
+do $$ begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'compiled_rounds_round_id_key'
+  ) then
+    alter table compiled_rounds add constraint compiled_rounds_round_id_key unique (round_id);
+  end if;
+end $$;
+
+-- Time tracking: "opening to submission" duration plus a per-row
+-- breakdown (see counting-actions.js recordMyCount / openMyAssignment).
+-- started_at is set once, the first time a Sub-Auditor actually opens
+-- the assignment (assigned -> counting) — not when it was created or
+-- assigned, since that could be hours or days before anyone starts
+-- counting. row_times is itemKey -> seconds spent on that row,
+-- attributed sequentially and capped per-row (see MAX_ROW_SECONDS) so
+-- a coffee break mid-session doesn't get misattributed as "this one
+-- item took 40 minutes."
+alter table assignments add column if not exists started_at timestamptz;
+alter table submissions add column if not exists row_times jsonb not null default '{}';
+
+-- The uncounted=0 rule: any item never actually typed defaults to a
+-- full assumed-shortage variance (countedQty=0) rather than being
+-- excluded from the report. auto_matched marks the ONE sanctioned way
+-- to resolve that without a real physical count — "Mark Remaining as
+-- Match" (self-service) or Force Submit's match mode — so reports can
+-- always tell a real count apart from an assumed/auto-resolved one,
+-- even when both show the same number. See counting-actions.js
+-- markRemainingAsMatch and compile-actions.js buildMergedItems.
+alter table submissions add column if not exists auto_matched jsonb not null default '{}';
 
 -- ══════════════════════════════════════════════════════════════
 -- ONE-TIME: create your own Main Auditor login.

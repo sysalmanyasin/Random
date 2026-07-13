@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
 <title>Fazal Din's Pharma Plus — Audit Hub</title>
 
 <link rel="manifest" href="./manifest.json">
@@ -34,6 +35,8 @@
 </head>
 <body>
 
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
 <div id="app">
 
   <div id="auth-root"></div>
@@ -41,32 +44,34 @@
   <div id="app-shell-below-auth" style="display:none;">
 
   <!-- ── PWA Install Banner ─────────────────────────────────── -->
-  <div id="pwa-install-banner" role="banner" aria-label="Install app">
-    <div class="pwa-icon">💊</div>
+  <div id="pwa-install-banner" role="region" aria-label="Install app">
+    <div class="pwa-icon" aria-hidden="true">💊</div>
     <div class="pwa-text">
       <div class="pwa-title">Install PharmaAudit</div>
       <div class="pwa-sub">Add to home screen for offline access</div>
     </div>
     <button class="pwa-btn" data-action="pwa-install">Install</button>
-    <button class="pwa-dismiss" data-action="pwa-dismiss" aria-label="Dismiss">✕</button>
+    <button class="pwa-dismiss" data-action="pwa-dismiss" aria-label="Dismiss install banner">✕</button>
   </div>
 
   <!-- ── Cloud Sync Status Bar ─────────────────────────────── -->
-  <div id="cloud-sync-bar" class="state-unlinked" data-action="cloud-bar-tapped" title="Tap to sync">
-    <span class="sync-dot"></span>
-    <span id="cloud-bar-text">☁ Not linked</span>
-  </div>
+  <button type="button" id="cloud-sync-bar" class="state-unlinked" data-action="cloud-bar-tapped" aria-live="polite">
+    <span class="sync-dot" aria-hidden="true"></span>
+    <span id="cloud-bar-text">☁ Not linked — tap to sync</span>
+  </button>
 
-  <div class="header">
+  <header class="header">
     <div class="header-brand-wrap">
       <div class="header-sub">Fazal Din's Pharma Plus</div>
       <div class="header-title">Pharmacy Audit Hub</div>
-      <div class="header-loc">📍 <span id="header-branch-label">Bahria Town Branch</span></div>
+      <div class="header-loc"><span aria-hidden="true">📍</span> <span id="header-branch-label">Bahria Town Branch</span></div>
     </div>
     <div class="no-print" id="action-header-sync-btn" style="display:none;">
       <button class="btn btn-gold" style="padding:5px 12px; font-size:11px;" data-action="hardware-share">Share Progress</button>
     </div>
-  </div>
+  </header>
+
+  <main id="main-content">
 
   <!-- ══════════════════════════════════════════════════════════
        HOME SCREEN
@@ -139,7 +144,7 @@
       <div style="margin-bottom:10px;">
         <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700; color:var(--grey); margin-bottom:5px;">
           <span id="progress-label">0 / 0 counted (0%)</span>
-          <span style="color:var(--gold); cursor:pointer; text-decoration:underline;" data-action="mark-remaining-match-legacy">Mark Remaining as Match</span>
+          <button type="button" class="link-btn" style="color:var(--gold-ink); text-decoration:underline; background:none; border:none; font: inherit; padding:0; cursor:pointer;" data-action="mark-remaining-match-legacy">Mark Remaining as Match</button>
         </div>
         <div class="progress-track">
           <div id="progress-fill" class="progress-fill" style="width:0%;"></div>
@@ -177,7 +182,7 @@
       </div>
 
       <div class="search-sort-row no-print">
-        <input type="text" id="shelf-search-input" class="search-input" placeholder="🔍 Filter product row names…" data-input-action="filter-audit-table">
+        <input type="text" id="shelf-search-input" class="search-input" placeholder="🔍 Filter product row names…" aria-label="Filter product row names" data-input-action="filter-audit-table">
         <button class="sort-btn" data-action="toggle-runtime-sort">↕ <span id="sort-order-label">A-Z</span></button>
       </div>
     </div>
@@ -196,7 +201,7 @@
           <span style="font-size:13px; font-weight:800; color:var(--navy);">Select Manufacturer</span>
           <button class="sort-btn" id="company-sort-btn" data-action="toggle-company-sort" style="font-size:11px; padding:6px 12px;">↕ <span id="company-sort-label">A-Z</span></button>
         </div>
-        <input type="text" id="company-search-input" class="search-input" placeholder="🔍 Search company…" data-input-action="filter-company-list" style="margin:0;">
+        <input type="text" id="company-search-input" class="search-input" placeholder="🔍 Search company…" aria-label="Search company" data-input-action="filter-company-list" style="margin:0;">
       </div>
       <!-- Hidden select kept for "next manufacturer" ordering logic only -->
       <select id="manufacturer-dropdown-selector" style="display:none;">
@@ -241,12 +246,12 @@
       </div>
     </div>
 
-    <input type="text" id="history-search-input" placeholder="🔍 Search company…" data-input-action="filter-history">
+    <input type="text" id="history-search-input" placeholder="🔍 Search company…" aria-label="Search history by company" data-input-action="filter-history">
 
     <div class="history-filter-bar">
-      <input type="date" id="history-filter-from" placeholder="From date" data-change-action="filter-history">
+      <input type="date" id="history-filter-from" placeholder="From date" aria-label="Filter history from date" data-change-action="filter-history">
       <span style="font-size:11px; color:var(--grey); font-weight:700;">to</span>
-      <input type="date" id="history-filter-to" placeholder="To date" data-change-action="filter-history">
+      <input type="date" id="history-filter-to" placeholder="To date" aria-label="Filter history to date" data-change-action="filter-history">
       <button class="sort-btn" data-action="clear-history-filters">Clear</button>
     </div>
 
@@ -261,7 +266,7 @@
     </div>
     <div class="bulk-actions-panel">
       <button class="btn btn-primary" style="flex:1; font-size:12px; padding:10px; border-radius:8px;" data-action="print-combined-pdf">🖨️ Combined PDF</button>
-      <button class="btn" style="flex:1; font-size:12px; padding:10px; border-radius:8px; background:var(--green); color:var(--white);" data-action="export-all-xlsx">📊 Export All (.xlsx)</button>
+      <button class="btn" style="flex:1; font-size:12px; padding:10px; border-radius:8px; background:var(--green-ink); color:var(--white);" data-action="export-all-xlsx">📊 Export All (.xlsx)</button>
     </div>
 
     <div id="history-accordion-container"></div>
@@ -278,6 +283,7 @@
       <div class="section-sub-tabs">
         <button class="section-sub-tab active" data-action="navigate" data-view="team">Engagements</button>
         <button class="section-sub-tab" data-action="navigate" data-view="staff">Staff</button>
+        <button class="section-sub-tab" data-action="navigate" data-view="individual">Individual</button>
       </div>
     </div>
 
@@ -295,10 +301,30 @@
       <div class="section-sub-tabs">
         <button class="section-sub-tab" data-action="navigate" data-view="team">Engagements</button>
         <button class="section-sub-tab active" data-action="navigate" data-view="staff">Staff</button>
+        <button class="section-sub-tab" data-action="navigate" data-view="individual">Individual</button>
       </div>
     </div>
 
     <div id="staff-tab-root"></div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       INDIVIDUAL ASSIGNMENTS — staff self-picked audits, grouped by
+       auditor. See js/actions/individual-actions.js.
+  ══════════════════════════════════════════════════════════ -->
+  <div class="page" id="page-individual">
+
+    <!-- Section nav -->
+    <div class="section-nav-bar">
+      <div class="section-nav-label">Team Audit</div>
+      <div class="section-sub-tabs">
+        <button class="section-sub-tab" data-action="navigate" data-view="team">Engagements</button>
+        <button class="section-sub-tab" data-action="navigate" data-view="staff">Staff</button>
+        <button class="section-sub-tab active" data-action="navigate" data-view="individual">Individual</button>
+      </div>
+    </div>
+
+    <div id="individual-tab-root"></div>
   </div>
 
 
@@ -317,7 +343,7 @@
       </div>
     </div>
 
-    <input type="file" id="hardware-sync-receiver" accept=".json" style="display:none" data-change-action="ingest-hardware-package">
+    <input type="file" id="hardware-sync-receiver" accept=".json" style="display:none" data-change-action="ingest-hardware-package" aria-label="Choose hardware sync package file">
 
     <!-- Dropbox Inventory Fetch -->
     <div class="card">
@@ -347,11 +373,11 @@
     <!-- Manual CSV fallback -->
     <div class="card">
       <div class="card-title" style="color:var(--grey);">Manual CSV Upload (Fallback)</div>
-      <div style="border: 2px dashed var(--border); padding: 24px 16px; text-align: center; border-radius: 12px; cursor: pointer; background: var(--light);" data-action="trigger-file-input" data-target="csv-file-input">
-        <span style="font-size:30px;">📂</span>
+      <button type="button" class="file-trigger-tile" style="border: 2px dashed var(--border); padding: 24px 16px; text-align: center; border-radius: 12px; cursor: pointer; background: var(--light); width:100%; font: inherit;" data-action="trigger-file-input" data-target="csv-file-input">
+        <span style="font-size:30px;" aria-hidden="true">📂</span>
         <div style="font-size:12px; font-weight:700; color:var(--grey); margin-top:8px; line-height:1.5;">Tap to upload a CSV file<br>Use when Dropbox is unavailable</div>
-      </div>
-      <input type="file" id="csv-file-input" accept=".csv" style="display:none" data-change-action="handle-csv-file">
+      </button>
+      <input type="file" id="csv-file-input" accept=".csv" style="display:none" data-change-action="handle-csv-file" aria-label="Choose CSV inventory file to upload">
       <div id="file-status-report" style="margin-top:12px; font-size:13px; font-weight:700; color:var(--green); display:none;"></div>
     </div>
 
@@ -371,7 +397,7 @@
       </div>
     </div>
 
-    <input type="text" id="inv-search-input" class="search-input" placeholder="🔍 Search code, name, generic, company, supplier…" data-input-action="inventory-search">
+    <input type="text" id="inv-search-input" class="search-input" placeholder="🔍 Search code, name, generic, company, supplier…" aria-label="Search inventory by code, name, generic, company, or supplier" data-input-action="inventory-search">
 
     <div style="display:flex; gap:8px; margin:10px 0;">
       <button class="filter-btn inv-group-btn filter-btn-active" data-action="set-inventory-group" data-group="none">No Grouping</button>
@@ -384,22 +410,31 @@
          past the whole inventory list. -->
     <div class="card">
       <div class="card-title" style="margin-top:0;">Saved Templates</div>
-      <div style="border: 2px dashed var(--border); padding: 16px; text-align: center; border-radius: 12px; cursor: pointer; background: var(--light); margin-bottom:12px;" data-action="trigger-file-input" data-target="inv-codes-file-input">
-        <span style="font-size:22px;">📂</span>
+      <button type="button" class="file-trigger-tile" style="border: 2px dashed var(--border); padding: 16px; text-align: center; border-radius: 12px; cursor: pointer; background: var(--light); margin-bottom:12px; width:100%; font: inherit;" data-action="trigger-file-input" data-target="inv-codes-file-input">
+        <span style="font-size:22px;" aria-hidden="true">📂</span>
         <div style="font-size:11px; font-weight:700; color:var(--grey); margin-top:6px;">Load a code list from file</div>
+      </button>
+      <input type="file" id="inv-codes-file-input" accept=".csv,.txt" style="display:none" data-change-action="handle-inventory-codes-file" aria-label="Choose a code list file to load">
+      <div style="display:flex; gap:6px; margin-bottom:12px;">
+        <input type="text" id="inv-manual-code-input" class="settings-input" placeholder="Or type code(s), comma-separated" aria-label="Type product code(s), comma-separated" style="margin:0; flex:1;">
+        <button class="btn" style="background:var(--light); color:var(--navy);" data-action="add-manual-inventory-codes">Add</button>
       </div>
-      <input type="file" id="inv-codes-file-input" accept=".csv,.txt" style="display:none" data-change-action="handle-inventory-codes-file">
       <div id="inv-templates-list"></div>
     </div>
 
     <div class="card" style="margin-top:12px;">
       <div class="card-title" style="margin-top:0;">🎲 Start Random Audit From This Selection</div>
       <div style="font-size:11px; color:var(--grey); margin-bottom:10px;">Check items in the list below (or load a Template above), then launch — Individual samples a subset into your own workspace, Team creates an engagement scoped to exactly these codes.</div>
-      <label style="font-size:11px; font-weight:700; color:var(--grey);">Sample size (Individual)</label>
+      <label for="inv-sample-size" style="font-size:11px; font-weight:700; color:var(--grey);">Sample size (Individual)</label>
       <input type="number" id="inv-sample-size" class="settings-input" value="10" min="1" style="margin:6px 0 12px;">
-      <div style="display:flex; gap:8px;">
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
         <button class="btn btn-primary" style="flex:1;" data-action="start-individual-random-audit">🧍 Individual</button>
-        <button class="btn btn-primary" style="flex:1; background:var(--green);" data-action="start-team-random-audit">👥 Team</button>
+        <button class="btn btn-primary" style="flex:1; background:var(--green-ink);" data-action="start-team-random-audit">👥 Team</button>
+      </div>
+      <button class="sort-btn btn-block" data-action="toggle-existing-engagement-picker">➕ Add to Existing Engagement (Sub-Round)</button>
+      <div id="inv-existing-engagement-picker" style="display:none; margin-top:8px;">
+        <select id="inv-existing-engagement-select" class="settings-input" style="margin:0 0 8px;"></select>
+        <button class="btn btn-primary btn-block" data-action="confirm-add-to-existing-engagement">Add Selection as Sub-Round</button>
       </div>
     </div>
 
@@ -467,18 +502,18 @@
 
     <div class="card-title" style="margin-top:0;">Branch &amp; Display</div>
     <div class="card">
-      <label class="settings-label">Branch Name</label>
+      <label class="settings-label" for="settings-branch-name">Branch Name</label>
       <input type="text" id="settings-branch-name" class="settings-input" placeholder="e.g. Bahria Town Branch" style="margin-bottom:0;">
       <button class="btn btn-primary btn-block" style="margin-top:12px;" data-action="save-branch-name">Save Branch Name</button>
     </div>
 
     <div class="card-title">Security</div>
     <div class="card">
-      <label class="settings-label">Current Settings PIN</label>
+      <label class="settings-label" for="settings-pin-current">Current Settings PIN</label>
       <input type="password" id="settings-pin-current" class="settings-input" placeholder="Enter current 4-digit PIN" inputmode="numeric" maxlength="4" pattern="[0-9]*">
-      <label class="settings-label">New 4-Digit PIN</label>
+      <label class="settings-label" for="settings-pin-new">New 4-Digit PIN</label>
       <input type="password" id="settings-pin-new" class="settings-input" placeholder="Enter new 4-digit PIN" inputmode="numeric" maxlength="4" pattern="[0-9]*">
-      <label class="settings-label">Confirm New PIN</label>
+      <label class="settings-label" for="settings-pin-confirm">Confirm New PIN</label>
       <input type="password" id="settings-pin-confirm" class="settings-input" placeholder="Re-enter new 4-digit PIN" inputmode="numeric" maxlength="4" pattern="[0-9]*" style="margin-bottom:0;">
       <button class="btn btn-primary btn-block" style="margin-top:12px;" data-action="save-settings-pin">Change PIN</button>
     </div>
@@ -488,9 +523,9 @@
       <div style="font-size:11px; color:var(--grey); margin-bottom:12px; line-height:1.6;">
         Staff logins and multi-auditor data live in this Supabase project. Only change this if moving to a different project.
       </div>
-      <label class="settings-label">Supabase URL</label>
+      <label class="settings-label" for="supabase-url-input">Supabase URL</label>
       <input type="text" id="supabase-url-input" class="settings-input" placeholder="https://xxxx.supabase.co">
-      <label class="settings-label">Supabase Anon / Publishable Key</label>
+      <label class="settings-label" for="supabase-anon-key-input">Supabase Anon / Publishable Key</label>
       <input type="text" id="supabase-anon-key-input" class="settings-input" placeholder="sb_publishable_…" style="margin-bottom:0;">
       <button class="btn btn-primary btn-block" style="margin-top:12px;" data-action="save-supabase-config">Save &amp; Reload</button>
     </div>
@@ -506,7 +541,7 @@
       </div>
 
       <div id="conn-key-row" style="margin-bottom:12px;">
-        <label class="settings-label">Dropbox App Key</label>
+        <label class="settings-label" for="settings-dropbox-key">Dropbox App Key</label>
         <div style="display:flex; gap:8px;">
           <input type="text" id="settings-dropbox-key" class="settings-input"
             placeholder="Enter Dropbox App Key from POS-SYNC"
@@ -527,14 +562,14 @@
           <button class="btn btn-primary btn-sm" style="flex:1;" data-action="export-connection-token">📤 Export Connection</button>
           <button class="btn btn-gold btn-sm" style="flex:1;" data-action="import-connection-token">📥 Import Connection</button>
         </div>
-        <button class="btn btn-block" style="margin-top:8px; background:var(--green); color:var(--white); padding:11px; font-size:12px;" data-action="cloud-bar-tapped">↓ Pull From Cloud</button>
+        <button class="btn btn-block" style="margin-top:8px; background:var(--green-ink); color:var(--white); padding:11px; font-size:12px;" data-action="cloud-bar-tapped">↓ Pull From Cloud</button>
         <label style="display:flex; align-items:center; gap:10px; font-size:13px; font-weight:700; color:var(--navy); margin-top:14px; cursor:pointer; user-select:none;">
           <input type="checkbox" id="settings-autosync-toggle" style="width:18px; height:18px; accent-color:var(--navy);" data-change-action="toggle-autosync"> Auto-sync every 10s
         </label>
       </div>
 
       <div id="conn-import-row" style="display:none; margin-top:10px;">
-        <label class="settings-label">Paste Connection Token</label>
+        <label class="settings-label" for="conn-token-input">Paste Connection Token</label>
         <textarea id="conn-token-input" class="settings-input" rows="3" placeholder="Paste token from another device…" style="font-size:11px; font-family:monospace; resize:none;"></textarea>
         <div style="display:flex; gap:8px;">
           <button class="btn btn-primary btn-sm" style="flex:1;" data-action="apply-imported-token">✓ Connect</button>
@@ -548,38 +583,40 @@
       <p style="font-size:12px; color:var(--grey); margin-bottom:14px; line-height:1.5;">
         Export everything (inventory + full audit history) as one JSON file, or restore from a previous backup.
       </p>
-      <button class="btn btn-block" style="background:var(--green); color:var(--white); margin-bottom:10px;" data-action="export-full-backup">⬇️ Backup Everything (.json)</button>
+      <button class="btn btn-block" style="background:var(--green-ink); color:var(--white); margin-bottom:10px;" data-action="export-full-backup">⬇️ Backup Everything (.json)</button>
       <button class="btn btn-primary btn-block" data-action="trigger-file-input" data-target="restore-backup-input">📥 Restore From Backup</button>
-      <input type="file" id="restore-backup-input" accept=".json" style="display:none" data-change-action="restore-backup">
+      <input type="file" id="restore-backup-input" accept=".json" style="display:none" data-change-action="restore-backup" aria-label="Choose backup JSON file to restore">
     </div>
 
   </div>
 
-  <!-- ── Bottom Tab Bar ──────────────────────────────────────── -->
-  <div class="tabbar no-print">
+  </main>
 
-    <button class="tab-btn active" id="tab-home" data-action="navigate" data-view="home">
-      <span class="tab-icon">🏠</span>
+  <!-- ── Bottom Tab Bar ──────────────────────────────────────── -->
+  <nav class="tabbar no-print" aria-label="Main sections">
+
+    <button class="tab-btn active" id="tab-home" data-action="navigate" data-view="home" aria-current="page">
+      <span class="tab-icon" aria-hidden="true">🏠</span>
       <span class="tab-label">Home</span>
-      <div class="tab-dot"></div>
+      <div class="tab-dot" aria-hidden="true"></div>
     </button>
 
     <button class="tab-btn" id="tab-audit" data-action="navigate" data-view="audit">
-      <span class="tab-icon">📋</span>
+      <span class="tab-icon" aria-hidden="true">📋</span>
       <span class="tab-label">Random</span>
-      <div class="tab-dot"></div>
+      <div class="tab-dot" aria-hidden="true"></div>
     </button>
 
     <button class="tab-btn" id="tab-team" data-action="navigate" data-view="team">
-      <span class="tab-icon">👥</span>
+      <span class="tab-icon" aria-hidden="true">👥</span>
       <span class="tab-label">Team</span>
-      <div class="tab-dot"></div>
+      <div class="tab-dot" aria-hidden="true"></div>
     </button>
 
     <button class="tab-btn" id="tab-import" data-action="navigate" data-view="import">
-      <span class="tab-icon">⚙️</span>
+      <span class="tab-icon" aria-hidden="true">⚙️</span>
       <span class="tab-label">Sync</span>
-      <div class="tab-dot"></div>
+      <div class="tab-dot" aria-hidden="true"></div>
     </button>
 
     <!-- Hidden: kept so executeViewNavigation can find and mark them active -->
@@ -587,21 +624,21 @@
     <button class="tab-btn" id="tab-staff"    style="display:none;" data-action="navigate" data-view="staff"></button>
     <button class="tab-btn" id="tab-settings" style="display:none;" data-action="open-pin-gate"></button>
 
-  </div>
+  </nav>
 
   </div><!-- /#app-shell-below-auth -->
 
   <!-- ── PIN Gate for Settings / Tools ─────────────────────── -->
-  <div id="pin-gate-overlay" style="display:none;">
+  <div id="pin-gate-overlay" style="display:none;" role="dialog" aria-modal="true" aria-label="Tools access PIN entry">
     <div class="pin-title">🔒 Tools Access</div>
-    <div class="pin-sub">Enter 4-digit PIN to continue</div>
-    <div class="pin-dots">
+    <div class="pin-sub" id="pin-gate-sub">Enter 4-digit PIN to continue</div>
+    <div class="pin-dots" role="status" aria-live="polite" aria-label="PIN digits entered">
       <div class="pin-dot-circle" id="pd0"></div>
       <div class="pin-dot-circle" id="pd1"></div>
       <div class="pin-dot-circle" id="pd2"></div>
       <div class="pin-dot-circle" id="pd3"></div>
     </div>
-    <div class="pin-error-msg" id="pin-error"></div>
+    <div class="pin-error-msg" id="pin-error" role="alert"></div>
     <div class="pin-keypad">
       <button class="pin-key" data-action="pin-key" data-key="1">1</button>
       <button class="pin-key" data-action="pin-key" data-key="2">2</button>
@@ -612,16 +649,16 @@
       <button class="pin-key" data-action="pin-key" data-key="7">7</button>
       <button class="pin-key" data-action="pin-key" data-key="8">8</button>
       <button class="pin-key" data-action="pin-key" data-key="9">9</button>
-      <button class="pin-key" data-action="pin-key" data-key="back" style="font-size:16px;">⌫</button>
+      <button class="pin-key" data-action="pin-key" data-key="back" style="font-size:16px;" aria-label="Backspace">⌫</button>
       <button class="pin-key" data-action="pin-key" data-key="0">0</button>
-      <button class="pin-key" data-action="close-pin-gate" style="font-size:13px; color:rgba(255,255,255,0.55);">✕</button>
+      <button class="pin-key" data-action="close-pin-gate" style="font-size:13px; color:rgba(255,255,255,0.55);" aria-label="Cancel and close">✕</button>
     </div>
   </div>
 
   <!-- ── Final Audit Validation Modal ──────────────────────── -->
-  <div id="export-modal-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.55); z-index:300; align-items:center; justify-content:center; padding:16px;" data-action="close-export-overlay">
+  <div id="export-modal-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.55); z-index:300; align-items:center; justify-content:center; padding:16px;" data-action="close-export-overlay" role="dialog" aria-modal="true" aria-labelledby="export-modal-title">
     <div style="background:white; padding:20px; border-radius:20px; max-width:420px; width:100%; box-shadow:var(--shadow-md);" data-action="noop">
-      <h3 style="margin-bottom:14px; color:var(--navy); font-size:16px; font-weight:800;">Final Audit Validation</h3>
+      <h3 id="export-modal-title" style="margin-bottom:14px; color:var(--navy); font-size:16px; font-weight:800;">Final Audit Validation</h3>
 
       <label style="display:flex; align-items:center; gap:10px; font-size:13px; font-weight:700; color:var(--navy); margin-bottom:18px; cursor:pointer; user-select:none;">
         <input type="checkbox" id="checkbox-variance-isolation" style="width:18px; height:18px; accent-color:var(--navy);"> Isolate Discrepancy Items Only
@@ -631,15 +668,22 @@
         <button class="btn btn-primary" style="flex:1; padding:12px;" data-action="guarded-signoff" data-channel="pdf">Print PDF</button>
         <button class="btn btn-gold" style="flex:1; padding:12px;" data-action="guarded-signoff" data-channel="whatsapp">WhatsApp</button>
       </div>
-      <button class="btn" style="width:100%; margin-top:8px; background:var(--green); color:var(--white); padding:12px; font-weight:700; border-radius:10px;" data-action="guarded-signoff" data-channel="save">💾 Save to History</button>
+      <button class="btn" style="width:100%; margin-top:8px; background:var(--green-ink); color:var(--white); padding:12px; font-weight:700; border-radius:10px;" data-action="guarded-signoff" data-channel="save">💾 Save to History</button>
       <button class="btn" style="width:100%; margin-top:8px; background:var(--light); color:var(--text); padding:11px; border-radius:10px;" data-action="close-export-overlay">Cancel</button>
     </div>
   </div>
 
   <!-- ── Sub-Auditor Live Snapshot Popup (Main Auditor taps a progress bar) ── -->
-  <div id="live-snapshot-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.55); z-index:300; align-items:center; justify-content:center; padding:16px;" data-action="close-live-snapshot">
+  <div id="live-snapshot-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.55); z-index:300; align-items:center; justify-content:center; padding:16px;" data-action="close-live-snapshot" role="dialog" aria-modal="true" aria-label="Sub-auditor live counts">
     <div style="background:white; padding:20px; border-radius:20px; max-width:460px; width:100%; max-height:80vh; box-shadow:var(--shadow-md);" data-action="noop">
       <div id="live-snapshot-content"></div>
+    </div>
+  </div>
+
+  <!-- ── Force Submit confirmation (leftover-handling choice) ── -->
+  <div id="force-submit-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:310; align-items:center; justify-content:center; padding:16px;" data-action="close-force-submit" role="dialog" aria-modal="true" aria-label="Force submit assignment">
+    <div style="background:white; padding:20px; border-radius:20px; max-width:420px; width:100%; box-shadow:var(--shadow-md);" data-action="noop">
+      <div id="force-submit-content"></div>
     </div>
   </div>
 

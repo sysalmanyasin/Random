@@ -95,6 +95,7 @@ export function assignmentCard(assignment, allAssignments, roundState, groupByCo
     <div class="movable-rows-wrap">${movableRows}</div>
     <div style="display:flex; gap:6px; margin-top:10px;">
       ${assignment.status === 'submitted' ? `<button class="btn" style="flex:1; background:var(--light); color:var(--text);" data-action="reopen-assignment" data-assignment-id="${esc(assignment.id)}">↺ Reopen for editing</button>` : ''}
+      ${assignment.status === 'counting' || assignment.status === 'assigned' ? `<button class="btn" style="flex:1; background:var(--red); color:#fff;" data-action="open-force-submit" data-assignment-id="${esc(assignment.id)}">⚠️ Force Submit</button>` : ''}
       <button class="btn btn-danger" style="flex:1;" data-action="revoke-assignment" data-assignment-id="${esc(assignment.id)}">Revoke</button>
     </div>
   `;

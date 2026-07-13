@@ -13,6 +13,9 @@ export function companyCard(company, items) {
   card.className = 'company-card';
   card.dataset.action = 'start-audit-session';
   card.dataset.company = company;
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-label', 'Start audit for ' + company);
   card.innerHTML = `
     <div style="flex:1; min-width:0;">
       <div class="company-card-name">${esc(company)}</div>
@@ -25,14 +28,26 @@ export function companyCard(company, items) {
   return card;
 }
 
-export function varianceCellHTML(countedVal, qty, price) {
-  if (countedVal === undefined || countedVal === '') return '<span class="diff-zero">—</span>';
-  const delta = parseFloat(countedVal) - qty;
-  if (delta === 0) return '<span class="diff-zero">0</span>';
+// The uncounted=0 rule, applied live: an item nobody has typed a value
+// for shows its FULL assumed shortage here (countedQty=0), not a blank
+// "—" — but visually muted (lower opacity, no red alarm weight) so
+// it's clearly an assumption, not a physical finding, and a small
+// "assumed" hint distinguishes it from a real confirmed-zero count.
+// isAutoMatched carries the same muted treatment, since "Mark
+// Remaining as Match" resolves the number without anyone actually
+// counting it.
+export function varianceCellHTML(countedVal, qty, price, isAutoMatched) {
+  const touched = countedVal !== undefined && countedVal !== '';
+  const missing = !touched || !!isAutoMatched;
+  const effectiveQty = touched ? parseFloat(countedVal) : 0;
+  const delta = effectiveQty - qty;
+  const mutedStyle = missing ? ' style="opacity:0.6;"' : '';
+  const hint = missing ? `<div style="font-size:9px; color:var(--gold-ink); font-weight:700; margin-top:1px;">${isAutoMatched ? 'auto-matched' : 'assumed'}</div>` : '';
+  if (delta === 0) return `<span class="diff-zero"${mutedStyle}>0</span>${hint}`;
   const rupeeDelta = delta * price;
   const sign = delta > 0 ? '+' : '';
   const cls = delta > 0 ? 'diff-pos' : 'diff-neg';
-  return `<span class="${cls}">${sign}${delta}</span><div style="font-size:10px; color:var(--grey); margin-top:2px;">${sign}Rs ${Math.abs(rupeeDelta).toLocaleString()}</div>`;
+  return `<span class="${cls}"${mutedStyle}>${sign}${delta}</span><div style="font-size:10px; color:var(--grey); margin-top:2px;">${sign}Rs ${Math.abs(rupeeDelta).toLocaleString()}</div>${hint}`;
 }
 
 export function auditRow(med, trackingKey, countedVal) {
@@ -48,6 +63,7 @@ export function auditRow(med, trackingKey, countedVal) {
       <input type="number" min="0" step="1" value="${sysVal}" placeholder="-" class="audit-count-input"
         data-item-index-token="${trackingKey}"
         data-input-action="record-count" data-keydown-action="audit-input-enter-next"
+        aria-label="Physical count for ${esc(med.name)}, system quantity ${med.qty}"
         inputmode="decimal" enterkeyhint="next">
     </td>
     <td style="text-align:right; padding-right:10px; font-weight:800;">${varianceCellHTML(sysVal, med.qty, med.price)}</td>
@@ -72,7 +88,7 @@ export function historyTimelineEntryHTML(log, brandName) {
     '<div style="font-size:10px; color:var(--grey); margin-bottom:6px;">By ' + esc(log.auditor) + '</div>' +
     '<div style="display:flex; gap:6px;">' +
       '<button class="btn btn-primary" style="flex:1; font-size:10px; padding:6px 8px;" data-action="reopen-history-audit" data-entry-id="' + safeId + '">👁 View / Reopen</button>' +
-      '<button class="btn" style="flex:1; font-size:10px; padding:6px 8px; background:var(--green); color:var(--white);" data-action="export-history-xlsx" data-entry-id="' + safeId + '">📊 Excel</button>' +
+      '<button class="btn" style="flex:1; font-size:10px; padding:6px 8px; background:var(--green-ink); color:var(--white);" data-action="export-history-xlsx" data-entry-id="' + safeId + '">📊 Excel</button>' +
       '<button class="btn btn-gold" style="flex:1; font-size:10px; padding:6px 8px;" data-action="print-history-pdf" data-entry-id="' + safeId + '">🖨 PDF</button>' +
     '</div>' +
   '</div>';
@@ -98,9 +114,9 @@ export function historyAccordionItem(brandName, companyLogs) {
   parentNode.innerHTML =
     '<div class="history-row-layout">' +
       '<input type="checkbox" class="custom-checkbox bulk-select-box" data-company-key="' + esc(brandName) + '">' +
-      '<div class="history-header" data-action="toggle-accordion">' +
+      '<div class="history-header" data-action="toggle-accordion" role="button" tabindex="0" aria-expanded="false">' +
         '<div style="max-width:65%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' +
-          '<span class="arrow-toggle">&#9658;</span>' +
+          '<span class="arrow-toggle" aria-hidden="true">&#9658;</span>' +
           '<strong style="color:var(--navy); margin-left:6px; font-size:13px;">' + esc(brandName) + '</strong>' +
         '</div>' +
         '<div>' + badge + '</div>' +
@@ -156,7 +172,7 @@ export function pdfSectionHTML(log, branchName) {
     </div>
     <div class="pdf-summary-grid">
       <div class="pdf-stat-card" style="border-top: 4px solid var(--red);"><div class="pdf-stat-val" style="color:var(--red);">${shorts}</div><div class="pdf-stat-lbl">Shortage SKUs</div></div>
-      <div class="pdf-stat-card" style="border-top: 4px solid var(--green);"><div class="pdf-stat-val" style="color:var(--green);">${overs}</div><div class="pdf-stat-lbl">Surplus SKUs</div></div>
+      <div class="pdf-stat-card" style="border-top: 4px solid var(--green);"><div class="pdf-stat-val" style="color:var(--green-ink);">${overs}</div><div class="pdf-stat-lbl">Surplus SKUs</div></div>
       <div class="pdf-stat-card" style="border-top: 4px solid var(--grey);"><div class="pdf-stat-val">${matches}</div><div class="pdf-stat-lbl">Matched SKUs</div></div>
       <div class="pdf-stat-card" style="border-top: 4px solid var(--gold);"><div class="pdf-stat-val" style="color:var(--navy);">Rs ${sign}${Math.abs(netVal).toLocaleString()}</div><div class="pdf-stat-lbl">Net Financial Delta</div></div>
     </div>

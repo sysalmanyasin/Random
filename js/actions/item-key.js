@@ -44,4 +44,28 @@ function snapshotScopeItems(products, companies) {
   return companies.flatMap(c => snapshotCompanyItems(products, c));
 }
 
-export const ItemKey = { buildItemKey, buildNewItemKey, snapshotCompanyItems, snapshotScopeItems };
+// Snapshot an arbitrary, code-based selection (e.g. an Inventory-tab
+// template or random sample) that can span partial companies — unlike
+// snapshotScopeItems, which always takes every SKU of each named
+// company. Grouped by company so each item still gets a stable
+// company::index key, just indexed within this selection rather than
+// the whole company — fine, since a round's itemSnapshot is its own
+// self-contained namespace regardless of how it was built.
+function snapshotSelectedItems(products, codes) {
+  const codeSet = new Set(codes);
+  const byCompany = new Map();
+  products.forEach(p => {
+    if (!p.code || !codeSet.has(p.code)) return;
+    if (!byCompany.has(p.company)) byCompany.set(p.company, []);
+    byCompany.get(p.company).push(p);
+  });
+  const out = [];
+  byCompany.forEach((items, company) => {
+    items.forEach((p, idx) => out.push({
+      itemKey: buildItemKey(company, idx), company, code: p.code || '', name: p.name, qty: p.qty, price: p.price,
+    }));
+  });
+  return out;
+}
+
+export const ItemKey = { buildItemKey, buildNewItemKey, snapshotCompanyItems, snapshotScopeItems, snapshotSelectedItems };

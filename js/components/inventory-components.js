@@ -36,6 +36,8 @@ export function inventoryGroupHeader(groupName, items, groupAllSelected, collaps
   tr.className = 'inv-group-header';
   tr.dataset.action = 'toggle-inventory-group-collapse';
   tr.dataset.group = groupName;
+  tr.tabIndex = 0;
+  tr.setAttribute('aria-label', 'Toggle ' + groupName + ' group');
   const totalQty = items.reduce((s, m) => s + (m.qty || 0), 0);
   const totalValue = items.reduce((s, m) => s + (m.qty || 0) * (m.price || 0), 0);
   tr.innerHTML = `
@@ -83,6 +85,9 @@ export function templateListItem(template, isActive, matchInfo) {
   div.className = 'company-card' + (isActive ? ' active' : '');
   div.dataset.action = 'load-template';
   div.dataset.templateId = template.id;
+  div.tabIndex = 0;
+  div.setAttribute('role', 'button');
+  div.setAttribute('aria-label', 'Load template ' + template.name);
   const matchLabel = isActive && matchInfo ? `${matchInfo.matched} of ${matchInfo.total} matched` : `${template.codes.length} code(s)`;
   div.innerHTML = `
     <div style="flex:1; min-width:0;">

@@ -50,6 +50,14 @@ export function createInitialState() {
     myCounts: {},             // local counts for the open assignment, pre-submit
     myNotes: {},              // local per-item notes for the open assignment
     myConfirms: {},           // itemKey -> true when "Same" was tapped to re-apply last round's variance
+    myExtraNote: '',          // free-text "items found but not in inventory" note, not itemKey-scoped
+    myRowTimes: {},           // itemKey -> seconds spent on that row (see counting-actions.js MAX_ROW_SECONDS)
+    // itemKey -> true for items resolved via "Mark Remaining as Match"
+    // (or Force Submit's equivalent), NOT physically counted. Under the
+    // uncounted=0 rule, this is the only path that can make an item
+    // stop reading as a full assumed-shortage variance without someone
+    // actually having counted it — see counting-actions.js markRemainingAsMatch.
+    myAutoMatched: {},
 
     // ── UI-only working state for the new Engagement Hub ──
     engagementDraftScope: { type: 'full', companies: [] },

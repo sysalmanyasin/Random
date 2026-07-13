@@ -17,6 +17,8 @@ export function roundCard(round, isLatest) {
   card.className = 'company-card';
   card.dataset.action = 'open-round';
   card.dataset.roundId = round.id;
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
   const label = round.roundNumber + (round.roundSuffix || '');
   card.innerHTML = `
     <div style="flex:1; min-width:0;">

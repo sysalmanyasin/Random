@@ -4,6 +4,14 @@ import { Bus } from './bus.js';
 import { logAudit } from './audit-log-actions.js';
 import { ItemKey } from './item-key.js';
 
+// Both createSubRound and createItemSubRound compute their round's
+// letter suffix (1A, 1B...) from whatever's currently in Store/DB — a
+// second click before the first request lands back would compute the
+// same "next" letter twice and create two rounds both claiming 1C. A
+// simple in-flight lock is enough to prevent that without needing to
+// wire up button-disabling in every place these get called from.
+let _subRoundCreationInFlight = false;
+
 /* ══════════════════════════════════════════════════════════════
    FLOOR 3 — ACTIONS / round-actions.js
    Blueprint §Round Management, persisted through Supabase.
@@ -138,8 +146,17 @@ async function createItemRound(baseRoundId, items) {
 // i.e. no round N+1 exists yet); once Round 2 exists, that family is
 // closed and a new sub-round can no longer be added to it.
 async function createSubRound(newCompanies) {
-  const { currentEngagementId, rounds, products, sbClient } = Store.getState();
   if (!newCompanies || newCompanies.length === 0) { Bus.emit('toast', { msg: 'Select at least one company to add', kind: 'error' }); return null; }
+  if (_subRoundCreationInFlight) { Bus.emit('toast', { msg: 'Already creating a sub-round — one moment', kind: 'error' }); return null; }
+  _subRoundCreationInFlight = true;
+  try {
+    return await _createSubRoundInner(newCompanies);
+  } finally {
+    _subRoundCreationInFlight = false;
+  }
+}
+async function _createSubRoundInner(newCompanies) {
+  const { currentEngagementId, rounds, products, sbClient } = Store.getState();
   const engRounds = rounds.filter(r => r.engagementId === currentEngagementId);
   if (engRounds.length === 0) { Bus.emit('toast', { msg: 'Create Round 1 first', kind: 'error' }); return null; }
   const maxRoundNumber = Math.max(...engRounds.map(r => r.roundNumber));
@@ -163,6 +180,99 @@ async function createSubRound(newCompanies) {
     Bus.emit('rounds:changed', newRounds);
     Bus.emit('round:opened', round);
     Bus.emit('toast', { msg: 'Round ' + maxRoundNumber + roundSuffix + ' created for ' + newCompanies.length + ' new compan' + (newCompanies.length === 1 ? 'y' : 'ies'), kind: 'success' });
+    return round;
+  } catch (err) {
+    Bus.emit('toast', { msg: 'Could not create sub-round: ' + err.message, kind: 'error' });
+    return null;
+  }
+}
+
+// Pure — given the item-level snapshot a would-be sub-round is about to
+// use, and every OTHER currently-open round across the whole system
+// (any engagement, any state short of compiled/final), finds any
+// (company, code) that's already in flight elsewhere. Used only as a
+// preventive, non-blocking warning at creation time — the detective,
+// after-the-fact check lives in compile-actions.js
+// detectCrossRoundConflicts() instead.
+function findPreCreationOverlaps(newItems, otherOpenRounds) {
+  const overlaps = [];
+  const wanted = new Set(newItems.filter(it => it.code).map(it => it.company + '::' + it.code));
+  otherOpenRounds.forEach(r => {
+    (r.itemSnapshot || []).forEach(it => {
+      if (!it.code) return;
+      const sig = it.company + '::' + it.code;
+      if (wanted.has(sig)) overlaps.push({ company: it.company, code: it.code, name: it.name, roundId: r.id, engagementId: r.engagementId, engagementName: r.engagementName || '' });
+    });
+  });
+  return overlaps;
+}
+
+// Launching a sub-round directly from the Inventory tab (a saved
+// template or a random sample) rather than from the "Add New
+// Companies" flow inside an engagement — see round-actions.js
+// createSubRound for the company-level sibling of this. Codes here can
+// span PARTIAL companies (a random sample rarely lines up with whole
+// companies), so this is unit:'item', not unit:'company', and does NOT
+// touch the engagement's scope.companies — it's a spot-check addition,
+// not a scope expansion.
+async function createItemSubRound(engagementId, codes) {
+  if (!engagementId) { Bus.emit('toast', { msg: 'Choose an engagement to add this to', kind: 'error' }); return null; }
+  if (!codes || codes.length === 0) { Bus.emit('toast', { msg: 'Nothing selected to add', kind: 'error' }); return null; }
+  if (_subRoundCreationInFlight) { Bus.emit('toast', { msg: 'Already creating a sub-round — one moment', kind: 'error' }); return null; }
+  _subRoundCreationInFlight = true;
+  try {
+    return await _createItemSubRoundInner(engagementId, codes);
+  } finally {
+    _subRoundCreationInFlight = false;
+  }
+}
+async function _createItemSubRoundInner(engagementId, codes) {
+  const { products, sbClient, currentEngagementId, rounds } = Store.getState();
+  const itemSnapshot = ItemKey.snapshotSelectedItems(products, codes);
+  if (itemSnapshot.length === 0) { Bus.emit('toast', { msg: 'None of these codes match current inventory', kind: 'error' }); return null; }
+
+  let engRounds;
+  try {
+    engRounds = engagementId === currentEngagementId ? rounds.filter(r => r.engagementId === engagementId) : await Repo.fetchRoundsByEngagement(sbClient, engagementId);
+  } catch (err) {
+    Bus.emit('toast', { msg: 'Could not load that engagement\'s rounds: ' + err.message, kind: 'error' });
+    return null;
+  }
+  if (engRounds.length === 0) { Bus.emit('toast', { msg: 'That engagement has no Round 1 yet — create one first', kind: 'error' }); return null; }
+  const maxRoundNumber = Math.max(...engRounds.map(r => r.roundNumber));
+  const family = _familyRounds(engRounds, maxRoundNumber);
+  const usedLetters = family.map(r => r.roundSuffix).filter(Boolean);
+  const roundSuffix = String.fromCharCode(65 + usedLetters.length);
+
+  // Preventive check — best-effort; a failure here (e.g. offline) should
+  // never block creation outright, only skip the warning.
+  try {
+    const openRounds = await Repo.fetchOpenRoundsAcrossEngagements(sbClient);
+    const overlaps = findPreCreationOverlaps(itemSnapshot, openRounds);
+    if (overlaps.length > 0) {
+      const sample = overlaps[0];
+      const proceed = confirm(
+        overlaps.length + ' of these item(s) are already assigned in another open round' +
+        (sample.engagementName ? ' (e.g. "' + sample.engagementName + '")' : '') +
+        ' — continue anyway? A conflict will be flagged for you to resolve once both are compiled.'
+      );
+      if (!proceed) return null;
+      logAudit('round:itemSubRoundOverlapAcknowledged', { engagementId, overlapCount: overlaps.length, sample: overlaps.slice(0, 10) });
+    }
+  } catch (_) { /* best-effort — proceed without the warning if this check itself fails */ }
+
+  try {
+    const round = await Repo.insertRound(sbClient, {
+      engagementId, roundNumber: maxRoundNumber, roundSuffix, unit: 'item', state: 'draft', baseRoundId: null, itemSnapshot,
+    });
+    if (engagementId === currentEngagementId) {
+      const newRounds = rounds.concat([round]);
+      Store.setState({ rounds: newRounds });
+      Bus.emit('rounds:changed', newRounds);
+    }
+    logAudit('round:itemSubRoundCreatedFromInventory', { roundId: round.id, engagementId, roundNumber: maxRoundNumber, roundSuffix, itemCount: itemSnapshot.length });
+    Bus.emit('round:opened', round);
+    Bus.emit('toast', { msg: 'Round ' + maxRoundNumber + roundSuffix + ' created — ' + itemSnapshot.length + ' item(s) from your selection', kind: 'success' });
     return round;
   } catch (err) {
     Bus.emit('toast', { msg: 'Could not create sub-round: ' + err.message, kind: 'error' });
@@ -232,9 +342,12 @@ async function finalizeRoundDirect(roundId) {
 
 export function isFamilyFullyCompiled(rounds, roundNumber) { return _isFamilyFullyCompiled(rounds, roundNumber); }
 export function familyLabel(rounds, roundNumber) { return _familyLabel(rounds, roundNumber); }
+export function familyRounds(rounds, roundNumber) { return _familyRounds(rounds, roundNumber); }
 
 export const RoundActions = {
-  loadRoundsForCurrentEngagement, createRound, createItemRound, createSubRound, updateRoundState,
+  loadRoundsForCurrentEngagement, createRound, createItemRound, createSubRound, createItemSubRound, updateRoundState,
   lockRound, beginCounting, finalizeRoundDirect, noteAssignmentActivity,
-  isFamilyFullyCompiled, familyLabel,
+  isFamilyFullyCompiled, familyLabel, familyRounds,
 };
+
+export const _testables = { findPreCreationOverlaps };

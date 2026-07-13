@@ -1,5 +1,6 @@
 import { Store } from '../store.js';
 import { Repo } from '../repository.js';
+import { computeEffectiveRow } from './counting-actions.js';
 
 /* ══════════════════════════════════════════════════════════════
    FLOOR 3 — ACTIONS / dashboard-actions.js
@@ -29,6 +30,7 @@ function mainAuditorDashboard(engagementId, focusRoundId) {
   const auditorProgress = roundAssignments.map(a => {
     const total = a.items.length;
     const counted = Math.min(a.progressCount || 0, total);
+    const sub = roundSubmissions.find(s => s.assignmentId === a.id);
     return {
       auditorName: a.auditorName,
       assignmentId: a.id,
@@ -36,7 +38,9 @@ function mainAuditorDashboard(engagementId, focusRoundId) {
       counted,
       pct: total > 0 ? Math.round((counted / total) * 100) : 0,
       status: a.status,
-      submitted: roundSubmissions.some(s => s.assignmentId === a.id),
+      submitted: !!sub,
+      startedAt: a.startedAt || null,
+      submittedAt: sub ? sub.submittedAt : null,
     };
   });
 
@@ -62,7 +66,78 @@ function mainAuditorDashboard(engagementId, focusRoundId) {
     submissionProgress: { total: roundAssignments.length, submitted: roundSubmissions.length },
     compileStatus: compiled ? { compiledAt: compiled.compiledAt, variances: compiled.variances.length } : 'not compiled',
     finalStatus: engagement.status === 'closed' ? 'final' : 'in progress',
+    // Both default to [] rather than being omitted, so components never
+    // need an extra "does this exist" guard on top of the empty-array one.
+    auditorNotes: compiled ? (compiled.auditorNotes || []) : [],
+    crossRoundConflicts: compiled ? (compiled.crossRoundConflicts || []) : [],
+    compiledRoundId: compiled ? compiled.id : null,
   };
+}
+
+// ── Live Snapshot popup — sort/filter over an assignment's items,
+// purely for how the Main Auditor reviews the popup. Pure/testable:
+// takes the resolved rows the component already knows how to build the
+// display strings from, so it never has to duplicate variance-color
+// logic here — just ordering and inclusion.
+function buildLiveSnapshotRows(assignment) {
+  const snap = (assignment && assignment.liveSnapshot) || {};
+  const counts = snap.counts || {};
+  const rowTimes = snap.rowTimes || {};
+  const autoMatched = snap.autoMatched || {};
+  return (assignment ? assignment.items : []).map(item => {
+    const rawCounted = counts[item.itemKey];
+    const isAutoMatched = !!autoMatched[item.itemKey];
+    // Uncounted=0 rule (see counting-actions.js computeEffectiveRow):
+    // an untouched item already reads as its full assumed shortage
+    // here, same as it will once compiled — `missing` is what still
+    // lets the popup (and its "Unverified" filter/count) distinguish
+    // an assumption from a real physical count.
+    const { effectiveQty, missing, variance } = computeEffectiveRow(item.qty, rawCounted, isAutoMatched);
+    const hasCount = rawCounted !== undefined; // "has an entry at all" — real OR auto-matched — distinct from `missing`
+    let status; // 'short' | 'over' | 'match' | 'unverified'
+    if (!hasCount) status = 'unverified';
+    else if (variance < 0) status = 'short';
+    else if (variance > 0) status = 'over';
+    else status = 'match';
+    return {
+      itemKey: item.itemKey, name: item.name, company: item.company, qty: item.qty,
+      counted: effectiveQty, hasCount, missing, autoMatched: isAutoMatched, variance, status,
+      seconds: rowTimes[item.itemKey] || 0,
+    };
+  });
+}
+
+function filterLiveSnapshotRows(rows, filterMode) {
+  if (!filterMode || filterMode === 'all') return rows;
+  if (filterMode === 'shorts') return rows.filter(r => r.status === 'short');
+  if (filterMode === 'overs') return rows.filter(r => r.status === 'over');
+  if (filterMode === 'unverified') return rows.filter(r => r.status === 'unverified');
+  return rows;
+}
+
+// sortMode: 'name-asc' | 'name-desc' | 'variance-desc' (largest absolute
+// variance first, unverified last) | 'variance-asc' | 'time-desc' (slowest row first)
+function sortLiveSnapshotRows(rows, sortMode) {
+  const sorted = rows.slice();
+  if (sortMode === 'name-desc') {
+    sorted.sort((a, b) => b.name.localeCompare(a.name));
+  } else if (sortMode === 'variance-desc' || sortMode === 'variance-asc') {
+    // Unverified items (no count yet) always sort last regardless of
+    // direction — there's no variance magnitude to rank them by, and
+    // burying them at the top of a "largest variance first" view would
+    // be confusing.
+    sorted.sort((a, b) => {
+      if (a.hasCount !== b.hasCount) return a.hasCount ? -1 : 1; // unverified always last
+      if (!a.hasCount) return 0;
+      const av = Math.abs(a.variance), bv = Math.abs(b.variance);
+      return sortMode === 'variance-desc' ? bv - av : av - bv;
+    });
+  } else if (sortMode === 'time-desc') {
+    sorted.sort((a, b) => (b.seconds || 0) - (a.seconds || 0));
+  } else {
+    sorted.sort((a, b) => a.name.localeCompare(b.name)); // default: name-asc
+  }
+  return sorted;
 }
 
 function subAuditorDashboard() {
@@ -101,4 +176,22 @@ async function fetchLiveAssignmentSnapshot(assignmentId) {
   }
 }
 
-export const DashboardActions = { mainAuditorDashboard, subAuditorDashboard, fetchLiveAssignmentSnapshot };
+// Pure — "3m 20s" / "1h 05m" / "45s", used anywhere elapsed counting
+// time is shown (live-snapshot header, Submission History export).
+function formatDuration(totalSeconds) {
+  if (totalSeconds === null || totalSeconds === undefined || totalSeconds < 0) return '—';
+  const s = Math.round(totalSeconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return h + 'h ' + String(m).padStart(2, '0') + 'm';
+  if (m > 0) return m + 'm ' + String(sec).padStart(2, '0') + 's';
+  return sec + 's';
+}
+
+export const DashboardActions = {
+  mainAuditorDashboard, subAuditorDashboard, fetchLiveAssignmentSnapshot,
+  buildLiveSnapshotRows, filterLiveSnapshotRows, sortLiveSnapshotRows, formatDuration,
+};
+
+export const _testables = { buildLiveSnapshotRows, filterLiveSnapshotRows, sortLiveSnapshotRows, formatDuration };

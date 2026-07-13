@@ -82,6 +82,17 @@ async function importCodesFromFile(file) {
   Bus.emit('toast', { msg: `Loaded ${codes.length.toLocaleString()} code(s) from file`, kind: 'success' });
 }
 
+// Manual entry — the sibling of "Load a code list from file" for
+// someone who just wants to type one or a few codes in by hand rather
+// than prepare a whole file. Same tolerant comma-separated parsing.
+function addManualCodes(text) {
+  const codes = (text || '').split(',').map(c => c.trim()).filter(Boolean);
+  if (codes.length === 0) { Bus.emit('toast', { msg: 'Type at least one code first', kind: 'error' }); return; }
+  const { matched } = resolveCodes(codes);
+  selectManyForInventory(codes, true);
+  Bus.emit('toast', { msg: `Added ${codes.length} code(s) — ${matched} matched current inventory`, kind: matched > 0 ? 'success' : 'error' });
+}
+
 // ── Resolve any code list against CURRENT live inventory ──
 // This is what makes a saved template survive a re-sync: nothing about
 // "which products" is stored ahead of time, it's recomputed here.
@@ -212,10 +223,32 @@ async function startTeamRandomAudit(name) {
   Bus.emit('toast', { msg: `Team engagement "${engagement.name}" created — ${round.itemSnapshot.length} item(s), open Team to assign auditors`, kind: 'success' });
 }
 
+// Add-to-Existing-Engagement — the alternative to startTeamRandomAudit's
+// "always spin up a brand-new engagement". Takes the current Inventory
+// selection (template or random sample, so usually partial companies)
+// and creates an item-level sub-round directly inside an engagement the
+// Main Auditor already has open elsewhere.
+async function startSubRoundFromInventorySelection(engagementId, sampleSize) {
+  const { inventorySelectedCodes } = Store.getState();
+  if (!inventorySelectedCodes || inventorySelectedCodes.length === 0) {
+    Bus.emit('toast', { msg: 'Select or load at least one product code first', kind: 'error' });
+    return null;
+  }
+  // A sample size narrows the selection down first (mirrors Individual's
+  // _sampleRandom) — omit it to use every selected code as-is.
+  let codes = inventorySelectedCodes.slice();
+  if (sampleSize && sampleSize > 0 && sampleSize < codes.length) {
+    codes = _sampleRandom(codes.map(c => ({ code: c })), sampleSize).map(x => x.code);
+  }
+  const round = await RoundActions.createItemSubRound(engagementId, codes);
+  if (round) logAudit('inventory:subRoundFromSelection', { engagementId, roundId: round.id, itemCount: round.itemSnapshot.length });
+  return round;
+}
+
 export const InventoryActions = {
   setInventorySearch, setInventoryGroupBy,
   toggleInventorySelection, selectManyForInventory, clearInventorySelection,
-  importCodesFromFile, resolveCodes,
+  importCodesFromFile, addManualCodes, resolveCodes,
   saveSelectionAsTemplate, renameTemplate, deleteTemplate, loadTemplateIntoSelection, pullCloudTemplates,
-  startIndividualRandomAudit, startTeamRandomAudit,
+  startIndividualRandomAudit, startTeamRandomAudit, startSubRoundFromInventorySelection,
 };

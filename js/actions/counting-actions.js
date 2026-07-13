@@ -18,6 +18,51 @@ import { logAudit } from './audit-log-actions.js';
 
 function _checkpointKey(assignmentId) { return '__myassignment__' + assignmentId; }
 
+// ── The uncounted=0 rule ─────────────────────────────────────
+// An item nobody has actually typed a value for defaults to
+// countedQty=0 — a full assumed shortage — rather than being excluded
+// from variance the way "not yet counted" used to work. The ONLY
+// sanctioned way to resolve that without a real physical count is
+// "Mark Remaining as Match" (or Force Submit's equivalent), which is
+// tracked separately (autoMatched) precisely so it's never confused
+// with a real count in reports, even though both can show the same
+// number. Pure/testable — used identically by the counting screen
+// (live, pre-submission) and compile-actions.js buildMergedItems
+// (post-submission), so the number on screen while counting and the
+// number in the final report are computed by the same rule.
+export function computeEffectiveRow(systemQty, rawCounted, isAutoMatched) {
+  const touched = rawCounted !== undefined && rawCounted !== null;
+  const effectiveQty = touched ? rawCounted : 0;
+  // "missing" = not a real, physically-verified figure — true both for
+  // a never-touched item (assumed 0) and an auto-matched one (assumed
+  // to match, but nobody actually looked).
+  const missing = !touched || !!isAutoMatched;
+  return { effectiveQty, missing, variance: effectiveQty - systemQty };
+}
+
+// ── Row-time tracking ────────────────────────────────────────
+// Attributes elapsed time to whichever item was just acted on,
+// sequentially: the clock starts the moment the assignment is opened
+// (or reopened after a reload) and each recordMyCount() call closes
+// out the gap since the last action, crediting it to that item, then
+// resets the cursor. Capped per-gap so a coffee break — or someone
+// opening the assignment and walking away for an hour — doesn't get
+// misattributed as "this one row took 63 minutes." The cursor is a
+// plain module variable, not Store state: it's a timing implementation
+// detail nothing renders directly, same pattern as _progressSyncTimer
+// below.
+const MAX_ROW_SECONDS = 600; // 10 minutes — anything slower is almost certainly an interruption, not counting time
+let _lastActionAt = null;
+
+// Pure — independently testable without Date.now()/module state.
+function computeRowTimeDelta(lastActionAtMs, nowMs, maxSeconds) {
+  const cap = maxSeconds === undefined ? MAX_ROW_SECONDS : maxSeconds;
+  if (lastActionAtMs === null || lastActionAtMs === undefined) return 0;
+  const seconds = (nowMs - lastActionAtMs) / 1000;
+  if (seconds <= 0) return 0;
+  return Math.min(seconds, cap);
+}
+
 // Progress is synced best-effort and throttled (not on every keystroke) —
 // it's a "roughly how far along are they" signal for the Main Auditor's
 // dashboard, not a source of truth (submissions/counts remain that). A
@@ -29,7 +74,7 @@ function _scheduleProgressSync() {
   _progressSyncTimer = setTimeout(_pushProgressNow, 1500);
 }
 async function _pushProgressNow() {
-  const { sbClient, myCounts, myConfirms } = Store.getState();
+  const { sbClient, myCounts, myConfirms, myExtraNote, myRowTimes, myAutoMatched } = Store.getState();
   const assignment = _activeAssignment();
   if (!sbClient || !assignment || assignment.status === 'submitted' || assignment.status === 'revoked') return;
   const counted = countingProgress().counted;
@@ -40,7 +85,10 @@ async function _pushProgressNow() {
   // a changed total. The 1.5s debounce above is what keeps this from
   // hammering the network, not this check.
   try {
-    const liveSnapshot = { counts: myCounts, confirms: myConfirms || {}, updatedAt: new Date().toISOString() };
+    const liveSnapshot = {
+      counts: myCounts, confirms: myConfirms || {}, extraNote: myExtraNote || '',
+      rowTimes: myRowTimes || {}, autoMatched: myAutoMatched || {}, updatedAt: new Date().toISOString(),
+    };
     await Repo.updateAssignment(sbClient, assignment.id, { progressCount: counted, liveSnapshot });
     assignment.progressCount = counted;
     assignment.liveSnapshot = liveSnapshot;
@@ -60,27 +108,46 @@ async function loadMyAssignments() {
 
 async function openMyAssignment(assignmentId) {
   clearTimeout(_progressSyncTimer);
-  Store.setState({ activeAssignmentId: assignmentId, myCounts: {}, myNotes: {}, myConfirms: {} });
+  Store.setState({ activeAssignmentId: assignmentId, myCounts: {}, myNotes: {}, myConfirms: {}, myExtraNote: '', myRowTimes: {}, myAutoMatched: {} });
+  // The clock only ever runs within one continuous session — reset on
+  // every open (including a reload mid-count), not restored from the
+  // checkpoint. Restoring a stale cursor from before a reload/reopen
+  // would count the gap while the app was closed as "time on the next
+  // item typed," which is exactly the interruption-contamination this
+  // was built to avoid.
+  _lastActionAt = Date.now();
   const cp = await Repo.loadSessionCheckpoint(_checkpointKey(assignmentId));
   if (cp) {
     const notes = cp.counts.__notes__ || {};
     const confirms = cp.counts.__confirms__ || {};
+    const extraNote = cp.counts.__extraNote__ || '';
+    const rowTimes = cp.counts.__rowTimes__ || {};
+    const autoMatched = cp.counts.__autoMatched__ || {};
     const counts = Object.assign({}, cp.counts);
     delete counts.__notes__;
     delete counts.__confirms__;
-    Store.setState({ myCounts: counts, myNotes: notes, myConfirms: confirms });
-    Bus.emit('counting:checkpointRestored', { counts, notes, confirms });
+    delete counts.__extraNote__;
+    delete counts.__rowTimes__;
+    delete counts.__autoMatched__;
+    Store.setState({ myCounts: counts, myNotes: notes, myConfirms: confirms, myExtraNote: extraNote, myRowTimes: rowTimes, myAutoMatched: autoMatched });
+    Bus.emit('counting:checkpointRestored', { counts, notes, confirms, extraNote, rowTimes, autoMatched });
   }
 
   // This is the real "counting has begun" signal — the Main Auditor's
   // round-state machine picks it up the next time they view the round
   // (round-actions.js's noteAssignmentActivity checks for this status).
+  // startedAt rides along on the same first-open transition, since
+  // that's the actual moment "opening to submission" timing should
+  // start from — not whenever the assignment happened to be created or
+  // handed out.
   const { sbClient, myAssignments } = Store.getState();
   const assignment = myAssignments.find(a => a.id === assignmentId);
   if (sbClient && assignment && assignment.status === 'assigned') {
     try {
-      await Repo.updateAssignment(sbClient, assignmentId, { status: 'counting' });
+      const startedAt = new Date().toISOString();
+      await Repo.updateAssignment(sbClient, assignmentId, { status: 'counting', startedAt });
       assignment.status = 'counting';
+      assignment.startedAt = startedAt;
       Store.setState({ myAssignments: myAssignments.slice() });
     } catch (err) {
       console.error('[Counting] Could not mark assignment as counting (non-fatal):', err);
@@ -92,7 +159,8 @@ async function openMyAssignment(assignmentId) {
 
 function closeMyAssignment() {
   clearTimeout(_progressSyncTimer);
-  Store.setState({ activeAssignmentId: null, myCounts: {}, myNotes: {}, myConfirms: {} });
+  _lastActionAt = null;
+  Store.setState({ activeAssignmentId: null, myCounts: {}, myNotes: {}, myConfirms: {}, myExtraNote: '', myRowTimes: {}, myAutoMatched: {} });
 }
 
 function _activeAssignment() {
@@ -111,7 +179,7 @@ function recordMyCount(itemKey, rawValue, opts) {
   if (!assignment) return;
   if (assignment.status === 'submitted') return; // frozen — see restrict_subauditor_assignment_updates in schema.sql
   if (!_belongsToActiveAssignment(assignment, itemKey)) { console.error('[Isolation] Rejected count for item outside this assignment:', itemKey); return; }
-  const { myCounts, myConfirms } = Store.getState();
+  const { myCounts, myConfirms, myRowTimes, myAutoMatched } = Store.getState();
   const newCounts = Object.assign({}, myCounts);
   if (rawValue === '') {
     delete newCounts[itemKey];
@@ -130,6 +198,22 @@ function recordMyCount(itemKey, rawValue, opts) {
     delete newConfirms[itemKey];
     patch.myConfirms = newConfirms;
   }
+  // Typing an actual value — even one that happens to equal system
+  // qty — IS a real physical count. It's no longer an unresolved
+  // assumption, so it can't stay flagged auto-matched.
+  if (myAutoMatched && myAutoMatched[itemKey]) {
+    const newAutoMatched = Object.assign({}, myAutoMatched);
+    delete newAutoMatched[itemKey];
+    patch.myAutoMatched = newAutoMatched;
+  }
+  // Credit the time since the last count/note action to this row, then
+  // reset the cursor here — see MAX_ROW_SECONDS/_lastActionAt above.
+  const now = Date.now();
+  const delta = computeRowTimeDelta(_lastActionAt, now);
+  if (delta > 0) {
+    patch.myRowTimes = Object.assign({}, myRowTimes, { [itemKey]: Math.round((myRowTimes[itemKey] || 0) + delta) });
+  }
+  _lastActionAt = now;
   Store.setState(patch);
   _autosave();
   Bus.emit('counting:countChanged', { itemKey, value: newCounts[itemKey] });
@@ -178,21 +262,48 @@ function recordMyNote(itemKey, text) {
 }
 
 function _autosave() {
-  const { activeAssignmentId, myCounts, myNotes, myConfirms } = Store.getState();
+  const { activeAssignmentId, myCounts, myNotes, myConfirms, myExtraNote, myRowTimes, myAutoMatched } = Store.getState();
   if (!activeAssignmentId) return;
-  Repo.saveSessionCheckpoint(_checkpointKey(activeAssignmentId), Object.assign({}, myCounts, { __notes__: myNotes, __confirms__: myConfirms }));
+  Repo.saveSessionCheckpoint(_checkpointKey(activeAssignmentId), Object.assign({}, myCounts, { __notes__: myNotes, __confirms__: myConfirms, __extraNote__: myExtraNote || '', __rowTimes__: myRowTimes || {}, __autoMatched__: myAutoMatched || {} }));
   _scheduleProgressSync();
+}
+
+// ── "Items not in inventory" note — one free-text block per assignment,
+// not tied to any itemKey (there's no SKU/qty/price to attach a count
+// to for stock the Sub-Auditor found that isn't in the system at all).
+// Informational only: never feeds variance calculations. Soft length
+// cap keeps a single note from ballooning the 1.5s live-snapshot sync.
+const EXTRA_NOTE_MAX_LENGTH = 2000;
+// Pure — split out purely so the length cap itself is independently
+// testable without needing an active assignment/Store.
+function truncateExtraNote(text) {
+  return (text || '').slice(0, EXTRA_NOTE_MAX_LENGTH);
+}
+function recordMyExtraNote(text) {
+  const assignment = _activeAssignment();
+  if (!assignment) return;
+  if (assignment.status === 'submitted') return;
+  const trimmed = truncateExtraNote(text);
+  Store.setState({ myExtraNote: trimmed });
+  _autosave();
+  Bus.emit('counting:extraNoteChanged', { text: trimmed });
 }
 
 function markRemainingAsMatch() {
   const assignment = _activeAssignment();
   if (!assignment) return;
   if (assignment.status === 'submitted') { Bus.emit('toast', { msg: 'Already submitted — ask the Main Auditor to reopen it first', kind: 'error' }); return; }
-  if (!confirm('Stamp all unverified items in this assignment as matching system quantity?')) return;
-  const { myCounts } = Store.getState();
+  if (!confirm('Every item you have NOT counted will otherwise be reported as a full shortage (assumed 0). This stamps all of them as matching system quantity WITHOUT actually counting them — that will be visible in the report as auto-matched, not verified. Continue?')) return;
+  const { myCounts, myAutoMatched } = Store.getState();
   const newCounts = Object.assign({}, myCounts);
-  assignment.items.forEach(it => { if (newCounts[it.itemKey] === undefined) newCounts[it.itemKey] = it.qty; });
-  Store.setState({ myCounts: newCounts });
+  const newAutoMatched = Object.assign({}, myAutoMatched);
+  assignment.items.forEach(it => {
+    if (newCounts[it.itemKey] === undefined) {
+      newCounts[it.itemKey] = it.qty;
+      newAutoMatched[it.itemKey] = true;
+    }
+  });
+  Store.setState({ myCounts: newCounts, myAutoMatched: newAutoMatched });
   _autosave();
   Bus.emit('counting:bulkMarked', {});
 }
@@ -211,7 +322,7 @@ function countingProgress() {
 // replaces the same row (fresh submitted_at) instead of needing
 // separate conflict-detection bookkeeping.
 async function submitMyAssignment() {
-  const { sbClient, myCounts, myNotes, myConfirms, currentAuditorId, currentAuditorName, accessExpiresAt } = Store.getState();
+  const { sbClient, myCounts, myNotes, myConfirms, myExtraNote, myRowTimes, myAutoMatched, currentAuditorId, currentAuditorName, accessExpiresAt } = Store.getState();
   const assignment = _activeAssignment();
   if (!assignment) { Bus.emit('toast', { msg: 'No open assignment to submit', kind: 'error' }); return null; }
 
@@ -232,6 +343,7 @@ async function submitMyAssignment() {
     const submission = await Repo.upsertSubmission(sbClient, {
       assignmentId: assignment.id, roundId: assignment.roundId, engagementId: assignment.engagementId,
       auditorId: currentAuditorId, auditorName: currentAuditorName, counts: myCounts, notes: myNotes || {}, confirms: myConfirms || {},
+      extraNote: myExtraNote || '', rowTimes: myRowTimes || {}, autoMatched: myAutoMatched || {},
     });
     if (priorSubmission) {
       logAudit('submission:conflictDetected', {
@@ -243,7 +355,11 @@ async function submitMyAssignment() {
     assignment.status = 'submitted';
     Store.setState({ myAssignments: Store.getState().myAssignments.slice() });
     Repo.clearSessionCheckpoint(_checkpointKey(assignment.id));
-    logAudit('submission:created', { assignmentId: assignment.id, resubmission: !!priorSubmission });
+    // Opening-to-submission duration — assignment.startedAt was set the
+    // moment they first opened it (openMyAssignment above), so this is
+    // the real elapsed time, not just "time since assigned."
+    const totalSeconds = assignment.startedAt ? Math.round((Date.now() - new Date(assignment.startedAt).getTime()) / 1000) : null;
+    logAudit('submission:created', { assignmentId: assignment.id, resubmission: !!priorSubmission, totalSeconds });
     Bus.emit('counting:submitted', { submission });
     Bus.emit('toast', { msg: 'Assignment submitted' + (priorSubmission ? ' (replaced your earlier submission)' : ''), kind: 'success' });
     return submission;
@@ -261,5 +377,7 @@ async function submitMyAssignment() {
 
 export const CountingActions = {
   loadMyAssignments, openMyAssignment, closeMyAssignment, recordMyCount, recordMyNote, applySameVariance,
-  markRemainingAsMatch, countingProgress, submitMyAssignment,
+  markRemainingAsMatch, countingProgress, submitMyAssignment, recordMyExtraNote,
 };
+
+export const _testables = { EXTRA_NOTE_MAX_LENGTH, truncateExtraNote, computeRowTimeDelta, MAX_ROW_SECONDS, computeEffectiveRow };

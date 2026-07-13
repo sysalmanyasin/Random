@@ -1,6 +1,7 @@
 import { Store } from '../store.js';
 import { Actions, Bus } from '../actions.js';
 import { Components } from '../components.js';
+import { openEngagementDetailView } from './engagement-pages.js';
 
 /* ══════════════════════════════════════════════════════════════
    FLOOR 5 — PAGES / inventory-pages.js
@@ -202,6 +203,38 @@ export function initInventoryPages() {
     },
     'generate-inventory-report': generateInventoryReport,
     'inventory-load-more': () => { renderLimit += PAGE_SIZE; renderInventoryTable(); },
+    'add-manual-inventory-codes': () => {
+      const input = $('inv-manual-code-input');
+      if (!input) return;
+      Actions.addManualCodes(input.value);
+      input.value = '';
+    },
+    'toggle-existing-engagement-picker': () => {
+      const wrap = $('inv-existing-engagement-picker');
+      if (!wrap) return;
+      const opening = wrap.style.display === 'none';
+      wrap.style.display = opening ? 'block' : 'none';
+      if (opening) {
+        const { engagements } = Store.getState();
+        const open = engagements.filter(e => e.status === 'open');
+        const select = $('inv-existing-engagement-select');
+        select.innerHTML = open.length === 0
+          ? '<option value="">No open engagements</option>'
+          : open.map(e => `<option value="${e.id}">${e.name}</option>`).join('');
+      }
+    },
+    'confirm-add-to-existing-engagement': async () => {
+      const select = $('inv-existing-engagement-select');
+      const engagementId = select && select.value;
+      if (!engagementId) { Bus.emit('toast', { msg: 'Choose an engagement first', kind: 'error' }); return; }
+      const round = await Actions.startSubRoundFromInventorySelection(engagementId);
+      if (round) {
+        const wrap = $('inv-existing-engagement-picker');
+        if (wrap) wrap.style.display = 'none';
+        await openEngagementDetailView(engagementId);
+        Bus.emit('nav:goto', 'team');
+      }
+    },
   };
   const inputHandlers = {
     // Debounced — with 5000+ rows, re-filtering and re-rendering on every

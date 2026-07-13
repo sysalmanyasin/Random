@@ -72,3 +72,12 @@
 tr.row-confirmed-same { background: #FFFBEB; }
 tr.row-confirmed-same .prev-variance-line { background: #FEF3C7; border-color: var(--gold); }
 tr.row-confirmed-same .btn-same { background: #B45309; }
+
+/* Uncounted=0 rule: an untouched (or auto-matched) row is a full
+   assumed variance, not a blank — but it's still just an assumption,
+   so it gets a faint wash rather than the weight of a physically
+   confirmed row, and never competes visually with row-confirmed-same
+   above (an item can't be both at once — confirmedSame only applies
+   to a real typed/"Same"-button entry). */
+tr.row-assumed { background: #FAFAFB; }
+tr.row-assumed td:first-child { border-left: 2px solid var(--border); }

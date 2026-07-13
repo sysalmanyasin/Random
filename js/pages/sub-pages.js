@@ -18,6 +18,8 @@ let countingSortAscending = true;
 let collapsedCompanyGroups = new Set(); // company names currently collapsed in the counting table
 let countingGroupByCompany = true; // whether multi-company assignments show company headers at all
 let subDashboardOpen = false; // "Your Assignment" card — collapsed by default
+let pickerSubmittedOpen = false; // "Submitted" section on the assignment picker — collapsed by default
+let extraNoteOpen = false; // "Items not in inventory" note block — collapsed by default
 
 // Renders the assignment-picker + counting workspace. Originally
 // Sub-Auditor-only; now also used by the Main Auditor whenever they
@@ -30,14 +32,21 @@ export function renderTeamTabForSubAuditor() {
 
   if (!activeAssignmentId) {
     container.innerHTML = renderAssignmentPickerHTML(myAssignments);
+    if (showIndividualPicker && individualPickerSource === 'companies') renderIndividualCompanyPicker();
     return;
   }
 
   const assignment = myAssignments.find(a => a.id === activeAssignmentId);
-  if (!assignment) { container.innerHTML = renderAssignmentPickerHTML(myAssignments); return; }
+  if (!assignment) {
+    container.innerHTML = renderAssignmentPickerHTML(myAssignments);
+    if (showIndividualPicker && individualPickerSource === 'companies') renderIndividualCompanyPicker();
+    return;
+  }
   const isLocked = assignment.status === 'submitted';
 
   const dash = Actions.subAuditorDashboard();
+  const { myExtraNote } = Store.getState();
+  const hasNote = !!(myExtraNote && myExtraNote.trim());
   container.innerHTML = `
     <button class="sort-btn" data-action="sub-back-to-list" style="margin-bottom:10px;">← My Assignments</button>
     <div id="sub-dashboard-holder">${Components.subDashboardHTML(dash, countingFilterMode, countingSortAscending, isLocked, subDashboardOpen, countingGroupByCompany)}</div>
@@ -46,7 +55,20 @@ export function renderTeamTabForSubAuditor() {
       : `<div class="no-print" style="display:flex; gap:8px; margin:12px 0;">
           <button class="btn btn-primary btn-sm" style="flex:1;" data-action="sub-submit-assignment">✓ Submit Assignment</button>
         </div>`}
-    <input type="text" id="sub-counting-search-input" class="settings-input" placeholder="🔍 Search items…"
+    <div style="display:flex; justify-content:flex-start; margin-bottom:${extraNoteOpen || hasNote ? '4' : '10'}px;">
+      <button class="sort-btn" data-action="toggle-extra-note" style="font-size:11px;">📝 ${hasNote ? 'Edit note' : 'Found something not in inventory?'}</button>
+    </div>
+    ${extraNoteOpen || hasNote ? `
+    <div class="card" style="margin-bottom:10px;">
+      <div id="sub-extra-note-desc" style="font-size:11px; font-weight:700; color:var(--grey); margin-bottom:4px;">Items you found but that aren't in the system — this is informational only, not counted as a variance.</div>
+      <textarea id="sub-extra-note-input" class="settings-input" data-input-action="record-assignment-extra-note"
+        aria-labelledby="sub-extra-note-desc"
+        placeholder="e.g. Panadol Extra 10s — found 6 units on shelf, not in inventory list"
+        style="width:100%; min-height:44px; resize:none; overflow:hidden; box-sizing:border-box;"
+        oninput="this.style.height='auto'; this.style.height=this.scrollHeight+'px';"
+        ${isLocked ? 'disabled' : ''}>${Components.esc(myExtraNote || '')}</textarea>
+    </div>` : ''}
+    <input type="text" id="sub-counting-search-input" class="settings-input" placeholder="🔍 Search items…" aria-label="Search items in this assignment"
       data-input-action="filter-counting-items" style="margin-bottom:10px;">
     <div style="background:white; border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden;">
       <table class="audit-table">
@@ -60,6 +82,68 @@ export function renderTeamTabForSubAuditor() {
       </table>
     </div>`;
   renderCountingRows();
+  const noteEl = $('sub-extra-note-input');
+  if (noteEl) { noteEl.style.height = 'auto'; noteEl.style.height = noteEl.scrollHeight + 'px'; }
+}
+
+let showIndividualPicker = false;
+let individualPickerSource = 'template'; // 'template' | 'companies'
+let individualSelectedCompanies = new Set();
+
+function renderIndividualPickerHTML() {
+  const { role, myAssignments, templates } = Store.getState();
+  if (role !== 'sub') return ''; // self-service is for staff picking their own work — the Main Auditor already has the full Team Audit picker
+  // Rule #1: one open self-pick at a time, submit-first. Checked
+  // against whatever's already loaded (myAssignments spans every
+  // engagement this auditor has work in, individual or Team-assigned —
+  // only a prior SELF-PICK blocks a new self-pick; being on a Team
+  // round doesn't).
+  const openSelfPick = (myAssignments || []).find(a => a.method === 'individual-self-pick' && (a.status === 'assigned' || a.status === 'counting'));
+  if (openSelfPick) {
+    return `<div class="card" style="margin-bottom:14px; background:var(--gold-bg); border:1px solid var(--gold);">
+      <div style="font-size:12.5px; font-weight:700; color:var(--navy);">🎲 You have an open random audit — submit it first</div>
+      <div style="font-size:11px; color:var(--grey); margin-top:2px;">${Components.esc(openSelfPick.companies.join(', ') || (openSelfPick.items.length + ' items'))}. Open it below to finish, then you can start another.</div>
+    </div>`;
+  }
+
+  if (!showIndividualPicker) {
+    return `<button class="sort-btn" style="width:100%; margin-bottom:14px;" data-action="toggle-individual-picker">🎲 Start a Random Audit</button>`;
+  }
+
+  const templateOptions = (templates || []).map(t => `<option value="${t.id}">${Components.esc(t.name)} (${t.codes.length} codes)</option>`).join('');
+  return `
+    <div class="card" style="margin-bottom:14px;">
+      <div class="card-title" style="margin:0 0 8px;">🎲 Start a Random Audit</div>
+      <div style="display:flex; gap:6px; margin-bottom:10px;">
+        <button class="filter-btn${individualPickerSource === 'template' ? ' filter-btn-active' : ''}" data-action="set-individual-source" data-source="template" style="flex:1;">From a Template</button>
+        <button class="filter-btn${individualPickerSource === 'companies' ? ' filter-btn-active' : ''}" data-action="set-individual-source" data-source="companies" style="flex:1;">Pick Companies</button>
+      </div>
+      ${individualPickerSource === 'template' ? `
+        ${templates && templates.length > 0 ? `
+        <select id="individual-template-select" class="settings-input" aria-label="Choose a template" style="margin-bottom:10px;">
+          <option value="">— choose a template —</option>
+          ${templateOptions}
+        </select>` : `<div style="font-size:12px; color:var(--grey); margin-bottom:10px;">No saved templates yet — ask the Main Auditor to save one, or pick companies instead.</div>`}
+      ` : `
+        <div id="individual-company-picker" style="max-height:200px; overflow:auto; margin-bottom:6px;"></div>
+        <div id="individual-selected-count" style="font-size:11px; color:var(--grey); margin-bottom:8px;"></div>
+      `}
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-primary" style="flex:1;" data-action="confirm-start-individual">Start Counting</button>
+        <button class="btn" style="flex:1; background:var(--light); color:var(--text);" data-action="toggle-individual-picker">Cancel</button>
+      </div>
+    </div>`;
+}
+
+function renderIndividualCompanyPicker() {
+  const holder = $('individual-company-picker');
+  const countLabel = $('individual-selected-count');
+  if (!holder) return;
+  const { products } = Store.getState();
+  const companies = [...new Set(products.map(p => p.company))].sort((a, b) => a.localeCompare(b));
+  holder.innerHTML = '';
+  companies.forEach(c => holder.appendChild(Components.scopeCompanyCheckboxRow(c, individualSelectedCompanies.has(c), undefined, undefined, 'toggle-individual-company')));
+  if (countLabel) countLabel.textContent = individualSelectedCompanies.size + ' compan' + (individualSelectedCompanies.size === 1 ? 'y' : 'ies') + ' selected';
 }
 
 function renderAssignmentPickerHTML(myAssignments) {
@@ -67,20 +151,42 @@ function renderAssignmentPickerHTML(myAssignments) {
   const backLink = role === 'main'
     ? '<button class="sort-btn" data-action="team-back-to-manage" style="margin-bottom:10px;">← Back to Team Audit</button>'
     : '';
+  const individualSection = renderIndividualPickerHTML();
   if (myAssignments.length === 0) {
-    return backLink + `<div class="card" style="text-align:center; padding:32px 20px;"><span style="font-size:40px;">📋</span><div style="font-weight:800; color:var(--navy); margin-top:10px;">No assignments yet.</div><div style="font-size:12px; color:var(--grey); margin-top:4px;">Ask the Main Auditor to assign you to a round.</div></div>`;
+    return backLink + individualSection + `<div class="card" style="text-align:center; padding:32px 20px;"><span style="font-size:40px;">📋</span><div style="font-weight:800; color:var(--navy); margin-top:10px;">No assignments yet.</div><div style="font-size:12px; color:var(--grey); margin-top:4px;">${role === 'sub' ? 'Start a random audit above, or ask the Main Auditor to assign you to a round.' : 'Ask the Main Auditor to assign you to a round.'}</div></div>`;
   }
-  const cards = myAssignments.map(a => `
-    <div class="card assignment-card" data-action="sub-open-assignment" data-assignment-id="${a.id}" style="cursor:pointer;">
+  const openWork = myAssignments.filter(a => a.status === 'assigned' || a.status === 'counting');
+  // "Past" folds in submitted AND revoked, so nothing a Sub-Auditor once
+  // had just silently vanishes from their history without explanation.
+  const past = myAssignments.filter(a => a.status === 'submitted' || a.status === 'revoked');
+
+  const card = (a) => `
+    <div class="card assignment-card" data-action="sub-open-assignment" data-assignment-id="${a.id}" style="cursor:pointer;${a.status === 'revoked' ? ' opacity:0.6;' : ''}" role="button" tabindex="0" aria-label="Open assignment — ${Components.esc(a.companies.join(', ') || (a.items.length + ' items'))}, status ${Components.esc(a.status)}">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <div>
           <div style="font-weight:800; color:var(--navy); font-size:13px;">${Components.esc(a.companies.join(', ') || (a.items.length + ' items'))}</div>
           <div style="font-size:11px; color:var(--grey); margin-top:2px;">${a.items.length} item line(s)</div>
         </div>
-        <span class="val-badge ${a.status === 'submitted' ? 'val-green' : 'val-gold'}">${Components.esc(a.status)}</span>
+        <span class="val-badge ${a.status === 'submitted' ? 'val-green' : a.status === 'revoked' ? 'val-red' : 'val-gold'}">${Components.esc(a.status)}</span>
       </div>
-    </div>`).join('');
-  return backLink + `<div class="card-title">My Assignments</div>${cards}`;
+    </div>`;
+
+  const openCards = openWork.map(card).join('') || '<div style="font-size:12px; color:var(--grey); padding:10px 0;">Nothing open right now.</div>';
+  // If there's no open work, the Submitted section is all there is to
+  // see — auto-expand it so the screen doesn't look empty on landing.
+  const pastIsOpen = pickerSubmittedOpen || openWork.length === 0;
+  const pastSection = past.length > 0 ? `
+    <div class="history-item${pastIsOpen ? ' open' : ''}" style="margin-top:14px;">
+      <div class="history-header" data-action="toggle-picker-submitted" role="button" tabindex="0" aria-expanded="${pastIsOpen ? 'true' : 'false'}">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="arrow-toggle" aria-hidden="true">&#9658;</span>
+          <strong style="color:var(--navy); font-size:12.5px;">Submitted (${past.length})</strong>
+        </div>
+      </div>
+      <div class="history-content">${past.map(card).join('')}</div>
+    </div>` : '';
+
+  return backLink + individualSection + `<div class="card-title">My Assignments</div>${openCards}${pastSection}`;
 }
 
 // Applies the search token, Short/Over/Unverified filter, and sort
@@ -129,7 +235,7 @@ function _refreshGroupHeaderImpact(company) {
 function renderCountingRows() {
   const tbody = $('sub-counting-rows');
   if (!tbody) return;
-  const { myCounts, myNotes, myConfirms, myAssignments, activeAssignmentId } = Store.getState();
+  const { myCounts, myNotes, myConfirms, myAutoMatched, myAssignments, activeAssignmentId } = Store.getState();
   const activeAssignment = myAssignments.find(a => a.id === activeAssignmentId);
   const readOnly = !!activeAssignment && activeAssignment.status === 'submitted';
   const groups = _visibleItemGroups();
@@ -147,16 +253,27 @@ function renderCountingRows() {
       // or Shorts/Overs filter would silently change the displayed
       // total, and it would visibly jump the moment you type (since the
       // per-keystroke updater below already used the full list).
+      //
+      // Under the uncounted=0 rule, an untouched item contributes its
+      // FULL system qty as an assumed shortage here, same as it would
+      // in the final compiled report — this is what makes the running
+      // total start at "full company variance" and visibly shrink as
+      // items get counted, rather than starting at Rs 0 and only
+      // growing as discrepancies are found.
       const companyItems = activeAssignment ? activeAssignment.items.filter(it => it.company === group.company) : group.items;
       const companyImpact = companyItems.reduce((sum, it) => {
         const c = myCounts[it.itemKey];
-        return c === undefined ? sum : sum + (c - it.qty) * it.price;
+        const effectiveQty = c === undefined ? 0 : c;
+        return sum + (effectiveQty - it.qty) * it.price;
       }, 0);
       const collapsed = collapsedCompanyGroups.has(group.company);
       tbody.appendChild(Components.companyGroupHeaderRow(group.company, companyImpact, collapsed));
       if (collapsed) return;
     }
-    group.items.forEach(item => tbody.appendChild(Components.countingRow(item, myCounts[item.itemKey], (myNotes || {})[item.itemKey], readOnly, !!(myConfirms || {})[item.itemKey])));
+    group.items.forEach(item => tbody.appendChild(Components.countingRow(
+      item, myCounts[item.itemKey], (myNotes || {})[item.itemKey], readOnly,
+      !!(myConfirms || {})[item.itemKey], !!(myAutoMatched || {})[item.itemKey]
+    )));
   });
 }
 
@@ -186,17 +303,62 @@ export function initSubPages() {
     'sub-open-assignment': async (el) => {
       collapsedCompanyGroups = new Set();
       subDashboardOpen = false;
+      extraNoteOpen = false;
       await Actions.openMyAssignment(el.dataset.assignmentId);
     },
     'sub-back-to-list': () => {
       Actions.closeMyAssignment();
       countingSearchToken = ''; countingFilterMode = 'all'; countingSortAscending = true; collapsedCompanyGroups = new Set();
-      subDashboardOpen = false; countingGroupByCompany = true;
+      subDashboardOpen = false; countingGroupByCompany = true; extraNoteOpen = false;
       renderTeamTabForSubAuditor();
     },
+    'toggle-picker-submitted': () => { pickerSubmittedOpen = !pickerSubmittedOpen; renderTeamTabForSubAuditor(); },
+    'toggle-individual-picker': () => {
+      showIndividualPicker = !showIndividualPicker;
+      individualPickerSource = 'template';
+      individualSelectedCompanies = new Set();
+      renderTeamTabForSubAuditor();
+    },
+    'set-individual-source': (el) => { individualPickerSource = el.dataset.source; renderTeamTabForSubAuditor(); },
+    'toggle-individual-company': (el) => {
+      const c = el.dataset.company;
+      if (individualSelectedCompanies.has(c)) individualSelectedCompanies.delete(c);
+      else individualSelectedCompanies.add(c);
+      const countLabel = $('individual-selected-count');
+      if (countLabel) countLabel.textContent = individualSelectedCompanies.size + ' compan' + (individualSelectedCompanies.size === 1 ? 'y' : 'ies') + ' selected';
+    },
+    'confirm-start-individual': async () => {
+      let selection;
+      if (individualPickerSource === 'template') {
+        const select = $('individual-template-select');
+        const templateId = select && select.value;
+        if (!templateId) { Bus.emit('toast', { msg: 'Choose a template first', kind: 'error' }); return; }
+        const { templates } = Store.getState();
+        const template = templates.find(t => t.id === templateId);
+        if (!template) return;
+        selection = { source: 'template', codes: template.codes, name: template.name };
+      } else {
+        if (individualSelectedCompanies.size === 0) { Bus.emit('toast', { msg: 'Pick at least one company first', kind: 'error' }); return; }
+        selection = { source: 'companies', companies: Array.from(individualSelectedCompanies) };
+      }
+      const assignment = await Actions.startIndividualAssignment(selection);
+      if (assignment) {
+        showIndividualPicker = false;
+        individualSelectedCompanies = new Set();
+        await Actions.loadMyAssignments();
+        await Actions.openMyAssignment(assignment.id);
+        renderTeamTabForSubAuditor();
+      }
+    },
+    'toggle-extra-note': () => { extraNoteOpen = !extraNoteOpen; renderTeamTabForSubAuditor(); },
     'team-back-to-manage': () => Bus.emit('team:viewManage'),
     'sub-submit-assignment': async () => {
-      await Actions.submitMyAssignment();
+      const submission = await Actions.submitMyAssignment();
+      if (submission) {
+        const { myAssignments } = Store.getState();
+        const assignment = myAssignments.find(a => a.id === submission.assignmentId);
+        await Actions.autoCompileIfIndividual(assignment);
+      }
       await Actions.loadMyAssignments();
       renderTeamTabForSubAuditor();
     },
@@ -226,6 +388,7 @@ export function initSubPages() {
       if (item) _refreshGroupHeaderImpact(item.company);
     },
     'record-assignment-note': (el) => Actions.recordMyNote(el.dataset.itemKey, el.value),
+    'record-assignment-extra-note': (el) => Actions.recordMyExtraNote(el.value),
   };
 
   const keydownHandlers = {

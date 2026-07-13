@@ -20,7 +20,7 @@ export function staffCardHTML(staffMember, appUrl) {
         <span class="val-badge ${blocked ? 'val-red' : 'val-green'}">${blocked ? 'Blocked/Expired' : 'Active'}</span>
       </div>
       <div style="display:flex; gap:6px; margin-bottom:6px;">
-        <input type="text" class="settings-input staff-pin-input" placeholder="New PIN" style="margin:0; flex:1; font-size:12px; padding:8px;" data-staff-id="${esc(staffMember.id)}">
+        <input type="text" class="settings-input staff-pin-input" placeholder="New PIN" aria-label="New PIN for ${esc(staffMember.name)}" style="margin:0; flex:1; font-size:12px; padding:8px;" data-staff-id="${esc(staffMember.id)}">
         <button class="btn btn-primary" style="font-size:11px; padding:8px 10px;" data-action="staff-reset-pin" data-staff-id="${esc(staffMember.id)}">Set PIN</button>
       </div>
       ${isMain ? '' : `
@@ -40,11 +40,11 @@ export function staffCardHTML(staffMember, appUrl) {
 export function addStaffFormHTML() {
   return `
     <div class="card">
-      <label class="settings-label">Name</label>
+      <label class="settings-label" for="new-staff-name-input">Name</label>
       <input type="text" id="new-staff-name-input" class="settings-input" placeholder="Staff member's name">
-      <label class="settings-label">Phone (with country code)</label>
+      <label class="settings-label" for="new-staff-phone-input">Phone (with country code)</label>
       <input type="tel" id="new-staff-phone-input" class="settings-input" placeholder="923001234567">
-      <label class="settings-label">PIN (4-8 digits)</label>
+      <label class="settings-label" for="new-staff-pin-input">PIN (4-8 digits)</label>
       <input type="text" id="new-staff-pin-input" class="settings-input" placeholder="e.g. 4821" inputmode="numeric">
       <button class="btn btn-primary btn-block" data-action="staff-create">Create Login</button>
     </div>`;

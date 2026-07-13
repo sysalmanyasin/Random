@@ -11,8 +11,11 @@ export function companyGroupHeaderRow(companyName, varianceValue, collapsed) {
   tr.dataset.action = 'toggle-company-group';
   tr.dataset.company = companyName;
   tr.style.cursor = 'pointer';
+  tr.tabIndex = 0;
+  tr.setAttribute('aria-expanded', String(!collapsed));
+  tr.setAttribute('aria-label', (collapsed ? 'Expand' : 'Collapse') + ' ' + companyName + ' group');
   const hasImpact = varianceValue !== undefined && varianceValue !== 0;
-  const impactColor = varianceValue < 0 ? 'var(--red)' : 'var(--green)';
+  const impactColor = varianceValue < 0 ? 'var(--red)' : 'var(--green-ink)';
   const impactHTML = hasImpact
     ? `<span style="color:${impactColor}; font-weight:800;">${varianceValue < 0 ? '-' : '+'}Rs ${Math.abs(Math.round(varianceValue)).toLocaleString()}</span>`
     : `<span style="color:var(--grey); font-weight:600;">Rs 0</span>`;
@@ -25,11 +28,19 @@ export function companyGroupHeaderRow(companyName, varianceValue, collapsed) {
   return tr;
 }
 
-export function countingRow(item, countedVal, noteVal, readOnly, confirmedSame) {
+export function countingRow(item, countedVal, noteVal, readOnly, confirmedSame, isAutoMatched) {
   const tr = document.createElement('tr');
   const sysVal = countedVal !== undefined ? countedVal : '';
   const dis = readOnly ? 'disabled' : '';
   if (confirmedSame) tr.classList.add('row-confirmed-same');
+  // Under the uncounted=0 rule, an untouched row IS already a full
+  // assumed-shortage variance, not a blank waiting to be filled — but
+  // it's still just an assumption, not a physical finding, so it's
+  // muted rather than shown with the same weight as a real count. See
+  // varianceCellHTML in legacy-components.js for the actual numbers.
+  const touched = countedVal !== undefined && countedVal !== '';
+  const missing = !touched || !!isAutoMatched;
+  if (missing && !confirmedSame) tr.classList.add('row-assumed');
 
   const hasPrevVariance = item.prevVariance !== undefined && item.prevVariance !== null && item.prevVariance !== 0;
   const prevSign = hasPrevVariance && item.prevVariance > 0 ? '+' : '';
@@ -52,9 +63,10 @@ export function countingRow(item, countedVal, noteVal, readOnly, confirmedSame) 
       <input type="number" min="0" step="1" value="${sysVal}" placeholder="-" class="audit-count-input"
         data-item-key="${esc(item.itemKey)}"
         data-input-action="record-assignment-count" data-keydown-action="counting-input-enter-next"
+        aria-label="Physical count for ${esc(item.name)}, system quantity ${item.qty}"
         inputmode="decimal" enterkeyhint="next" ${dis}>
     </td>
-    <td style="text-align:right; padding-right:10px; font-weight:800;">${varianceCellHTML(sysVal, item.qty, item.price)}</td>
+    <td style="text-align:right; padding-right:10px; font-weight:800;">${varianceCellHTML(sysVal, item.qty, item.price, isAutoMatched)}</td>
   `;
   return tr;
 }

@@ -74,7 +74,7 @@ async function openEngagement(engagementId) {
   const engagement = engagements.find(e => e.id === engagementId);
   if (!engagement) { Bus.emit('toast', { msg: 'Engagement not found', kind: 'error' }); return; }
   const rounds = await Repo.fetchRoundsByEngagement(sbClient, engagementId);
-  Store.setState({ currentEngagementId: engagementId, rounds, assignments: [], submissions: [] });
+  Store.setState({ currentEngagementId: engagementId, rounds, assignments: [], submissions: [], compiledRounds: [] });
   Bus.emit('engagement:opened', engagement);
   Bus.emit('rounds:changed', rounds);
 }

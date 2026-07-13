@@ -15,6 +15,7 @@ import { SnapshotActions } from './snapshot-actions.js';
 import { ReportActions } from './report-actions.js';
 import { DashboardActions } from './dashboard-actions.js';
 import { InventoryActions } from './inventory-actions.js';
+import { IndividualActions } from './individual-actions.js';
 
 /* ══════════════════════════════════════════════════════════════
    FLOOR 3 — ACTIONS (barrel)
@@ -63,6 +64,7 @@ export const Actions = {
   ...ReportActions,
   ...DashboardActions,
   ...InventoryActions,
+  ...IndividualActions,
   bootstrap,
   logAudit,
 };

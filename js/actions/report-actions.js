@@ -1,5 +1,7 @@
 import { Bus } from './bus.js';
 import { logAudit } from './audit-log-actions.js';
+import { DashboardActions } from './dashboard-actions.js';
+const _fmtDuration = DashboardActions.formatDuration;
 
 /* ══════════════════════════════════════════════════════════════
    FLOOR 3 — ACTIONS / report-actions.js
@@ -41,7 +43,8 @@ function exportFinalAuditReportXLSX(snapshot, engagementName) {
 }
 
 function exportVarianceReportXLSX(compiledRound, roundLabel) {
-  const rows = [['Product (Name + Code + Unit Price)', 'System Qty', 'Physical Qty', 'Qty Variance', 'Value Variance (Rs)', 'Auditor', 'Confirmed Same']];
+  const conflictedItemKeys = new Set((compiledRound.crossRoundConflicts || []).map(c => c.a.itemKey));
+  const rows = [['Product (Name + Code + Unit Price)', 'System Qty', 'Physical Qty', 'Qty Variance', 'Value Variance (Rs)', 'Auditor', 'Verified', 'Confirmed Same', 'Cross-Round Conflict']];
   const companies = [...new Set(compiledRound.variances.map(r => r.company))].sort((a, b) => a.localeCompare(b));
   let grandQtyVar = 0, grandValueVar = 0;
 
@@ -53,7 +56,16 @@ function exportVarianceReportXLSX(compiledRound, roundLabel) {
       const variance = r.countedQty - r.systemQty;
       const valueVariance = Number((variance * r.price).toFixed(2));
       const productLabel = r.name + ' (' + (r.code || 'No SKU') + ') — Rs ' + r.price;
-      rows.push([productLabel, r.systemQty, r.countedQty, variance, valueVariance, r.auditorName, r.confirmedSame ? 'Yes' : '']);
+      // "Manually resolved" rather than a bare yes/no, so a reader can't
+      // mistake a flagged-but-unresolved conflict for a settled one.
+      const conflictMarker = conflictedItemKeys.has(r.itemKey) ? 'Yes — see appendix' : '';
+      // Under the uncounted=0 rule, EVERY row here has a number — this
+      // column is what tells a reader whether it's a real physical
+      // count or an assumption (untouched, defaulted to 0) / an
+      // auto-match (Mark Remaining as Match), which read identically
+      // as numbers but mean very different things for an audit.
+      const verified = !r.missing ? 'Yes' : (r.autoMatched ? 'No — auto-matched' : 'No — not counted');
+      rows.push([productLabel, r.systemQty, r.countedQty, variance, valueVariance, r.auditorName, verified, r.confirmedSame ? 'Yes' : '', conflictMarker]);
       companyQtyVar += variance;
       companyValueVar += valueVariance;
     });
@@ -64,7 +76,38 @@ function exportVarianceReportXLSX(compiledRound, roundLabel) {
   });
   rows.push(['GRAND TOTAL', '', '', grandQtyVar, Number(grandValueVar.toFixed(2))]);
 
-  _downloadWorkbook({ 'Variance Report': rows }, 'VarianceReport_' + roundLabel.replace(/\s+/g, '_') + '.xlsx');
+  const sheets = { 'Variance Report': rows };
+
+  // Auditor Notes appendix — grouped by auditor, kept on its own sheet
+  // so it's never mistaken for a counted variance line (see
+  // compile-actions.js collectAuditorNotes — informational only).
+  const notes = compiledRound.auditorNotes || [];
+  if (notes.length > 0) {
+    const noteRows = [['Additional items noted by auditors — not in system (informational only, not counted as variance)'], []];
+    noteRows.push(['Auditor', 'Note', 'Submitted At']);
+    const byAuditor = new Map();
+    notes.forEach(n => { if (!byAuditor.has(n.auditorName)) byAuditor.set(n.auditorName, []); byAuditor.get(n.auditorName).push(n); });
+    [...byAuditor.keys()].sort().forEach(auditorName => {
+      byAuditor.get(auditorName).forEach(n => noteRows.push([auditorName, n.note, n.submittedAt ? new Date(n.submittedAt).toLocaleString('en-PK') : '']));
+    });
+    sheets['Auditor Notes'] = noteRows;
+  }
+
+  // Cross-Round Conflicts appendix — both counts kept, resolution
+  // status shown plainly rather than silently picking one (see
+  // compile-actions.js detectCrossRoundConflicts / resolveCrossRoundConflict).
+  const conflicts = compiledRound.crossRoundConflicts || [];
+  if (conflicts.length > 0) {
+    const conflictRows = [['Same product counted differently in another round — both kept, flagged for manual resolution'], []];
+    conflictRows.push(['Company', 'Code', 'Product', 'Count A (Auditor)', 'Count B (Auditor)', 'Resolution']);
+    conflicts.forEach(c => {
+      const resolution = c.resolved ? ('Kept ' + c.resolved.countedQty + ' (by ' + c.resolved.resolvedBy + ')') : 'Unresolved';
+      conflictRows.push([c.company, c.code, c.name, c.a.countedQty + ' (' + c.a.auditorName + ')', c.b.countedQty + ' (' + c.b.auditorName + ')', resolution]);
+    });
+    sheets['Cross-Round Conflicts'] = conflictRows;
+  }
+
+  _downloadWorkbook(sheets, 'VarianceReport_' + roundLabel.replace(/\s+/g, '_') + '.xlsx');
   logAudit('report:varianceExported', { roundId: compiledRound.roundId });
   Bus.emit('toast', { msg: 'Variance Report exported', kind: 'success' });
 }
@@ -83,10 +126,11 @@ function exportRoundHistoryXLSX(engagement, rounds) {
 }
 
 function exportSubmissionHistoryXLSX(engagement, submissions, assignments) {
-  const rows = [['Auditor', 'Assignment ID', 'Companies', 'Item Count', 'Submitted At (Sign-off)']];
+  const rows = [['Auditor', 'Assignment ID', 'Companies', 'Item Count', 'Submitted At (Sign-off)', 'Time Taken', 'Force Submitted By']];
   submissions.forEach(s => {
     const a = assignments.find(x => x.id === s.assignmentId);
-    rows.push([s.auditorName, s.assignmentId, a ? a.companies.join(', ') : '', Object.keys(s.counts || {}).length, new Date(s.submittedAt).toLocaleString('en-PK')]);
+    const timeTaken = (a && a.startedAt) ? _fmtDuration((new Date(s.submittedAt) - new Date(a.startedAt)) / 1000) : '';
+    rows.push([s.auditorName, s.assignmentId, a ? a.companies.join(', ') : '', Object.keys(s.counts || {}).length, new Date(s.submittedAt).toLocaleString('en-PK'), timeTaken, s.forceSubmittedBy || '']);
   });
   _downloadWorkbook({ 'Submission History': rows }, 'SubmissionHistory_' + engagement.name.replace(/\s+/g, '_') + '.xlsx');
   logAudit('report:submissionHistoryExported', { engagementId: engagement.id });

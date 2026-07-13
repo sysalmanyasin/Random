@@ -392,8 +392,99 @@ async function reopenAssignment(assignmentId) {
   }
 }
 
+// ── Force Submit ──────────────────────────────────────────────
+// For when a Sub-Auditor is mid-round, unreachable, or gone, and the
+// Main Auditor needs their in-progress counts committed as the real
+// submission instead of waiting indefinitely. Source of truth is the
+// same live_snapshot the progress popup already reads — nothing new
+// to sync, this just commits it.
+//
+// Pure so it's independently testable: given an assignment's item
+// list, the Sub-Auditor's live snapshot, and a leftover-handling mode,
+// returns the exact counts map that would be submitted. No Store/Repo
+// access, no side effects.
+// Under the uncounted=0 rule, 'unverified' mode needs no special
+// handling at all — an untouched item already defaults to a full
+// assumed-shortage variance everywhere it's read (see
+// computeEffectiveRow in counting-actions.js). 'match' mode is the one
+// real action here: it's Force Submit's equivalent of "Mark Remaining
+// as Match," so it gets the same autoMatched flag, for the same
+// reason — so the report can always tell "resolved without a real
+// count" apart from an actual physical count, even when both show the
+// same number.
+function buildForceSubmitCounts(assignmentItems, liveSnapshot, leftoverMode) {
+  const counts = Object.assign({}, (liveSnapshot && liveSnapshot.counts) || {});
+  const autoMatched = Object.assign({}, (liveSnapshot && liveSnapshot.autoMatched) || {});
+  if (leftoverMode === 'match') {
+    assignmentItems.forEach(it => {
+      if (counts[it.itemKey] === undefined) {
+        counts[it.itemKey] = it.qty;
+        autoMatched[it.itemKey] = true;
+      }
+    });
+  }
+  return { counts, autoMatched };
+}
+
+// leftoverMode is required and must be an explicit choice made by the
+// Main Auditor each time — there is deliberately no default, since
+// "leave blank" vs "auto-match" changes what the compiled report says
+// and should never happen silently.
+async function forceSubmitAssignment(assignmentId, leftoverMode, mainAuditorName) {
+  if (leftoverMode !== 'unverified' && leftoverMode !== 'match') {
+    Bus.emit('toast', { msg: 'Choose how to handle uncounted items before force submitting', kind: 'error' });
+    return null;
+  }
+  const { assignments, sbClient } = Store.getState();
+  const assignment = assignments.find(a => a.id === assignmentId);
+  if (!assignment) { Bus.emit('toast', { msg: 'Assignment not found', kind: 'error' }); return null; }
+  if (assignment.status !== 'counting' && assignment.status !== 'assigned') {
+    Bus.emit('toast', { msg: 'Only assignments still in progress can be force-submitted', kind: 'error' });
+    return null;
+  }
+  const liveSnapshot = assignment.liveSnapshot;
+  if (!liveSnapshot || !liveSnapshot.counts || Object.keys(liveSnapshot.counts).length === 0) {
+    Bus.emit('toast', { msg: 'Nothing has synced from this Sub-Auditor yet — nothing to force submit', kind: 'error' });
+    return null;
+  }
+
+  const { counts, autoMatched } = buildForceSubmitCounts(assignment.items, liveSnapshot, leftoverMode);
+  const countedByAuditor = Object.keys(liveSnapshot.counts).length;
+  try {
+    const submission = await Repo.upsertSubmission(sbClient, {
+      assignmentId: assignment.id, roundId: assignment.roundId, engagementId: assignment.engagementId,
+      auditorId: assignment.auditorId, auditorName: assignment.auditorName,
+      counts, notes: {}, confirms: liveSnapshot.confirms || {}, extraNote: liveSnapshot.extraNote || '',
+      forceSubmittedBy: mainAuditorName, forceSubmitLeftoverMode: leftoverMode, rowTimes: liveSnapshot.rowTimes || {},
+      autoMatched,
+    });
+    await Repo.updateAssignment(sbClient, assignment.id, { status: 'submitted', progressCount: Object.keys(counts).length });
+    assignment.status = 'submitted';
+    Store.setState({ assignments: assignments.slice() });
+    logAudit('assignment:forceSubmittedByMain', {
+      assignmentId: assignment.id, originalAuditorName: assignment.auditorName, forcedBy: mainAuditorName,
+      leftoverMode, countedByAuditor, totalItems: assignment.items.length,
+    });
+    Bus.emit('assignments:changed', Store.getState().assignments);
+    Bus.emit('toast', {
+      msg: 'Force-submitted on behalf of ' + assignment.auditorName + ' (' + countedByAuditor + '/' + assignment.items.length + ' counted by them)',
+      kind: 'success',
+    });
+    return submission;
+  } catch (err) {
+    Bus.emit('toast', { msg: 'Could not force submit: ' + err.message, kind: 'error' });
+    return null;
+  }
+}
+
 export const AssignmentActions = {
   loadAssignmentsForRound, previewSplitByCompanyCount, previewSplitByItemVolume, commitSplitPreview,
   assignMainAuditorToSelf, previewSplitItems, commitItemSplitPreview,
   manualMoveCompany, manualMoveItem, revokeAssignment, reopenAssignment,
+  forceSubmitAssignment,
 };
+
+// Exported separately (not part of the public AssignmentActions surface
+// components import) purely so the test suite can exercise the pure
+// leftover-handling logic without needing a Store/Repo/Supabase client.
+export const _testables = { buildForceSubmitCounts };
