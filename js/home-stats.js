@@ -45,8 +45,15 @@ function updateTeamStat() {
 function updateSyncStat() {
   const el = $('home-stat-sync');
   if (!el) return;
-  const linked = !!(Actions.getDropboxToken && Actions.getDropboxToken());
-  el.textContent = linked ? '☁ Dropbox linked & ready' : 'Dropbox not linked — tap to configure';
+  const { products, inventoryLastSyncedAt } = Store.getState();
+  const count = (products || []).length;
+  if (count === 0) { el.textContent = 'No inventory loaded yet'; return; }
+  if (inventoryLastSyncedAt) {
+    const d = new Date(inventoryLastSyncedAt);
+    el.textContent = count.toLocaleString() + ' items · synced ' + d.toLocaleDateString('en-PK', { day: '2-digit', month: 'short' });
+  } else {
+    el.textContent = count.toLocaleString() + ' items loaded';
+  }
 }
 
 function updateAll() { updateRandomStat(); updateTeamStat(); updateSyncStat(); }
@@ -58,7 +65,7 @@ Bus.on('auth:loggedOut',                updateTeamStat);
 Bus.on('engagement:opened',             updateTeamStat);
 Bus.on('engagement:closed',             updateTeamStat);
 Bus.on('engagements:changed',           updateTeamStat);
-Bus.on('settings:dropboxStatusChanged', updateSyncStat);
+Bus.on('products:changed',              updateSyncStat);
 Bus.on('cloud:state',                   updateSyncStat);
 
 setTimeout(updateAll, 300);

@@ -13,7 +13,6 @@ import { DbCore } from './repository/db.js';
 import { LegacyRepo } from './repository/legacy.js';
 import { TemplatesRepo } from './repository/templates.js';
 import { LS, SS } from './repository/storage.js';
-import { DropboxRepo } from './repository/dropbox.js';
 import { SupabaseRepo } from './repository/supabase.js';
 
 export const Repo = {
@@ -29,9 +28,10 @@ export const Repo = {
   // localStorage / sessionStorage
   LS, SS,
 
-  // Dropbox — inventory sync only now
-  ...DropboxRepo,
-
-  // Supabase — multi-auditor engagements/rounds/assignments/submissions/staff
+  // Supabase — multi-auditor engagements/rounds/assignments/submissions/
+  // staff, and now also the shared inventory table + sync trigger
+  // (Dropbox itself is pulled server-side only now — see
+  // supabase/functions/sync-inventory-from-dropbox — so there is no
+  // more client-side Dropbox networking module here).
   ...SupabaseRepo,
 };
