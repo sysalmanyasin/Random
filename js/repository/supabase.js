@@ -343,6 +343,45 @@ async function deleteTemplateRemote(client, id) {
   if (error) throw error;
 }
 
+// ── Inventory (shared, server-synced from Dropbox) ──
+// Replaces the old per-device Dropbox OAuth link + direct browser
+// pull: the Edge Function (sync-inventory-from-dropbox) owns the one
+// Dropbox token and does the actual pull server-side; every device
+// just reads this shared table and can ask for a fresh pull via
+// triggerInventorySyncRemote.
+function _rowToInventoryProduct(row) {
+  return {
+    code: row.code || '', name: row.name, qty: row.qty || 0, price: row.price || 0,
+    company: row.company || 'Unassigned Manufacturer', generic: row.generic || '',
+    supplier: row.supplier || 'Unassigned Supplier', conversionFactor: row.conversion_factor || 1,
+  };
+}
+// Cheap, read-only — safe to call often (e.g. right after login) since
+// it never touches Dropbox, just the already-synced shared table.
+async function fetchInventoryProducts(client) {
+  const { data, error } = await client.from('inventory_products').select('*').order('name', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(_rowToInventoryProduct);
+}
+// Most recent completed sync, so a fresh login can show "last synced"
+// without needing to trigger a new one itself.
+async function fetchLatestInventorySync(client) {
+  const { data, error } = await client.from('inventory_sync_log')
+    .select('*').order('synced_at', { ascending: false }).limit(1).maybeSingle();
+  if (error) throw error;
+  return data ? { syncedAt: data.synced_at, itemCount: data.item_count, source: data.source } : null;
+}
+// Triggers the real Dropbox pull + full-table replace, server-side.
+// Any logged-in staff member with valid (non-expired) access may call
+// this now — see the Edge Function's own comments for the 2026-07-14
+// decision to open this up beyond Main-Auditor-only.
+async function triggerInventorySyncRemote(client) {
+  const { data, error } = await client.functions.invoke('sync-inventory-from-dropbox');
+  if (error) throw error;
+  if (data && data.error) throw new Error(data.error);
+  return data; // { ok, count, syncedAt }
+}
+
 export const SupabaseRepo = {
   buildSupabaseClient, signInWithPhonePin, signOut, getSession, onAuthStateChange, callAdminAction,
   fetchMyStaffProfile, fetchAllStaff, setStaffAccessExpiry,
@@ -354,4 +393,5 @@ export const SupabaseRepo = {
   insertFinalSnapshot, fetchFinalSnapshotsByEngagement,
   insertAuditLogEntry, fetchAuditLog,
   fetchTemplates, insertTemplate, updateTemplate, deleteTemplateRemote,
+  fetchInventoryProducts, fetchLatestInventorySync, triggerInventorySyncRemote,
 };
