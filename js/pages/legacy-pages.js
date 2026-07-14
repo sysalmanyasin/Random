@@ -12,9 +12,9 @@ import { Components } from '../components.js';
 
    Still genuinely shared, general-purpose infrastructure that
    happens to have always lived in this file: navigation, the PIN
-   gate, Settings, inventory import (CSV + Dropbox PULL — Dropbox
-   PUSH was retired along with the rest), full backup/restore, and
-   the PWA install banner.
+   gate, Settings, inventory import (CSV + the Supabase-synced
+   Dropbox pull — see legacy-actions.js triggerInventorySync),
+   full backup/restore, and the PWA install banner.
    ══════════════════════════════════════════════════════════════ */
 
 const $ = (id) => document.getElementById(id);
@@ -60,16 +60,18 @@ export function unhighlightAuditRow(inputEl) {
   if (row) row.classList.remove('audit-row-focused');
 }
 
-// ── Import inventory (CSV / Dropbox PULL) ──
-// Dropbox is pull-only now — see individual-actions.js/engagement data
-// for where staff work actually lives (Supabase), not Dropbox.
+// ── Import inventory (CSV / Supabase-synced Dropbox pull) ──
+// Live inventory now comes from a Supabase Edge Function that pulls
+// Dropbox server-side and replaces the shared table — see
+// legacy-actions.js triggerInventorySync. No client ever talks to
+// Dropbox directly anymore.
 function handleMasterCSVFile(element) {
   const file = element.files[0];
   if (!file) return;
   Actions.importCSVFile(file).catch(() => toast('File interpretation aborted', 'error'));
   element.value = '';
 }
-function fetchInventoryFromDropbox() { Actions.importInventoryFromDropbox(false); }
+function fetchInventoryFromDropbox() { Actions.triggerInventorySync(false); }
 
 Bus.on('products:changed', () => {
   const { products } = Store.getState();
@@ -88,7 +90,7 @@ Bus.on('nav:goto', (page) => executeViewNavigation(page));
 
 Bus.on('dbxInventoryFetch:start', () => {
   $('dbx-fetch-btn').disabled = true;
-  $('dbx-fetch-status').textContent = 'Connecting to Dropbox…';
+  $('dbx-fetch-status').textContent = 'Syncing inventory…';
   $('dbx-fetch-status').style.color = 'var(--grey)';
   const bg = $('dbx-bar-bg'); if (bg) bg.style.display = 'block';
   const fill = $('dbx-bar-fill'); if (fill) fill.style.width = '50%';
@@ -104,8 +106,8 @@ Bus.on('dbxInventoryFetch:success', ({ count, fetchedAt }) => {
 Bus.on('dbxInventoryFetch:error', ({ msg }) => {
   $('dbx-fetch-btn').disabled = false;
   const bg = $('dbx-bar-bg'); if (bg) bg.style.display = 'none';
-  const isMissing = msg.includes('not_found') || msg.includes('409') || msg.includes('404');
-  $('dbx-fetch-status').textContent = isMissing ? '✗ No inventory on Dropbox yet — run POS-SYNC first' : '✗ ' + msg;
+  const isMissing = msg.includes('not_found') || msg.includes('409') || msg.includes('404') || msg.includes('empty');
+  $('dbx-fetch-status').textContent = isMissing ? '✗ No inventory file on Dropbox yet — run POS-SYNC first' : '✗ ' + msg;
   $('dbx-fetch-status').style.color = 'var(--red)';
 });
 Bus.on('dbxInventoryFetch:lastKnown', ({ fetchedAt }) => updateLastFetchedLabel(fetchedAt));
@@ -116,15 +118,6 @@ function updateLastFetchedLabel(ts) {
   const d = new Date(ts);
   lbl.textContent = d.toLocaleDateString('en-PK', { day: '2-digit', month: 'short' }) + ' @ ' + d.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
   el.style.display = 'block';
-}
-Bus.on('inventoryHub:changed', updateInventorySyncHubVisibility);
-Bus.on('settings:dropboxStatusChanged', updateInventorySyncHubVisibility);
-function updateInventorySyncHubVisibility() {
-  const linked = !!(Actions.getDropboxToken() && Store.getState().dbxClient);
-  const notEl = $('inv-not-linked');
-  const yesEl = $('inv-linked');
-  if (notEl) notEl.style.display = linked ? 'none' : 'block';
-  if (yesEl) yesEl.style.display = linked ? 'block' : 'none';
 }
 
 // ── PIN gate ──
@@ -171,72 +164,12 @@ function saveSettingsPin() {
   const ok = Actions.saveSettingsPin(currentEl.value.trim(), newEl.value.trim(), confirmEl.value.trim());
   if (ok) { currentEl.value = ''; newEl.value = ''; confirmEl.value = ''; }
 }
-function saveDropboxAppKey() { Actions.saveDropboxAppKey($('settings-dropbox-key').value); }
-
-function importConnectionToken() {
-  $('conn-import-row').style.display = 'block';
-  $('conn-link-row').style.display = 'none';
-  $('conn-token-row').style.display = 'none';
-  $('conn-token-input').value = '';
-  setTimeout(() => $('conn-token-input').focus(), 100);
-}
-function cancelImportToken() {
-  $('conn-import-row').style.display = 'none';
-  const linked = !!Actions.getDropboxToken();
-  $('conn-link-row').style.display = linked ? 'none' : 'block';
-  $('conn-token-row').style.display = linked ? 'block' : 'none';
-}
-async function exportConnectionToken() {
-  const pin = prompt('Set a 4-digit PIN to protect this token:\n(Receiving device will need this PIN)');
-  if (!pin || pin.length < 4) { toast('PIN must be at least 4 digits', 'error'); return; }
-  const b64 = await Actions.exportConnectionToken(pin);
-  if (b64) prompt('Connection token (also copied to clipboard):\nShare this + your PIN with the other device.', b64);
-}
-async function applyImportedToken() {
-  const b64 = $('conn-token-input').value.trim();
-  if (!b64) { toast('Paste a connection token first', 'error'); return; }
-  const pin = prompt('Enter the PIN set by the exporting device:');
-  if (!pin) return;
-  await Actions.applyImportedToken(b64, pin);
-  $('conn-token-input').value = '';
-  cancelImportToken();
-}
 
 Bus.on('cloud:state', ({ state, text }) => {
   const bar = $('cloud-sync-bar');
   const lbl = $('cloud-bar-text');
   if (bar) bar.className = 'state-' + state;
   if (lbl) lbl.textContent = text;
-});
-
-Bus.on('settings:dropboxStatusChanged', () => {
-  const el = $('settings-dropbox-status');
-  const dot = $('conn-dot');
-  if (!el) return;
-  const keyInput = $('settings-dropbox-key');
-  if (keyInput) keyInput.value = Actions.getEffectiveDropboxAppKey();
-
-  const linked = !!Actions.getDropboxToken();
-  if (linked) {
-    el.textContent = 'Connected securely'; el.style.color = 'var(--green-ink)';
-    if (dot) { dot.style.background = 'var(--green)'; dot.style.boxShadow = '0 0 5px var(--green)'; }
-  } else {
-    el.textContent = 'Not linked'; el.style.color = 'var(--grey)';
-    if (dot) { dot.style.background = 'var(--grey)'; dot.style.boxShadow = 'none'; }
-  }
-  const autosyncToggle = $('settings-autosync-toggle');
-  if (autosyncToggle) autosyncToggle.checked = Actions.isAutoSyncEnabled();
-
-  const linkRow = $('conn-link-row');
-  const tokenRow = $('conn-token-row');
-  const importRow = $('conn-import-row');
-  if (linkRow) linkRow.style.display = linked ? 'none' : 'block';
-  if (tokenRow) tokenRow.style.display = linked ? 'block' : 'none';
-  if (importRow) importRow.style.display = 'none';
-});
-Bus.on('settings:autoSyncRejected', () => {
-  const t = $('settings-autosync-toggle');
-  if (t) t.checked = false;
 });
 
 // ── PWA install banner ──
@@ -294,12 +227,6 @@ export function initLegacyPages() {
     },
     'save-branch-name': () => saveBranchName(),
     'save-settings-pin': () => saveSettingsPin(),
-    'unlink-dropbox': () => Actions.unlinkDropbox(),
-    'save-dropbox-key': () => saveDropboxAppKey(),
-    'import-connection-token': () => importConnectionToken(),
-    'export-connection-token': () => exportConnectionToken(),
-    'apply-imported-token': () => applyImportedToken(),
-    'cancel-import-token': () => cancelImportToken(),
     'export-full-backup': () => Actions.exportFullBackup(),
     'navigate': (el) => executeViewNavigation(el.dataset.view),
     'open-pin-gate': () => openSettingsPinGate(),
@@ -312,7 +239,6 @@ export function initLegacyPages() {
   const inputHandlers = {};
 
   const changeHandlers = {
-    'toggle-autosync': (el) => Actions.toggleAutoSync(el.checked),
     'handle-csv-file': (el) => handleMasterCSVFile(el),
     'restore-backup': (el) => { const file = el.files[0]; if (file) Actions.restoreFullBackup(file); el.value = ''; },
   };
