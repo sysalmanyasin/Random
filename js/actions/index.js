@@ -46,6 +46,11 @@ Bus.on('auth:loggedIn', async (profile) => {
   } else {
     await CountingActions.loadMyAssignments();
   }
+  // Shared inventory (server-synced from Dropbox) — every role needs
+  // the same live product data, so this isn't role-gated. Cheap read
+  // of the already-synced table; never triggers a Dropbox pull itself
+  // (see legacy-actions.js loadInventoryFromSupabase / triggerInventorySync).
+  await LegacyActions.loadInventoryFromSupabase(true);
   await InventoryActions.pullCloudTemplates();
   if (profile.interactive) Bus.emit('nav:goto', 'team');
 });

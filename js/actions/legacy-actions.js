@@ -9,37 +9,27 @@ import { Bus } from './bus.js';
    Assignments (individual-actions.js) and Team Audit now cover that
    whole workflow, backed by Supabase.
 
-   Dropbox is pull-only now, per design: it's the master-inventory
-   source, refreshed on demand or on a timer — it no longer pushes
-   anything back (the old syncPushToCloud/pharma_audit_sync.json
-   channel existed to keep two independent single-device apps in
-   sync before Supabase was the shared source of truth; that job is
-   Supabase's now). Settings, CSV import, full backup/restore, the
-   PIN gate's underlying verify/save, and the encrypted connection-
-   token handoff are all still genuinely general-purpose and stay.
+   Inventory sync moved server-side on 2026-07-14: a Supabase Edge
+   Function (sync-inventory-from-dropbox) now owns the one Dropbox
+   token and does the actual pull, replacing the old per-device
+   Dropbox OAuth link + 60s auto-sync timer + encrypted connection-
+   token handoff (all removed — no client ever talks to Dropbox
+   directly anymore). Settings, CSV import, full backup/restore, and
+   the PIN gate's underlying verify/save are still genuinely
+   general-purpose and stay.
    ══════════════════════════════════════════════════════════════ */
 
 export const LegacyActions = (() => {
 
   const SETTINGS_BRANCH_KEY = 'app_branch_name';
-  const SETTINGS_DROPBOX_KEY_OVERRIDE = 'app_dropbox_app_key';
-  const SETTINGS_AUTOSYNC_KEY = 'app_autosync_enabled';
   const SETTINGS_PIN_KEY = 'app_settings_pin';
   const DEFAULT_BRANCH_NAME = 'Bahria Town Branch';
   const DEFAULT_PIN = '1218';
-  const DROPBOX_TOKEN_KEY = 'dropbox_access_token';
-  const DBX_INVENTORY_PATH = '/inventory.json';
-  const DBX_LAST_FETCH_KEY = 'dbx_inv_last_fetched';
-  const DROPBOX_PKCE_VERIFIER_KEY = 'dbx_pkce_verifier';
-  const DROPBOX_PKCE_STATE_KEY = 'dbx_pkce_state';
-  const CONN_TOKEN_VERSION = 'FDPP-CONN-V1';
+  const INVENTORY_LAST_SYNCED_KEY = 'inventory_last_synced_at';
   const PWA_DISMISSED_KEY = 'pwa_install_dismissed';
 
   function getBranchName() { return Repo.LS.get(SETTINGS_BRANCH_KEY, DEFAULT_BRANCH_NAME); }
   function getSettingsPin() { return Repo.LS.get(SETTINGS_PIN_KEY, DEFAULT_PIN); }
-  function getEffectiveDropboxAppKey() { return Repo.LS.get(SETTINGS_DROPBOX_KEY_OVERRIDE, '') || ''; }
-  function getDropboxToken() { return Repo.LS.get(DROPBOX_TOKEN_KEY); }
-  function isAutoSyncEnabled() { return Repo.LS.get(SETTINGS_AUTOSYNC_KEY) === '1'; }
   function isPwaInstallDismissed() { return Repo.LS.get(PWA_DISMISSED_KEY) === '1'; }
   function dismissPwaInstall() { Repo.LS.set(PWA_DISMISSED_KEY, '1'); }
 
@@ -59,13 +49,17 @@ export const LegacyActions = (() => {
     Bus.emit('templates:changed', templates);
 
     Bus.emit('branding:changed', { branchName: getBranchName() });
-    Bus.emit('settings:dropboxStatusChanged', { linked: !!getDropboxToken() });
 
-    if (isAutoSyncEnabled()) {
-      setTimeout(() => { if (getDropboxToken()) startAutoSync(); }, 1500);
+    const lastSynced = Repo.LS.get(INVENTORY_LAST_SYNCED_KEY);
+    if (lastSynced) {
+      Store.setState({ inventoryLastSyncedAt: parseInt(lastSynced) });
+      Bus.emit('dbxInventoryFetch:lastKnown', { fetchedAt: parseInt(lastSynced) });
     }
-
-    await cloudBoot();
+    // The live shared inventory now loads from Supabase once logged in
+    // (see actions/index.js auth:loggedIn) — that needs an
+    // authenticated session, so it can't happen here at cold boot.
+    // This local cache (Repo.loadProducts, above) is what a device
+    // shows before/without a connection.
   }
 
   // ── Inventory import (CSV) ─────────────────────────────
@@ -126,41 +120,74 @@ export const LegacyActions = (() => {
     Bus.emit('csv:imported', { count: products.length });
   }
 
-  // ── Inventory import (Dropbox PULL) — the only Dropbox traffic
-  // this app generates now; nothing is ever pushed back. ──
-  async function importInventoryFromDropbox(silent) {
-    const { dbxClient } = Store.getState();
-    if (!dbxClient) { if (!silent) Bus.emit('toast', { msg: 'Link Dropbox first in Settings', kind: 'error' }); return; }
-    Bus.emit('dbxInventoryFetch:start', {});
+  // ── Inventory sync (Supabase, server-side Dropbox pull) ──
+  // Replaces the old per-device Dropbox OAuth link + direct browser
+  // pull + 60s auto-sync timer. The Edge Function now owns the one
+  // Dropbox token and does the actual pull server-side (see
+  // supabase/functions/sync-inventory-from-dropbox); every device
+  // just reads the shared inventory_products table and can ask for a
+  // fresh pull on demand. Any logged-in staff member (Main or Sub,
+  // provided their access hasn't expired) can trigger a sync now.
+  function _setLastSyncedLocal(ts) {
+    Repo.LS.set(INVENTORY_LAST_SYNCED_KEY, String(ts));
+    Store.setState({ inventoryLastSyncedAt: ts });
+  }
+
+  // Cheap, read-only refresh from the shared table — safe to call
+  // often (right after login) since it never touches Dropbox itself.
+  async function loadInventoryFromSupabase(silent) {
+    const { sbClient } = Store.getState();
+    if (!sbClient) return;
     try {
-      const json = await Repo.dropboxDownloadJSON(dbxClient, DBX_INVENTORY_PATH);
-      if (!Array.isArray(json) || json.length === 0) throw new Error('Inventory file is empty.');
-      // Zero/negative-stock SKUs are kept, not skipped — see importCSVFile
-      // for why.
-      const products = json.filter(item => item.name).map(item => ({
-        code: item.code || '', name: item.name || '', qty: item.stock || 0,
-        price: item.unitPrice || 0, company: item.company || 'Unassigned Manufacturer',
-        generic: item.generic || '',
-        supplier: item.supplier || 'Unassigned Supplier',
-        conversionFactor: item.conversionFactor || 1,
-      }));
+      const products = await Repo.fetchInventoryProducts(sbClient);
+      if (products.length > 0) {
+        Store.setState({ products });
+        Repo.saveProducts(products); // keep an offline-usable local cache too
+        Bus.emit('products:changed', products);
+      }
+      const latest = await Repo.fetchLatestInventorySync(sbClient);
+      if (latest) {
+        _setLastSyncedLocal(new Date(latest.syncedAt).getTime());
+        Bus.emit('cloud:state', { state: 'synced', text: '✓ Synced' });
+      } else {
+        Bus.emit('cloud:state', { state: 'idle', text: '☁ Tap to sync inventory' });
+      }
+    } catch (err) {
+      if (!silent) Bus.emit('toast', { msg: 'Could not load inventory: ' + String(err.message || err), kind: 'error' });
+    }
+  }
+
+  // The actual "Load Latest Inventory" action — triggers the Edge
+  // Function's real Dropbox pull + full-table replace, then re-reads
+  // the result so this device's view reflects it immediately.
+  async function triggerInventorySync(silent) {
+    const { sbClient } = Store.getState();
+    if (!sbClient) { if (!silent) Bus.emit('toast', { msg: 'Not signed in', kind: 'error' }); return; }
+    Bus.emit('dbxInventoryFetch:start', {});
+    Bus.emit('cloud:state', { state: 'syncing', text: '⟳ Syncing…' });
+    try {
+      const result = await Repo.triggerInventorySyncRemote(sbClient);
+      const products = await Repo.fetchInventoryProducts(sbClient);
       Store.setState({ products });
       Repo.saveProducts(products);
       Bus.emit('products:changed', products);
-      const now = Date.now();
-      Repo.LS.set(DBX_LAST_FETCH_KEY, String(now));
-      Bus.emit('dbxInventoryFetch:success', { count: products.length, fetchedAt: now });
-      if (!silent) Bus.emit('toast', { msg: 'Inventory loaded — ' + products.length.toLocaleString() + ' products', kind: 'success' });
+      const fetchedAt = result.syncedAt ? new Date(result.syncedAt).getTime() : Date.now();
+      _setLastSyncedLocal(fetchedAt);
+      const count = result.count ?? products.length;
+      Bus.emit('dbxInventoryFetch:success', { count, fetchedAt });
+      Bus.emit('cloud:state', { state: 'synced', text: '✓ Synced' });
+      if (!silent) Bus.emit('toast', { msg: 'Inventory synced — ' + count.toLocaleString() + ' products', kind: 'success' });
     } catch (err) {
       const msg = String(err.message || err);
       Bus.emit('dbxInventoryFetch:error', { msg });
-      // "online" access-type Dropbox tokens deliberately expire (~4h) with no
-      // refresh token — surface that through the same friendly-expiry
-      // handling every other Dropbox call uses, rather than a raw SDK error.
-      if (isAuthError(err)) { handleCloudAuthExpired(silent); return; }
-      if (!silent) Bus.emit('toast', { msg: 'Fetch failed: ' + msg, kind: 'error' });
+      Bus.emit('cloud:state', { state: 'error', text: '✕ Sync failed' });
+      if (!silent) Bus.emit('toast', { msg: 'Sync failed: ' + msg, kind: 'error' });
     }
   }
+
+  // Tapping the top status bar re-triggers a sync — same action as
+  // the "Load Latest Inventory" button on the Sync tab.
+  function cloudBarTapped() { triggerInventorySync(false); }
 
   // ── Settings ────────────────────────────────────────────
   function saveBranchName(name) {
@@ -168,13 +195,6 @@ export const LegacyActions = (() => {
     Repo.LS.set(SETTINGS_BRANCH_KEY, name.trim());
     Bus.emit('branding:changed', { branchName: getBranchName() });
     Bus.emit('toast', { msg: 'Branch name saved', kind: 'success' });
-  }
-
-  function saveDropboxAppKey(key) {
-    if (!key || !key.trim()) { Bus.emit('toast', { msg: 'Enter a Dropbox App Key first', kind: 'error' }); return; }
-    Repo.LS.set(SETTINGS_DROPBOX_KEY_OVERRIDE, key.trim());
-    Bus.emit('toast', { msg: 'App Key saved — tap Link Dropbox to connect', kind: 'success' });
-    Bus.emit('settings:dropboxStatusChanged', { linked: !!getDropboxToken() });
   }
 
   function exportFullBackup() {
@@ -220,202 +240,6 @@ export const LegacyActions = (() => {
     Bus.emit('toast', { msg: 'Backup restored successfully', kind: 'success' });
   }
 
-  // ── Cloud sync (Dropbox) — pull-only ───────────────────
-  function isAuthError(err) {
-    return err && (err.status === 401 || String(err).includes('401') || String(err).includes('invalid_access_token') || String(err).includes('expired_access_token'));
-  }
-
-  function handleCloudAuthExpired(silent) {
-    Repo.LS.remove(DROPBOX_TOKEN_KEY);
-    Store.setState({ dbxClient: null });
-    Bus.emit('cloud:state', { state: 'unlinked', text: '☁ Session expired — tap to relink' });
-    Bus.emit('settings:dropboxStatusChanged', { linked: false });
-    if (!silent) Bus.emit('toast', { msg: 'Dropbox session expired — tap bar to relink', kind: 'error' });
-  }
-
-  // Tapping the sync bar re-pulls the latest inventory (or starts
-  // linking, if not yet connected) — there is nothing left to "push."
-  function cloudBarTapped() {
-    if (!getDropboxToken()) { initiateDropboxOAuthFlow(); return; }
-    importInventoryFromDropbox(false);
-  }
-
-  function unlinkDropbox() {
-    if (!confirm('Unlink Dropbox? You will need to reconnect to resume cloud sync.')) return;
-    Repo.LS.remove(DROPBOX_TOKEN_KEY);
-    Repo.LS.remove('dropbox_refresh_token');
-    Repo.SS.remove(DROPBOX_PKCE_VERIFIER_KEY);
-    Repo.SS.remove(DROPBOX_PKCE_STATE_KEY);
-    stopAutoSync();
-    Store.setState({ dbxClient: null });
-    Bus.emit('cloud:state', { state: 'unlinked', text: '☁ Tap to link Dropbox' });
-    Bus.emit('settings:dropboxStatusChanged', { linked: false });
-    Bus.emit('toast', { msg: 'Dropbox unlinked', kind: 'success' });
-  }
-
-  function _b64url(buf) {
-    return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-  }
-
-  async function initiateDropboxOAuthFlow() {
-    const effectiveKey = getEffectiveDropboxAppKey();
-    if (!effectiveKey) {
-      Bus.emit('toast', { msg: 'Set your Dropbox App Key in Settings first.', kind: 'error' });
-      Bus.emit('nav:goto', 'settings');
-      return;
-    }
-    const verifierBytes = crypto.getRandomValues(new Uint8Array(48));
-    const verifier = _b64url(verifierBytes);
-    const challengeBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-    const challenge = _b64url(challengeBytes);
-    const state = _b64url(crypto.getRandomValues(new Uint8Array(12)));
-    Repo.SS.set(DROPBOX_PKCE_VERIFIER_KEY, verifier);
-    Repo.SS.set(DROPBOX_PKCE_STATE_KEY, state);
-    const redirectUri = window.location.href.split('?')[0].split('#')[0];
-    const url = 'https://www.dropbox.com/oauth2/authorize'
-      + '?client_id=' + encodeURIComponent(effectiveKey)
-      + '&response_type=code'
-      + '&code_challenge=' + encodeURIComponent(challenge)
-      + '&code_challenge_method=S256'
-      + '&token_access_type=online'
-      + '&state=' + encodeURIComponent(state)
-      + '&redirect_uri=' + encodeURIComponent(redirectUri);
-    window.location.href = url;
-  }
-
-  async function cloudParseOAuthToken() {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    const state = params.get('state');
-    if (!code) return false;
-
-    const savedState = Repo.SS.get(DROPBOX_PKCE_STATE_KEY);
-    const savedVerifier = Repo.SS.get(DROPBOX_PKCE_VERIFIER_KEY);
-    Repo.SS.remove(DROPBOX_PKCE_STATE_KEY);
-    Repo.SS.remove(DROPBOX_PKCE_VERIFIER_KEY);
-
-    // FIX: previously skipped state validation entirely whenever savedState was
-    // missing. Now requires a saved state to match (anti-CSRF) unless verifier
-    // alone is treated as the trust anchor — verifier missing always fails.
-    if (!savedVerifier || !savedState || state !== savedState) {
-      if (!savedVerifier) { Bus.emit('toast', { msg: 'OAuth verifier missing — please try linking again.', kind: 'error' }); return false; }
-    }
-
-    try {
-      const effectiveKey = getEffectiveDropboxAppKey();
-      const redirectUri = window.location.href.split('?')[0].split('#')[0];
-      const tokenData = await Repo.dropboxExchangePkceCode(effectiveKey, code, savedVerifier, redirectUri);
-      if (tokenData.access_token) {
-        Repo.LS.set(DROPBOX_TOKEN_KEY, tokenData.access_token);
-        window.history.replaceState({}, document.title, window.location.pathname);
-        return true;
-      }
-    } catch (err) {
-      console.error('[CloudSync] PKCE exchange failed:', err);
-      Bus.emit('toast', { msg: 'Dropbox auth failed — check App Key and redirect URI.', kind: 'error' });
-    }
-    return false;
-  }
-
-  async function cloudBoot() {
-    const freshOAuth = await cloudParseOAuthToken();
-    const token = getDropboxToken();
-    if (!token) { Bus.emit('cloud:state', { state: 'unlinked', text: '☁ Tap to link Dropbox' }); return; }
-
-    const dbxClient = Repo.buildDropboxClient(token);
-    if (!dbxClient) { Bus.emit('cloud:state', { state: 'error', text: '✕ SDK not ready' }); return; }
-    Store.setState({ dbxClient });
-
-    Bus.emit('cloud:state', { state: 'syncing', text: '⟳ Syncing…' });
-    setTimeout(() => importInventoryFromDropbox(true), 1400);
-    if (freshOAuth) Bus.emit('toast', { msg: 'Dropbox linked!', kind: 'success' });
-
-    if (isAutoSyncEnabled()) setTimeout(() => startAutoSync(), 1600);
-
-    Bus.emit('settings:dropboxStatusChanged', { linked: true });
-    Bus.emit('inventoryHub:changed', {});
-
-    const lastFetch = Repo.LS.get(DBX_LAST_FETCH_KEY);
-    if (lastFetch) Bus.emit('dbxInventoryFetch:lastKnown', { fetchedAt: parseInt(lastFetch) });
-  }
-
-  function toggleAutoSync(enabled) {
-    if (enabled) {
-      if (!getDropboxToken()) { Bus.emit('toast', { msg: 'Link Dropbox first', kind: 'error' }); Bus.emit('settings:autoSyncRejected', {}); return; }
-      Repo.LS.set(SETTINGS_AUTOSYNC_KEY, '1');
-      startAutoSync();
-      Bus.emit('toast', { msg: 'Auto-refresh enabled — inventory re-pulled from Dropbox periodically', kind: 'success' });
-    } else {
-      Repo.LS.set(SETTINGS_AUTOSYNC_KEY, '0');
-      stopAutoSync();
-      Bus.emit('toast', { msg: 'Auto-refresh disabled', kind: 'success' });
-    }
-  }
-
-  // Periodically re-pulls inventory (never pushes) — every logged-in
-  // user then just always sees whatever the Main Auditor last synced,
-  // since inventory itself lives in this app's local/Dropbox-fed store,
-  // not per-device state.
-  function startAutoSync() {
-    if (Store.getState().autoSyncTimer) return;
-    const timer = setInterval(() => {
-      if (!Store.getState().dbxClient) return;
-      importInventoryFromDropbox(true);
-    }, 60000);
-    Store.setState({ autoSyncTimer: timer });
-  }
-  function stopAutoSync() {
-    const { autoSyncTimer } = Store.getState();
-    if (autoSyncTimer) { clearInterval(autoSyncTimer); Store.setState({ autoSyncTimer: null }); }
-  }
-
-  // ── Connection token (encrypted Dropbox token transfer) ──
-  async function _deriveKey(pin) {
-    const raw = new TextEncoder().encode(pin.padEnd(16, '0').slice(0, 16));
-    return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
-  }
-
-  async function exportConnectionToken(pin) {
-    const token = getDropboxToken();
-    if (!token) { Bus.emit('toast', { msg: 'No active Dropbox connection to export', kind: 'error' }); return null; }
-    if (!pin || pin.length < 4) { Bus.emit('toast', { msg: 'PIN must be at least 4 digits', kind: 'error' }); return null; }
-    try {
-      const key = await _deriveKey(pin);
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const data = new TextEncoder().encode(JSON.stringify({ v: CONN_TOKEN_VERSION, t: token }));
-      const enc = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data);
-      const combined = new Uint8Array(iv.length + enc.byteLength);
-      combined.set(iv, 0);
-      combined.set(new Uint8Array(enc), iv.length);
-      const b64 = btoa(String.fromCharCode(...combined));
-      await navigator.clipboard.writeText(b64).catch(() => {});
-      Bus.emit('toast', { msg: 'Connection token copied to clipboard', kind: 'success' });
-      return b64;
-    } catch (e) { Bus.emit('toast', { msg: 'Export failed: ' + e.message, kind: 'error' }); return null; }
-  }
-
-  async function applyImportedToken(b64, pin) {
-    if (!b64) { Bus.emit('toast', { msg: 'Paste a connection token first', kind: 'error' }); return; }
-    if (!pin) return;
-    try {
-      const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-      const iv = raw.slice(0, 12);
-      const cipher = raw.slice(12);
-      const key = await _deriveKey(pin);
-      const decBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
-      const payload = JSON.parse(new TextDecoder().decode(decBuf));
-      if (!payload.v || !payload.v.startsWith('FDPP-CONN') || !payload.t) throw new Error('Invalid token format');
-      Repo.LS.set(DROPBOX_TOKEN_KEY, payload.t);
-      const dbxClient = Repo.buildDropboxClient(payload.t);
-      Store.setState({ dbxClient });
-      Bus.emit('settings:dropboxStatusChanged', { linked: true });
-      Bus.emit('inventoryHub:changed', {});
-      Bus.emit('cloud:state', { state: 'syncing', text: '⧗ Verifying…' });
-      setTimeout(() => importInventoryFromDropbox(true), 600);
-      Bus.emit('toast', { msg: 'Dropbox connected via imported token!', kind: 'success' });
-    } catch (e) { Bus.emit('toast', { msg: 'Invalid token or wrong PIN', kind: 'error' }); }
-  }
-
   // ── PIN gate ────────────────────────────────────────────
   function verifyPin(pin) { return pin === getSettingsPin(); }
 
@@ -438,11 +262,11 @@ export const LegacyActions = (() => {
   }
 
   return {
-    getBranchName, getEffectiveDropboxAppKey, getDropboxToken, getSettingsPin,
-    isAutoSyncEnabled, isPwaInstallDismissed, dismissPwaInstall,
-    bootstrapLegacy, importCSVFile, importInventoryFromDropbox,
-    saveBranchName, saveDropboxAppKey, exportFullBackup, restoreFullBackup,
-    cloudBarTapped, unlinkDropbox,
-    toggleAutoSync, exportConnectionToken, applyImportedToken, verifyPin, saveSettingsPin,
+    getBranchName, getSettingsPin,
+    isPwaInstallDismissed, dismissPwaInstall,
+    bootstrapLegacy, importCSVFile,
+    loadInventoryFromSupabase, triggerInventorySync, cloudBarTapped,
+    saveBranchName, exportFullBackup, restoreFullBackup,
+    verifyPin, saveSettingsPin,
   };
 })();
