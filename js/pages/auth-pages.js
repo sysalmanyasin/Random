@@ -30,7 +30,7 @@ export function renderAuthRoot() {
     // them, since Postgres RLS wouldn't return that data anyway.
     if (role === 'sub' && btn.id !== 'tab-team') btn.style.display = 'none';
   });
-  // Same restriction for the home-screen tiles (Random Audit / Team
+  // Same restriction for the home-screen tiles (Inventory / Team
   // Audit / Sync & Tools) — these are a separate set of elements from
   // .tab-btn, so hiding the bottom nav alone left them fully visible
   // and tappable. The real enforcement is the role check inside

@@ -42,11 +42,13 @@ export function executeViewNavigation(viewIdentifierToken) {
   const pageEl = $('page-' + viewIdentifierToken);
   if (pageEl) pageEl.classList.add('active');
   const tabNode = $('tab-' + viewIdentifierToken)
-    // "Inventory" and "Tools" are sub-pages of the "Sync" sidebar icon,
-    // same as "settings" always has been, and "Staff"/"Individual" are
-    // sub-pages of "Team" — keep the right bottom tab highlighted for
-    // all of them instead of leaving the sidebar with nothing active.
-    || (['inventory', 'settings'].includes(viewIdentifierToken) ? $('tab-import') : null)
+    // "Tools" is a sub-page of the "Sync" bottom-nav icon (same as it
+    // always has been), and "Staff"/"Individual" are sub-pages of
+    // "Team" — keep the right bottom tab highlighted for those instead
+    // of leaving the sidebar with nothing active. "Inventory" is now
+    // its own top-level section (reached from the home screen), not a
+    // Sync & Tools sub-page, so it's deliberately left out here.
+    || (viewIdentifierToken === 'settings' ? $('tab-import') : null)
     || (['staff', 'individual'].includes(viewIdentifierToken) ? $('tab-team') : null);
   if (tabNode) { tabNode.classList.add('active'); tabNode.setAttribute('aria-current', 'page'); }
   Bus.emit('view:activated', viewIdentifierToken);
