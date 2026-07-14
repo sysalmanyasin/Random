@@ -22,7 +22,21 @@ const $ = (id) => document.getElementById(id);
 function toast(message, kind = 'success') { Bus.emit('toast', { msg: message, kind }); }
 
 // ── Navigation (shared — every page module calls this to switch tabs) ──
+// A Sub-Auditor is only ever allowed onto the Team Audit surface (and
+// its own sub-views) — everything else (inventory, sync/import,
+// settings, staff) reads Supabase tables RLS wouldn't return to them
+// anyway, so letting them *arrive* at those pages is confusing at best.
+// This check is the single chokepoint every navigation path goes
+// through (home tiles, bottom nav, deep links, Bus 'nav:goto' events),
+// so gating it here — rather than just hiding buttons — closes the gap
+// where a fast tap on a still-visible tile could land before any other
+// check ran.
+const SUB_AUDITOR_ALLOWED_VIEWS = new Set(['team']);
 export function executeViewNavigation(viewIdentifierToken) {
+  const { role } = Store.getState();
+  if (role === 'sub' && !SUB_AUDITOR_ALLOWED_VIEWS.has(viewIdentifierToken)) {
+    viewIdentifierToken = 'team';
+  }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('active'); b.removeAttribute('aria-current'); });
   const pageEl = $('page-' + viewIdentifierToken);

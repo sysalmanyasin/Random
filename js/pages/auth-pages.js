@@ -30,6 +30,20 @@ export function renderAuthRoot() {
     // them, since Postgres RLS wouldn't return that data anyway.
     if (role === 'sub' && btn.id !== 'tab-team') btn.style.display = 'none';
   });
+  // Same restriction for the home-screen tiles (Random Audit / Team
+  // Audit / Sync & Tools) — these are a separate set of elements from
+  // .tab-btn, so hiding the bottom nav alone left them fully visible
+  // and tappable. The real enforcement is the role check inside
+  // executeViewNavigation (legacy-pages.js) — this is just to stop a
+  // Sub-Auditor from seeing, and tapping into, an option that would
+  // only bounce them back anyway.
+  document.querySelectorAll('.section-tile').forEach(tile => {
+    if (role === 'sub' && tile.dataset.view !== 'team') tile.style.display = 'none';
+  });
+  // Once logged in as Sub-Auditor, land directly on Team Audit instead
+  // of the generic home screen — removes the window where the wrong
+  // tiles could even be tapped before any redirect happens.
+  if (role === 'sub') Bus.emit('nav:goto', 'team');
 }
 
 Bus.on('auth:needsConfig', renderAuthRoot);
