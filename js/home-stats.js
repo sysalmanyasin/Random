@@ -9,8 +9,8 @@ import { Actions, Bus } from './actions.js';
 
 const $ = (id) => document.getElementById(id);
 
-function updateRandomStat() {
-  const el = $('home-stat-random');
+function updateInventoryStat() {
+  const el = $('home-stat-inventory');
   if (!el) return;
   const { products, templates } = Store.getState();
   const pLen = (products || []).length;
@@ -56,10 +56,10 @@ function updateSyncStat() {
   }
 }
 
-function updateAll() { updateRandomStat(); updateTeamStat(); updateSyncStat(); }
+function updateAll() { updateInventoryStat(); updateTeamStat(); updateSyncStat(); }
 
-Bus.on('products:changed',              updateRandomStat);
-Bus.on('templates:changed',             updateRandomStat);
+Bus.on('products:changed',              updateInventoryStat);
+Bus.on('templates:changed',             updateInventoryStat);
 Bus.on('auth:loggedIn',                 updateTeamStat);
 Bus.on('auth:loggedOut',                updateTeamStat);
 Bus.on('engagement:opened',             updateTeamStat);
