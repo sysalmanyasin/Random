@@ -79,13 +79,13 @@
         <div class="home-tagline">What would you like to do today?</div>
       </div>
 
-      <!-- Random Audit tile -->
-      <button class="section-tile section-tile--random" data-action="navigate" data-view="inventory">
-        <div class="section-tile-icon">📋</div>
+      <!-- Inventory tile -->
+      <button class="section-tile section-tile--inventory" data-action="navigate" data-view="inventory">
+        <div class="section-tile-icon">📦</div>
         <div class="section-tile-body">
-          <div class="section-tile-name">Random Audit</div>
-          <div class="section-tile-desc">Templates · Companies · Launch</div>
-          <div class="section-tile-stat" id="home-stat-random">Loading…</div>
+          <div class="section-tile-name">Inventory</div>
+          <div class="section-tile-desc">Products · Templates · Launch</div>
+          <div class="section-tile-stat" id="home-stat-inventory">Loading…</div>
         </div>
         <div class="section-tile-chevron">›</div>
       </button>
@@ -172,7 +172,7 @@
 
 
   <!-- ══════════════════════════════════════════════════════════
-       SYNC & TOOLS — SYNC (Inventory)
+       SYNC & TOOLS — SYNC
   ══════════════════════════════════════════════════════════ -->
   <div class="page" id="page-import">
 
@@ -181,7 +181,6 @@
       <div class="section-nav-label">Sync &amp; Tools</div>
       <div class="section-sub-tabs">
         <button class="section-sub-tab active" data-action="navigate" data-view="import">Sync</button>
-        <button class="section-sub-tab" data-action="navigate" data-view="inventory">Inventory</button>
         <button class="section-sub-tab" data-action="open-pin-gate">Tools</button>
       </div>
     </div>
@@ -216,17 +215,13 @@
   </div>
 
   <!-- ══════════════════════════════════════════════════════════
-       SYNC & TOOLS — INVENTORY BROWSER
+       INVENTORY BROWSER — its own top-level home-screen section
+       (Templates, Companies, Random Audit launch)
   ══════════════════════════════════════════════════════════ -->
   <div class="page" id="page-inventory">
 
     <div class="section-nav-bar">
-      <div class="section-nav-label">Sync &amp; Tools</div>
-      <div class="section-sub-tabs">
-        <button class="section-sub-tab" data-action="navigate" data-view="import">Sync</button>
-        <button class="section-sub-tab active" data-action="navigate" data-view="inventory">Inventory</button>
-        <button class="section-sub-tab" data-action="open-pin-gate">Tools</button>
-      </div>
+      <div class="section-nav-label">Inventory</div>
     </div>
 
     <input type="text" id="inv-search-input" class="search-input" placeholder="🔍 Search code, name, generic, company, supplier…" aria-label="Search inventory by code, name, generic, company, or supplier" data-input-action="inventory-search">
@@ -317,7 +312,6 @@
       <div class="section-nav-label">Sync &amp; Tools</div>
       <div class="section-sub-tabs">
         <button class="section-sub-tab" data-action="navigate" data-view="import">Sync</button>
-        <button class="section-sub-tab" data-action="navigate" data-view="inventory">Inventory</button>
         <button class="section-sub-tab active" data-action="open-pin-gate">Tools</button>
       </div>
     </div>
