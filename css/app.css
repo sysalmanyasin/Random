@@ -109,7 +109,7 @@
   }
   .section-tile:active { transform: scale(0.975); box-shadow: 0 2px 6px rgba(0,0,0,0.10); }
 
-  .section-tile--random  { background: linear-gradient(135deg, #1B3A6B 0%, #2563EB 100%); }
+  .section-tile--inventory { background: linear-gradient(135deg, #1B3A6B 0%, #2563EB 100%); }
   .section-tile--team    { background: linear-gradient(135deg, #065F46 0%, #059669 100%); }
   .section-tile--sync    { background: linear-gradient(135deg, #92400E 0%, #D97706 100%); }
 
