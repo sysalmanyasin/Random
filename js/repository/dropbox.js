@@ -1,9 +1,10 @@
 /* ══════════════════════════════════════════════════════════════
    FLOOR 1 — REPOSITORY / dropbox.js
    The only module that talks to the Dropbox network API.
-   Inventory sync ONLY now — the old pairing-link folder layout
-   (/engagement-x/round-n/subauditor-y/...) is gone; multi-auditor
-   data lives in Supabase (repository/supabase.js) instead.
+   Pull-only: inventory.json is downloaded, never written back —
+   the old pharma_audit_sync.json push channel (and, before that,
+   the pairing-link folder layout) is gone; multi-auditor data lives
+   in Supabase (repository/supabase.js) instead.
    ══════════════════════════════════════════════════════════════ */
 
 function buildDropboxClient(token) {
@@ -23,12 +24,6 @@ async function dropboxDownloadJSON(client, path) {
   return JSON.parse(text);
 }
 
-async function dropboxUploadJSON(client, path, payloadString, filename) {
-  const blob = new Blob([payloadString], { type: 'application/json' });
-  const file = new File([blob], filename);
-  return client.filesUpload({ path, contents: file, mode: { '.tag': 'overwrite' }, autorename: false });
-}
-
 async function dropboxExchangePkceCode(appKey, code, verifier, redirectUri) {
   const body = new URLSearchParams({
     code, grant_type: 'authorization_code', client_id: appKey,
@@ -44,5 +39,5 @@ async function dropboxExchangePkceCode(appKey, code, verifier, redirectUri) {
 }
 
 export const DropboxRepo = {
-  buildDropboxClient, dropboxDownloadJSON, dropboxUploadJSON, dropboxExchangePkceCode,
+  buildDropboxClient, dropboxDownloadJSON, dropboxExchangePkceCode,
 };

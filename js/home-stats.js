@@ -12,13 +12,12 @@ const $ = (id) => document.getElementById(id);
 function updateRandomStat() {
   const el = $('home-stat-random');
   if (!el) return;
-  const { history, products } = Store.getState();
-  const hLen = (history || []).length;
+  const { products, templates } = Store.getState();
   const pLen = (products || []).length;
-  if (pLen === 0 && hLen === 0) { el.textContent = 'No inventory loaded yet'; return; }
-  const parts = [];
-  if (pLen > 0) parts.push(pLen.toLocaleString() + ' items loaded');
-  if (hLen > 0) parts.push(hLen + ' audit' + (hLen === 1 ? '' : 's') + ' in history');
+  const tLen = (templates || []).length;
+  if (pLen === 0) { el.textContent = 'No inventory loaded yet'; return; }
+  const parts = [pLen.toLocaleString() + ' items loaded'];
+  if (tLen > 0) parts.push(tLen + ' saved template' + (tLen === 1 ? '' : 's'));
   el.textContent = parts.join(' · ');
 }
 
@@ -53,7 +52,7 @@ function updateSyncStat() {
 function updateAll() { updateRandomStat(); updateTeamStat(); updateSyncStat(); }
 
 Bus.on('products:changed',              updateRandomStat);
-Bus.on('history:changed',               updateRandomStat);
+Bus.on('templates:changed',             updateRandomStat);
 Bus.on('auth:loggedIn',                 updateTeamStat);
 Bus.on('auth:loggedOut',                updateTeamStat);
 Bus.on('engagement:opened',             updateTeamStat);

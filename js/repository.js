@@ -20,7 +20,7 @@ export const Repo = {
   // db lifecycle
   openDB: DbCore.openDB,
 
-  // legacy single-auditor stores (inventory, session checkpoint, history)
+  // legacy single-auditor stores (inventory, session checkpoint)
   ...LegacyRepo,
 
   // saved audit templates (Inventory tab, local-first)

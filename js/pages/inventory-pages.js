@@ -189,11 +189,17 @@ export function initInventoryPages() {
     'load-template': (el) => Actions.loadTemplateIntoSelection(el.dataset.templateId),
     'rename-template': (el) => { const name = prompt('Rename template:'); if (name) Actions.renameTemplate(el.dataset.templateId, name); },
     'delete-template': (el) => Actions.deleteTemplate(el.dataset.templateId),
-    'start-individual-random-audit': () => {
+    'start-individual-random-audit': async () => {
       const sampleSize = parseInt($('inv-sample-size').value) || 10;
       const { templates, activeTemplateId } = Store.getState();
       const active = templates.find(t => t.id === activeTemplateId);
-      Actions.startIndividualRandomAudit(sampleSize, active ? active.name : 'Random Audit');
+      const sample = Actions.sampleRandomCodesForIndividualAudit(sampleSize);
+      if (!sample) return;
+      const assignment = await Actions.startIndividualAssignment({ source: 'template', codes: sample.codes, name: active ? active.name : 'Random Audit' });
+      if (!assignment) return;
+      await Actions.loadMyAssignments();
+      await Actions.openMyAssignment(assignment.id);
+      Bus.emit('nav:goto', 'team');
     },
     'start-team-random-audit': () => {
       const { templates, activeTemplateId } = Store.getState();

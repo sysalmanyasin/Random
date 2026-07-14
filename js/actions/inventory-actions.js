@@ -2,7 +2,6 @@ import { Repo } from '../repository.js';
 import { Store } from '../store.js';
 import { Bus } from './bus.js';
 import { logAudit } from './audit-log-actions.js';
-import { LegacyActions } from './legacy-actions.js';
 import { EngagementActions } from './engagement-actions.js';
 import { RoundActions } from './round-actions.js';
 
@@ -191,18 +190,22 @@ function _sampleRandom(items, sampleSize) {
   return shuffled.slice(0, Math.max(1, Math.min(sampleSize, items.length)));
 }
 
-// Individual (single-auditor) — samples straight from the resolved
-// selection/template and jumps directly into the audit workspace,
-// skipping the manual company-picker screen entirely.
-function startIndividualRandomAudit(sampleSize, label) {
+// Individual (single-auditor) — resolves the sample this selection/
+// template would produce. The actual "start it as a real assignment"
+// step lives in the page handler (inventory-pages.js), not here: that
+// needs individual-actions.js + counting-actions.js, and this module
+// is already imported BY individual-actions.js (for the recompile-to-
+// template step) — calling back into it here would be a circular
+// import between the two action modules, which this codebase avoids
+// everywhere else. Pages already sit above both in the dependency
+// graph, so orchestrating "resolve a sample, then start it" there
+// instead keeps every action module a one-way import.
+function sampleRandomCodesForIndividualAudit(sampleSize) {
   const { inventorySelectedCodes } = Store.getState();
   const { items } = resolveCodes(inventorySelectedCodes);
-  if (items.length === 0) { Bus.emit('toast', { msg: 'Nothing in this selection matches current inventory', kind: 'error' }); return; }
+  if (items.length === 0) { Bus.emit('toast', { msg: 'Nothing in this selection matches current inventory', kind: 'error' }); return null; }
   const sample = _sampleRandom(items, sampleSize || 10);
-  LegacyActions.startAuditSessionForItems(label || 'Random Audit', sample);
-  logAudit('inventory:individualRandomAudit', { itemCount: sample.length, poolSize: items.length, label });
-  Bus.emit('nav:goto', 'audit');
-  Bus.emit('toast', { msg: `Random audit started — ${sample.length} item(s)`, kind: 'success' });
+  return { codes: sample.map(it => it.code).filter(Boolean), poolSize: items.length };
 }
 
 // Team — exact codes only. Creates a template-scoped engagement, then
@@ -250,5 +253,5 @@ export const InventoryActions = {
   toggleInventorySelection, selectManyForInventory, clearInventorySelection,
   importCodesFromFile, addManualCodes, resolveCodes,
   saveSelectionAsTemplate, renameTemplate, deleteTemplate, loadTemplateIntoSelection, pullCloudTemplates,
-  startIndividualRandomAudit, startTeamRandomAudit, startSubRoundFromInventorySelection,
+  sampleRandomCodesForIndividualAudit, startTeamRandomAudit, startSubRoundFromInventorySelection,
 };

@@ -67,14 +67,13 @@ Bus.on('auth:needsConfig', renderAuthRoot);
 // like a dialog; the moment it's hidden again, focus returns to
 // whatever was focused before it opened. New overlays just need adding
 // to this list — no per-handler wiring required.
-const DIALOG_OVERLAY_IDS = ['pin-gate-overlay', 'export-modal-overlay', 'live-snapshot-overlay', 'force-submit-overlay'];
+const DIALOG_OVERLAY_IDS = ['pin-gate-overlay', 'live-snapshot-overlay', 'force-submit-overlay'];
 // Maps each overlay to the click-handler name that closes it, so Escape
 // can reuse the exact same close logic as its own visible "✕"/Cancel
 // button rather than just hiding the element and leaving app state
 // (e.g. which assignment the popup was open for) stale.
 const DIALOG_CLOSE_ACTION = {
   'pin-gate-overlay': 'close-pin-gate',
-  'export-modal-overlay': 'close-export-overlay',
   'live-snapshot-overlay': 'close-live-snapshot',
   'force-submit-overlay': 'close-force-submit',
 };

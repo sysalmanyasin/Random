@@ -56,8 +56,6 @@
   }
   .header-brand-wrap { padding-bottom: 18px; border-bottom: 1px solid rgba(255,255,255,0.12); width: 100%; }
   .header-title { font-size: 17px; }
-  #action-header-sync-btn { margin-top: 14px; }
-  #action-header-sync-btn .btn { width: 100%; }
   .header :focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 
   /* ── Sidebar nav (was the bottom tab bar) ───────────────── */
@@ -220,7 +218,7 @@
   #engagement-cards-holder,
   #assignment-cards-holder,
   #staff-tab-root,
-  #history-accordion-container,
+  #individual-tab-root,
   #inv-templates-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -232,7 +230,8 @@
   }
   /* Full-width items that should never be squeezed into a grid cell:
      accordions, section titles, and anything explicitly full-bleed. */
-  #history-accordion-container > .history-item,
+  #individual-tab-root > .history-item,
+  #individual-tab-root > .card,
   .card-title,
   #inv-templates-list > .card-title {
     grid-column: 1 / -1;
@@ -281,10 +280,10 @@
   /* ── Modals: a touch more presence on a large display — bigger
      backdrop blur reads as more deliberate than a flat dark tint,
      and the dialog itself can afford a little more max-width. */
-  #export-modal-overlay, #live-snapshot-overlay, #force-submit-overlay, #pin-gate-overlay {
+  #live-snapshot-overlay, #force-submit-overlay, #pin-gate-overlay {
     backdrop-filter: blur(3px);
   }
-  #export-modal-overlay > div, #force-submit-overlay > div { max-width: 460px; }
+  #force-submit-overlay > div { max-width: 460px; }
   #live-snapshot-overlay > div { max-width: 560px; }
 
   /* ── Sticky in-page controls (filter bars, search rows) no longer
@@ -307,7 +306,6 @@
   }
   .header-brand-wrap { display: none; }
   .header-loc { display: none; }
-  #action-header-sync-btn { display: none !important; }
 
   .tabbar {
     position: fixed; top: 0; left: var(--shell-left); width: var(--sidebar-w);

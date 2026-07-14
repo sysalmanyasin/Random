@@ -4,15 +4,8 @@
    ══════════════════════════════════════════════════════════════ */
 export function createInitialState() {
   return {
-    // ── legacy single-auditor slice (unchanged) ──
+    // ── inventory + Dropbox (pull-only) + local backup ──
     products: [],
-    activeCompany: '',
-    activeItems: [],
-    counts: {},
-    history: [],
-    sortAscending: true,
-    companySortAscending: true,
-    auditFilterMode: 'all',
     dbxClient: null,
     autoSyncTimer: null,
 

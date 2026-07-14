@@ -4,11 +4,19 @@ import { Bus } from './bus.js';
 
 /* ══════════════════════════════════════════════════════════════
    FLOOR 3 — ACTIONS / legacy-actions.js
-   Everything from the original single-auditor app's Actions
-   module, moved verbatim (same functions, same math, same
-   bug-fixes) behind this file boundary. This is what makes
-   "Preserve Existing Single-Auditor Experience" true by
-   construction — nothing here was rewritten.
+   What's left after retiring the original single-auditor app's
+   audit-session/History/WhatsApp-PDF-signoff workflow — Individual
+   Assignments (individual-actions.js) and Team Audit now cover that
+   whole workflow, backed by Supabase.
+
+   Dropbox is pull-only now, per design: it's the master-inventory
+   source, refreshed on demand or on a timer — it no longer pushes
+   anything back (the old syncPushToCloud/pharma_audit_sync.json
+   channel existed to keep two independent single-device apps in
+   sync before Supabase was the shared source of truth; that job is
+   Supabase's now). Settings, CSV import, full backup/restore, the
+   PIN gate's underlying verify/save, and the encrypted connection-
+   token handoff are all still genuinely general-purpose and stay.
    ══════════════════════════════════════════════════════════════ */
 
 export const LegacyActions = (() => {
@@ -20,7 +28,6 @@ export const LegacyActions = (() => {
   const DEFAULT_BRANCH_NAME = 'Bahria Town Branch';
   const DEFAULT_PIN = '1218';
   const DROPBOX_TOKEN_KEY = 'dropbox_access_token';
-  const DROPBOX_SYNC_PATH = '/pharma_audit_sync.json';
   const DBX_INVENTORY_PATH = '/inventory.json';
   const DBX_LAST_FETCH_KEY = 'dbx_inv_last_fetched';
   const DROPBOX_PKCE_VERIFIER_KEY = 'dbx_pkce_verifier';
@@ -38,38 +45,10 @@ export const LegacyActions = (() => {
 
   // ── Bootstrap ─────────────────────────────────────────
   async function bootstrapLegacy() {
-    const history = await Repo.loadHistory();
-    Store.setState({ history });
-    Bus.emit('history:changed', history);
-
     const products = await Repo.loadProducts();
     if (products.length > 0) {
       Store.setState({ products });
       Bus.emit('products:changed', products);
-      Bus.emit('history:changed', Store.getState().history); // re-merge company lists
-
-      const checkpoint = await Repo.loadLatestSessionCheckpoint();
-      if (checkpoint && checkpoint.company && checkpoint.counts) {
-        const countedEntries = Object.keys(checkpoint.counts).length;
-        // Prefer the checkpoint's own frozen item snapshot — recovering
-        // against whatever `products` currently is would misalign
-        // index-keyed counts onto the wrong items if inventory was
-        // re-synced (reordered/added/removed SKUs in this company) since
-        // the checkpoint was saved. Older checkpoints saved before this
-        // fix won't have `items` — fall back to the old live-lookup
-        // behavior for those only.
-        const recoveredItems = (checkpoint.items && checkpoint.items.length > 0)
-          ? checkpoint.items
-          : products.filter(m => m.company === checkpoint.company);
-        if (recoveredItems.length > 0 && countedEntries > 0) {
-          if (confirm('Recovered interrupted audit for "' + checkpoint.company + '" (' + countedEntries + ' items entered).\n\nRestore session?')) {
-            const counts = {};
-            Object.keys(checkpoint.counts).forEach(k => { counts[parseInt(k)] = parseFloat(checkpoint.counts[k]); });
-            Store.setState({ activeCompany: checkpoint.company, activeItems: recoveredItems, counts });
-            Bus.emit('session:restored', { company: checkpoint.company, count: countedEntries });
-          }
-        }
-      }
     }
 
     // Saved audit templates (Inventory tab) — local cache loads before
@@ -142,12 +121,13 @@ export const LegacyActions = (() => {
     const products = rawRows.map(mapNormalizedSchema).filter(m => m.name);
     Store.setState({ products });
     Repo.saveProducts(products);
-    pushToCloudIfLinked();
     Bus.emit('products:changed', products);
     Bus.emit('toast', { msg: `Loaded ${products.length.toLocaleString()} items successfully`, kind: 'success' });
     Bus.emit('csv:imported', { count: products.length });
   }
 
+  // ── Inventory import (Dropbox PULL) — the only Dropbox traffic
+  // this app generates now; nothing is ever pushed back. ──
   async function importInventoryFromDropbox(silent) {
     const { dbxClient } = Store.getState();
     if (!dbxClient) { if (!silent) Bus.emit('toast', { msg: 'Link Dropbox first in Settings', kind: 'error' }); return; }
@@ -166,7 +146,6 @@ export const LegacyActions = (() => {
       }));
       Store.setState({ products });
       Repo.saveProducts(products);
-      pushToCloudIfLinked();
       Bus.emit('products:changed', products);
       const now = Date.now();
       Repo.LS.set(DBX_LAST_FETCH_KEY, String(now));
@@ -176,179 +155,11 @@ export const LegacyActions = (() => {
       const msg = String(err.message || err);
       Bus.emit('dbxInventoryFetch:error', { msg });
       // "online" access-type Dropbox tokens deliberately expire (~4h) with no
-      // refresh token — this is the ONE fetch path that skipped the app's
-      // existing friendly-expiry handling and just surfaced the raw SDK
-      // error instead ("Response failed with a 401 code"). Route it through
-      // the same handler syncPullFromCloud already uses.
+      // refresh token — surface that through the same friendly-expiry
+      // handling every other Dropbox call uses, rather than a raw SDK error.
       if (isAuthError(err)) { handleCloudAuthExpired(silent); return; }
       if (!silent) Bus.emit('toast', { msg: 'Fetch failed: ' + msg, kind: 'error' });
     }
-  }
-
-  function ingestSharedHardwarePackage(externalObject) {
-    if (externalObject.syncIdentityToken !== 'FAZAL_DIN_CORE_SYNC') {
-      Bus.emit('toast', { msg: 'Invalid system signature token', kind: 'error' });
-      return false;
-    }
-    if (!confirm(`Consolidate tracking counts from external device layout for "${externalObject.company}"?`)) return false;
-
-    let { products } = Store.getState();
-    if (externalObject.referenceProducts && products.length === 0) {
-      products = externalObject.referenceProducts;
-      Store.setState({ products });
-      Repo.saveProducts(products);
-      Bus.emit('products:changed', products);
-    }
-    const counts = {};
-    Object.keys(externalObject.counts).forEach(k => { counts[k] = parseFloat(externalObject.counts[k]); });
-    const activeItems = products.filter(m => m.company === externalObject.company);
-    Store.setState({ activeCompany: externalObject.company, activeItems, counts });
-    Repo.saveSessionCheckpoint(externalObject.company, counts, activeItems);
-    Bus.emit('audit:sessionStarted', { company: externalObject.company });
-    Bus.emit('toast', { msg: 'External metrics consolidated cleanly!', kind: 'success' });
-    return true;
-  }
-
-  // ── Audit session lifecycle ────────────────────────────
-  // Shared by the normal single-company flow AND the Inventory tab's
-  // "Individual Random Audit" launch (a cross-company sampled item list,
-  // from a live selection or a resolved Template). `label` is just what
-  // shows in the workspace header — renderAuditTableBody() never assumes
-  // every item shares one company, so a mixed-company item list works
-  // here without any further changes.
-  function startAuditSessionForItems(label, items) {
-    Store.setState({ activeCompany: label, activeItems: items, counts: {}, auditFilterMode: 'all' });
-    Bus.emit('audit:sessionStarted', { company: label });
-  }
-  function startAuditSession(company) {
-    const { products } = Store.getState();
-    const activeItems = products.filter(m => m.company === company);
-    startAuditSessionForItems(company, activeItems);
-  }
-
-  function reopenHistoryAudit(entryId) {
-    const { history, activeCompany, counts } = Store.getState();
-    const log = history.find(l => l.id === entryId);
-    if (!log) { Bus.emit('toast', { msg: 'Record not found', kind: 'error' }); return; }
-    if (!log.items || log.items.length === 0) { Bus.emit('toast', { msg: 'No item-level data stored for this record', kind: 'error' }); return; }
-    if (activeCompany && Object.keys(counts).length > 0) {
-      if (!confirm('This will replace your current active audit session. Continue?')) return;
-    }
-    const activeItems = log.items.map(it => ({ name: it.name, code: it.code, price: it.price, qty: it.qty }));
-    const newCounts = {};
-    log.items.forEach((it, i) => { if (it.counted !== null && it.counted !== undefined) newCounts[i] = it.counted; });
-    Store.setState({ activeCompany: log.company, activeItems, counts: newCounts });
-    Bus.emit('audit:sessionStarted', { company: log.company, reopenedLabel: log.company + ' (Reopened — ' + log.date + ')' });
-    Bus.emit('toast', { msg: 'Reopened audit: ' + log.company + ' — ' + log.date, kind: 'success' });
-  }
-
-  function recordCount(itemIndex, rawValue) {
-    const { counts } = Store.getState();
-    const newCounts = Object.assign({}, counts);
-    if (rawValue === '') {
-      delete newCounts[itemIndex];
-    } else {
-      // FIX: clamp negative physical counts to 0 — a negative shelf count is not
-      // a valid real-world state and previously caused inverted variance math.
-      let v = parseFloat(rawValue);
-      if (isNaN(v)) v = 0;
-      if (v < 0) v = 0;
-      newCounts[itemIndex] = v;
-    }
-    Store.setState({ counts: newCounts });
-    Repo.saveSessionCheckpoint(Store.getState().activeCompany, newCounts, Store.getState().activeItems);
-    Bus.emit('audit:countChanged', { itemIndex, value: newCounts[itemIndex] });
-  }
-
-  function markAllRemainingAsMatch() {
-    if (!confirm('Stamp all unverified items as matching system quantity?')) return;
-    const { activeItems, counts } = Store.getState();
-    const newCounts = Object.assign({}, counts);
-    activeItems.forEach((med, i) => { if (newCounts[i] === undefined) newCounts[i] = med.qty; });
-    Store.setState({ counts: newCounts });
-    Repo.saveSessionCheckpoint(Store.getState().activeCompany, newCounts, activeItems);
-    Bus.emit('audit:bulkMarked', {});
-    Bus.emit('toast', { msg: 'Remaining items marked as match', kind: 'success' });
-  }
-
-  function setAuditFilter(mode) {
-    Store.setState({ auditFilterMode: mode });
-    Bus.emit('audit:filterChanged', mode);
-  }
-
-  function toggleSortOrder() {
-    const s = Store.getState();
-    Store.setState({ sortAscending: !s.sortAscending });
-    Bus.emit('audit:sortChanged', Store.getState().sortAscending);
-  }
-
-  function toggleCompanySortOrder() {
-    const s = Store.getState();
-    Store.setState({ companySortAscending: !s.companySortAscending });
-    Bus.emit('companyList:sortChanged', Store.getState().companySortAscending);
-  }
-
-  function abandonActiveSession() {
-    const { activeCompany } = Store.getState();
-    if (activeCompany) Repo.clearSessionCheckpoint(activeCompany);
-    Store.setState({ activeCompany: '', activeItems: [], counts: {}, auditFilterMode: 'all' });
-    Bus.emit('audit:sessionEnded', {});
-  }
-
-  function signOffAudit(channelId, auditorName, isolateDiscrepanciesOnly) {
-    const { activeItems, counts, activeCompany } = Store.getState();
-    const remaining = activeItems.filter((_, i) => counts[i] === undefined).length;
-
-    const now = new Date();
-    const pkDate = now.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
-    const pkTime = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
-
-    let shorts = 0, overs = 0, matches = 0, netValue = 0;
-    activeItems.forEach((m, i) => {
-      const v = counts[i];
-      if (v === undefined) return;
-      const delta = v - m.qty;
-      netValue += delta * m.price;
-      if (delta > 0) overs++; else if (delta < 0) shorts++; else matches++;
-    });
-
-    const itemsSnapshot = activeItems.map((m, i) => ({
-      name: m.name, code: m.code || '', price: m.price, qty: m.qty,
-      counted: counts[i] !== undefined ? counts[i] : null
-    }));
-
-    const dateMonth = now.toISOString().slice(0, 7);
-    const id = activeCompany + '|' + dateMonth + '|' + now.getTime();
-    const entry = {
-      id, company: activeCompany, auditor: auditorName, date: pkDate, time: pkTime,
-      timestamp: now.getTime(), dateMonth, netFinancialImpact: netValue,
-      metricsLabel: `▲ Surplus: ${overs} | ▼ Shortage: ${shorts} | = Match: ${matches}`,
-      items: itemsSnapshot,
-    };
-
-    Repo.putHistoryEntry(entry);
-    const history = Store.getState().history.slice();
-    const idx = history.findIndex(l => l.id === entry.id);
-    if (idx > -1) history[idx] = entry; else history.push(entry);
-    Store.setState({ history });
-    pushToCloudIfLinked();
-    Bus.emit('history:changed', history);
-    Bus.emit('audit:signedOff', { entry, channelId, isolateDiscrepanciesOnly, remaining });
-    return entry;
-  }
-
-  function purgeHistoryEntries(entryIds) {
-    Repo.deleteHistoryEntries(entryIds);
-    const history = Store.getState().history.filter(l => !entryIds.includes(l.id));
-    Store.setState({ history });
-    Bus.emit('history:changed', history);
-    Bus.emit('toast', { msg: 'Records cleared from disk cache', kind: 'success' });
-  }
-
-  function purgeHistoryByCompanies(companyNames) {
-    const { history } = Store.getState();
-    const idsToDelete = history.filter(l => companyNames.includes(l.company)).map(l => l.id);
-    purgeHistoryEntries(idsToDelete);
   }
 
   // ── Settings ────────────────────────────────────────────
@@ -367,11 +178,11 @@ export const LegacyActions = (() => {
   }
 
   function exportFullBackup() {
-    const { products, history } = Store.getState();
+    const { products } = Store.getState();
     const payload = {
-      backupSignature: 'FAZAL_DIN_FULL_BACKUP', schemaVersion: 3,
+      backupSignature: 'FAZAL_DIN_FULL_BACKUP', schemaVersion: 4,
       exportedAt: new Date().toISOString(), branchName: getBranchName(),
-      products, historyLedger: history,
+      products,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
@@ -391,18 +202,16 @@ export const LegacyActions = (() => {
       Bus.emit('toast', { msg: 'Invalid backup file signature', kind: 'error' }); return;
     }
     const productCount = Array.isArray(parsed.products) ? parsed.products.length : 0;
-    const historyCount = Array.isArray(parsed.historyLedger) ? parsed.historyLedger.length : 0;
-    if (!confirm(`Restore backup?\n\nThis will REPLACE current data with:\n• ${productCount.toLocaleString()} inventory items\n• ${historyCount.toLocaleString()} audit history records\n\nCurrent local data will be overwritten.`)) return;
+    // Older backups (schemaVersion <= 3) also carried a historyLedger —
+    // that field is simply ignored now (the legacy History ledger it
+    // fed no longer exists anywhere in the app), so restoring an old
+    // backup still works, it just won't bring back audit history.
+    if (!confirm(`Restore backup?\n\nThis will REPLACE current inventory with ${productCount.toLocaleString()} item(s).\n\nCurrent local data will be overwritten.`)) return;
 
     if (Array.isArray(parsed.products)) {
       Store.setState({ products: parsed.products });
       Repo.saveProducts(parsed.products);
       Bus.emit('products:changed', parsed.products);
-    }
-    if (Array.isArray(parsed.historyLedger)) {
-      Store.setState({ history: parsed.historyLedger });
-      Repo.replaceAllHistory(parsed.historyLedger);
-      Bus.emit('history:changed', parsed.historyLedger);
     }
     if (parsed.branchName) {
       Repo.LS.set(SETTINGS_BRANCH_KEY, parsed.branchName);
@@ -411,97 +220,7 @@ export const LegacyActions = (() => {
     Bus.emit('toast', { msg: 'Backup restored successfully', kind: 'success' });
   }
 
-  // ── Cloud sync (Dropbox) ───────────────────────────────
-  function cloudBuildPayload() {
-    const { products, history } = Store.getState();
-    return JSON.stringify({ schemaVersion: 3, exportedAt: new Date().toISOString(), branchName: getBranchName(), products, historyLedger: history });
-  }
-
-  function cloudCountEntries(parsed) {
-    return {
-      products: Array.isArray(parsed.products) ? parsed.products.length : 0,
-      history: Array.isArray(parsed.historyLedger) ? parsed.historyLedger.length : 0
-    };
-  }
-
-  function pushToCloudIfLinked() {
-    const { dbxClient } = Store.getState();
-    if (dbxClient) setTimeout(() => syncPushToCloud(true), 300);
-  }
-
-  async function syncPushToCloud(silent) {
-    const { dbxClient } = Store.getState();
-    if (!dbxClient) return;
-    try {
-      if (!silent) Bus.emit('cloud:state', { state: 'syncing', text: '⟳ Syncing…' });
-      const payload = cloudBuildPayload();
-      await Repo.dropboxUploadJSON(dbxClient, DROPBOX_SYNC_PATH, payload, 'pharma_audit_sync.json');
-      const t = new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
-      Bus.emit('cloud:state', { state: 'synced', text: '☁ Synced at ' + t });
-      if (!silent) Bus.emit('toast', { msg: 'Pushed to Dropbox', kind: 'success' });
-    } catch (err) {
-      if (isAuthError(err)) { handleCloudAuthExpired(silent); return; }
-      Bus.emit('cloud:state', { state: 'error', text: '✕ Sync failed' });
-      if (!silent) Bus.emit('toast', { msg: 'Push failed', kind: 'error' });
-      console.error('[CloudSync] push:', err);
-    }
-  }
-
-  async function syncPullFromCloud(silent) {
-    const { dbxClient } = Store.getState();
-    if (!dbxClient) return;
-    try {
-      Bus.emit('cloud:state', { state: 'syncing', text: '⟳ Syncing…' });
-      let cloudParsed;
-      try {
-        cloudParsed = await Repo.dropboxDownloadJSON(dbxClient, DROPBOX_SYNC_PATH);
-      } catch (dlErr) {
-        const errStr = String(dlErr);
-        const status = dlErr && (dlErr.status || (dlErr.error && dlErr.error.status));
-        const tag = (dlErr && dlErr.error && dlErr.error.error && dlErr.error.error['.tag']) || (dlErr && dlErr.error && dlErr.error['.tag']) || '';
-        const isNotFound = tag === 'path' || errStr.includes('not_found') || errStr.includes('path/not_found') || errStr.includes('409') || status === 409 || status === 404;
-        if (isNotFound) {
-          Bus.emit('cloud:state', { state: 'syncing', text: '⧗ Seeding cloud…' });
-          await syncPushToCloud(true);
-          return;
-        }
-        throw dlErr;
-      }
-
-      const cc = cloudCountEntries(cloudParsed);
-      const { products, history } = Store.getState();
-      const lc = cloudCountEntries({ products, historyLedger: history });
-      const cloudWins = cc.products >= lc.products && cc.history >= lc.history;
-
-      if (cloudWins) {
-        if (Array.isArray(cloudParsed.products) && cloudParsed.products.length > 0) {
-          Store.setState({ products: cloudParsed.products });
-          Repo.saveProducts(cloudParsed.products);
-          Bus.emit('products:changed', cloudParsed.products);
-        }
-        if (Array.isArray(cloudParsed.historyLedger) && cloudParsed.historyLedger.length > 0) {
-          Store.setState({ history: cloudParsed.historyLedger });
-          Repo.replaceAllHistory(cloudParsed.historyLedger);
-          Bus.emit('history:changed', cloudParsed.historyLedger);
-        }
-        if (cloudParsed.branchName) {
-          Repo.LS.set(SETTINGS_BRANCH_KEY, cloudParsed.branchName);
-          Bus.emit('branding:changed', { branchName: getBranchName() });
-        }
-        const t = new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
-        Bus.emit('cloud:state', { state: 'synced', text: '☁ Synced at ' + t });
-        if (!silent) Bus.emit('toast', { msg: 'Pulled from cloud', kind: 'success' });
-      } else {
-        await syncPushToCloud(true);
-      }
-    } catch (err) {
-      if (isAuthError(err)) { handleCloudAuthExpired(silent); return; }
-      Bus.emit('cloud:state', { state: 'error', text: '✕ Sync failed — tap to retry' });
-      if (!silent) Bus.emit('toast', { msg: 'Sync failed', kind: 'error' });
-      console.error('[CloudSync] pull:', err);
-    }
-  }
-
+  // ── Cloud sync (Dropbox) — pull-only ───────────────────
   function isAuthError(err) {
     return err && (err.status === 401 || String(err).includes('401') || String(err).includes('invalid_access_token') || String(err).includes('expired_access_token'));
   }
@@ -514,9 +233,11 @@ export const LegacyActions = (() => {
     if (!silent) Bus.emit('toast', { msg: 'Dropbox session expired — tap bar to relink', kind: 'error' });
   }
 
+  // Tapping the sync bar re-pulls the latest inventory (or starts
+  // linking, if not yet connected) — there is nothing left to "push."
   function cloudBarTapped() {
     if (!getDropboxToken()) { initiateDropboxOAuthFlow(); return; }
-    syncPullFromCloud(false);
+    importInventoryFromDropbox(false);
   }
 
   function unlinkDropbox() {
@@ -606,7 +327,7 @@ export const LegacyActions = (() => {
     Store.setState({ dbxClient });
 
     Bus.emit('cloud:state', { state: 'syncing', text: '⟳ Syncing…' });
-    setTimeout(() => syncPullFromCloud(true), 1400);
+    setTimeout(() => importInventoryFromDropbox(true), 1400);
     if (freshOAuth) Bus.emit('toast', { msg: 'Dropbox linked!', kind: 'success' });
 
     if (isAutoSyncEnabled()) setTimeout(() => startAutoSync(), 1600);
@@ -614,17 +335,8 @@ export const LegacyActions = (() => {
     Bus.emit('settings:dropboxStatusChanged', { linked: true });
     Bus.emit('inventoryHub:changed', {});
 
-    // FIX: race-guarded auto-fetch — only refresh inventory once dbxClient truly
-    // exists, instead of firing on a blind fixed timeout that could beat boot.
     const lastFetch = Repo.LS.get(DBX_LAST_FETCH_KEY);
-    if (lastFetch) {
-      Bus.emit('dbxInventoryFetch:lastKnown', { fetchedAt: parseInt(lastFetch) });
-      const waitForClient = () => {
-        if (Store.getState().dbxClient) importInventoryFromDropbox(true);
-        else setTimeout(waitForClient, 300);
-      };
-      setTimeout(waitForClient, 800);
-    }
+    if (lastFetch) Bus.emit('dbxInventoryFetch:lastKnown', { fetchedAt: parseInt(lastFetch) });
   }
 
   function toggleAutoSync(enabled) {
@@ -632,30 +344,24 @@ export const LegacyActions = (() => {
       if (!getDropboxToken()) { Bus.emit('toast', { msg: 'Link Dropbox first', kind: 'error' }); Bus.emit('settings:autoSyncRejected', {}); return; }
       Repo.LS.set(SETTINGS_AUTOSYNC_KEY, '1');
       startAutoSync();
-      Bus.emit('toast', { msg: 'Auto-sync enabled (every 10s, only when changed)', kind: 'success' });
+      Bus.emit('toast', { msg: 'Auto-refresh enabled — inventory re-pulled from Dropbox periodically', kind: 'success' });
     } else {
       Repo.LS.set(SETTINGS_AUTOSYNC_KEY, '0');
       stopAutoSync();
-      Bus.emit('toast', { msg: 'Auto-sync disabled', kind: 'success' });
+      Bus.emit('toast', { msg: 'Auto-refresh disabled', kind: 'success' });
     }
   }
 
-  let _lastSyncedPayloadHash = null;
-  function simpleHashString(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
-    return hash;
-  }
+  // Periodically re-pulls inventory (never pushes) — every logged-in
+  // user then just always sees whatever the Main Auditor last synced,
+  // since inventory itself lives in this app's local/Dropbox-fed store,
+  // not per-device state.
   function startAutoSync() {
     if (Store.getState().autoSyncTimer) return;
     const timer = setInterval(() => {
       if (!Store.getState().dbxClient) return;
-      const payload = cloudBuildPayload();
-      const hash = simpleHashString(payload);
-      if (hash === _lastSyncedPayloadHash) return;
-      _lastSyncedPayloadHash = hash;
-      syncPushToCloud(true);
-    }, 10000);
+      importInventoryFromDropbox(true);
+    }, 60000);
     Store.setState({ autoSyncTimer: timer });
   }
   function stopAutoSync() {
@@ -705,7 +411,7 @@ export const LegacyActions = (() => {
       Bus.emit('settings:dropboxStatusChanged', { linked: true });
       Bus.emit('inventoryHub:changed', {});
       Bus.emit('cloud:state', { state: 'syncing', text: '⧗ Verifying…' });
-      setTimeout(() => syncPullFromCloud(true), 600);
+      setTimeout(() => importInventoryFromDropbox(true), 600);
       Bus.emit('toast', { msg: 'Dropbox connected via imported token!', kind: 'success' });
     } catch (e) { Bus.emit('toast', { msg: 'Invalid token or wrong PIN', kind: 'error' }); }
   }
@@ -734,12 +440,9 @@ export const LegacyActions = (() => {
   return {
     getBranchName, getEffectiveDropboxAppKey, getDropboxToken, getSettingsPin,
     isAutoSyncEnabled, isPwaInstallDismissed, dismissPwaInstall,
-    bootstrapLegacy, importCSVFile, importInventoryFromDropbox, ingestSharedHardwarePackage,
-    startAuditSession, startAuditSessionForItems, reopenHistoryAudit, recordCount, markAllRemainingAsMatch,
-    setAuditFilter, toggleSortOrder, toggleCompanySortOrder, abandonActiveSession,
-    signOffAudit, purgeHistoryEntries, purgeHistoryByCompanies,
+    bootstrapLegacy, importCSVFile, importInventoryFromDropbox,
     saveBranchName, saveDropboxAppKey, exportFullBackup, restoreFullBackup,
-    cloudBarTapped, unlinkDropbox, syncPushToCloud, syncPullFromCloud,
+    cloudBarTapped, unlinkDropbox,
     toggleAutoSync, exportConnectionToken, applyImportedToken, verifyPin, saveSettingsPin,
   };
 })();
