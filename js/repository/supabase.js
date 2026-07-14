@@ -358,10 +358,27 @@ function _rowToInventoryProduct(row) {
 }
 // Cheap, read-only — safe to call often (e.g. right after login) since
 // it never touches Dropbox, just the already-synced shared table.
+// Supabase/PostgREST caps a single select() at ~1000 rows by default
+// (project-configurable, but not guaranteed) — paginate with .range()
+// so this always returns every row regardless of that setting, rather
+// than silently truncating a 5,000+ item inventory to the first 1,000.
 async function fetchInventoryProducts(client) {
-  const { data, error } = await client.from('inventory_products').select('*').order('name', { ascending: true });
-  if (error) throw error;
-  return (data || []).map(_rowToInventoryProduct);
+  const PAGE_SIZE = 1000;
+  let all = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await client
+      .from('inventory_products')
+      .select('*')
+      .order('name', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all = all.concat(data);
+    if (data.length < PAGE_SIZE) break; // last page
+    from += PAGE_SIZE;
+  }
+  return all.map(_rowToInventoryProduct);
 }
 // Most recent completed sync, so a fresh login can show "last synced"
 // without needing to trigger a new one itself.
