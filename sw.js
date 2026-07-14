@@ -1,4 +1,4 @@
-const CACHE_NAME = "fazal-din-audit-v7.1-network-first";
+const CACHE_NAME = "fazal-din-audit-v8-inventory-via-supabase";
 
 // App-shell assets we want available offline immediately after install.
 // (These are still precached, but at *runtime* they are served network-first,
@@ -24,7 +24,6 @@ const STATIC_ASSETS = [
 
 // External CDN assets (cached separately so failures don't block install)
 const CDN_ASSETS = [
-  "https://cdnjs.cloudflare.com/ajax/libs/dropbox.js/10.34.0/Dropbox-sdk.min.js",
   "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
 ];
 

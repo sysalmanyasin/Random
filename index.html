@@ -26,8 +26,6 @@
 <link rel="stylesheet" href="./css/engagement.css">
 <link rel="stylesheet" href="./css/desktop.css">
 
-<!-- Dropbox SDK -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/dropbox.js/10.34.0/Dropbox-sdk.min.js"></script>
 <!-- Supabase JS -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <!-- SheetJS (Excel export) -->
@@ -55,9 +53,9 @@
   </div>
 
   <!-- ── Cloud Sync Status Bar ─────────────────────────────── -->
-  <button type="button" id="cloud-sync-bar" class="state-unlinked" data-action="cloud-bar-tapped" aria-live="polite">
+  <button type="button" id="cloud-sync-bar" class="state-idle" data-action="cloud-bar-tapped" aria-live="polite">
     <span class="sync-dot" aria-hidden="true"></span>
-    <span id="cloud-bar-text">☁ Not linked — tap to sync</span>
+    <span id="cloud-bar-text">☁ Tap to sync inventory</span>
   </button>
 
   <header class="header">
@@ -188,28 +186,19 @@
       </div>
     </div>
 
-    <!-- Dropbox Inventory Fetch -->
+    <!-- Inventory Sync (server-side, via Supabase Edge Function) -->
     <div class="card">
       <div class="card-title" style="margin-top:0;">Live Inventory — Dropbox Sync</div>
 
-      <div id="inv-not-linked" style="text-align:center; padding:8px 0;">
-        <div style="font-size:12px; color:var(--grey); margin-bottom:14px; line-height:1.6;">
-          Link your Dropbox account in <strong>Tools</strong> to load inventory automatically.
-        </div>
-        <button class="btn btn-primary btn-block" data-action="goto-settings-pin-gate">⚙ Go to Tools → Link Dropbox</button>
+      <button class="btn btn-primary btn-block" id="dbx-fetch-btn" data-action="fetch-dropbox-inventory">
+        ☁ Load Latest Inventory
+      </button>
+      <div id="dbx-fetch-status" style="margin-top:10px; font-size:12px; font-weight:700; color:var(--grey); text-align:center; min-height:18px;"></div>
+      <div id="dbx-bar-bg" style="width:100%; height:4px; background:var(--light); border-radius:99px; overflow:hidden; margin-top:8px; display:none;">
+        <div id="dbx-bar-fill" style="height:100%; width:0%; background:var(--navy); border-radius:99px; transition:width .4s ease;"></div>
       </div>
-
-      <div id="inv-linked" style="display:none;">
-        <button class="btn btn-primary btn-block" id="dbx-fetch-btn" data-action="fetch-dropbox-inventory">
-          ☁ Load Latest Inventory
-        </button>
-        <div id="dbx-fetch-status" style="margin-top:10px; font-size:12px; font-weight:700; color:var(--grey); text-align:center; min-height:18px;"></div>
-        <div id="dbx-bar-bg" style="width:100%; height:4px; background:var(--light); border-radius:99px; overflow:hidden; margin-top:8px; display:none;">
-          <div id="dbx-bar-fill" style="height:100%; width:0%; background:var(--navy); border-radius:99px; transition:width .4s ease;"></div>
-        </div>
-        <div id="dbx-last-fetched" style="margin-top:10px; font-size:11px; color:var(--grey); text-align:center; display:none;">
-          Last fetched: <strong id="dbx-last-fetched-time">—</strong>
-        </div>
+      <div id="dbx-last-fetched" style="margin-top:10px; font-size:11px; color:var(--grey); text-align:center; display:none;">
+        Last fetched: <strong id="dbx-last-fetched-time">—</strong>
       </div>
     </div>
 
@@ -375,49 +364,12 @@
 
     <div class="card-title">Cloud Sync — Dropbox</div>
     <div class="card">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span id="conn-dot" style="width:10px; height:10px; border-radius:50%; background:var(--grey); display:inline-block;"></span>
-          <strong id="settings-dropbox-status" style="font-size:13px; color:var(--grey);">Not linked</strong>
-        </div>
-        <button class="btn btn-danger btn-sm" data-action="unlink-dropbox">Disconnect</button>
-      </div>
-
-      <div id="conn-key-row" style="margin-bottom:12px;">
-        <label class="settings-label" for="settings-dropbox-key">Dropbox App Key</label>
-        <div style="display:flex; gap:8px;">
-          <input type="text" id="settings-dropbox-key" class="settings-input"
-            placeholder="Enter Dropbox App Key from POS-SYNC"
-            style="margin-bottom:0; font-family:monospace; font-size:12px; flex:1;">
-          <button class="btn btn-primary btn-sm" data-action="save-dropbox-key">Save</button>
-        </div>
-        <div style="font-size:10px; color:var(--grey); margin-top:5px;">Find this key in POS-SYNC.html</div>
-      </div>
-
-      <div id="conn-link-row">
-        <button class="btn btn-primary btn-block" data-action="cloud-bar-tapped">🔗 Link Dropbox Account</button>
-        <div style="margin-top:10px; text-align:center; font-size:11px; color:var(--grey);">— or authorise via token from another device —</div>
-        <button class="btn btn-block" style="margin-top:8px; background:var(--light); color:var(--navy); font-size:12px; padding:10px;" data-action="import-connection-token">📥 Import Connection Token</button>
-      </div>
-
-      <div id="conn-token-row" style="display:none; margin-top:4px;">
-        <div style="display:flex; gap:8px;">
-          <button class="btn btn-primary btn-sm" style="flex:1;" data-action="export-connection-token">📤 Export Connection</button>
-          <button class="btn btn-gold btn-sm" style="flex:1;" data-action="import-connection-token">📥 Import Connection</button>
-        </div>
-        <button class="btn btn-block" style="margin-top:8px; background:var(--green-ink); color:var(--white); padding:11px; font-size:12px;" data-action="cloud-bar-tapped">↓ Pull From Cloud</button>
-        <label style="display:flex; align-items:center; gap:10px; font-size:13px; font-weight:700; color:var(--navy); margin-top:14px; cursor:pointer; user-select:none;">
-          <input type="checkbox" id="settings-autosync-toggle" style="width:18px; height:18px; accent-color:var(--navy);" data-change-action="toggle-autosync"> Auto-sync every 10s
-        </label>
-      </div>
-
-      <div id="conn-import-row" style="display:none; margin-top:10px;">
-        <label class="settings-label" for="conn-token-input">Paste Connection Token</label>
-        <textarea id="conn-token-input" class="settings-input" rows="3" placeholder="Paste token from another device…" style="font-size:11px; font-family:monospace; resize:none;"></textarea>
-        <div style="display:flex; gap:8px;">
-          <button class="btn btn-primary btn-sm" style="flex:1;" data-action="apply-imported-token">✓ Connect</button>
-          <button class="btn btn-sm" style="flex:1; background:var(--light); color:var(--text);" data-action="cancel-import-token">Cancel</button>
-        </div>
+      <div style="font-size:12px; color:var(--grey); line-height:1.6;">
+        Inventory is synced centrally through Supabase now — every device
+        shares the same data automatically, and there's nothing to link
+        or configure per device here anymore. Use
+        <strong>Sync &amp; Tools → Sync → Load Latest Inventory</strong>
+        to pull the latest from Dropbox at any time.
       </div>
     </div>
 
