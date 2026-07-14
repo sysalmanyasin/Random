@@ -4,10 +4,10 @@
    ══════════════════════════════════════════════════════════════ */
 export function createInitialState() {
   return {
-    // ── inventory + Dropbox (pull-only) + local backup ──
+    // ── inventory (shared, server-synced from Dropbox — see
+    //    repository/supabase.js) + local backup ──
     products: [],
-    dbxClient: null,
-    autoSyncTimer: null,
+    inventoryLastSyncedAt: null,
 
     // ── Supabase client + auth session ──
     sbClient: null,
