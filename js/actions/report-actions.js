@@ -42,39 +42,52 @@ function exportFinalAuditReportXLSX(snapshot, engagementName) {
   Bus.emit('toast', { msg: 'Final Audit Report exported', kind: 'success' });
 }
 
-function exportVarianceReportXLSX(compiledRound, roundLabel) {
+// Single source of truth for the Variance Report's row shape, used by
+// both the xlsx export and the printable PDF so the two never drift
+// apart. Always flat (no company grouping) and sorted alphabetically
+// by product name — per Blueprint §Reporting, "sorted alphabetically"
+// is the default reading order for a printed/exported report; the
+// on-screen workspace table has its own separate Impact/A-Z toggle.
+function buildVarianceReportRows(compiledRound) {
   const conflictedItemKeys = new Set((compiledRound.crossRoundConflicts || []).map(c => c.a.itemKey));
-  const rows = [['Product (Name + Code + Unit Price)', 'System Qty', 'Physical Qty', 'Qty Variance', 'Value Variance (Rs)', 'Auditor', 'Verified', 'Confirmed Same', 'Cross-Round Conflict']];
-  const companies = [...new Set(compiledRound.variances.map(r => r.company))].sort((a, b) => a.localeCompare(b));
-  let grandQtyVar = 0, grandValueVar = 0;
+  const rows = compiledRound.variances.map(r => {
+    const variance = r.countedQty - r.systemQty;
+    const valueVariance = Number((variance * r.price).toFixed(2));
+    // Under the uncounted=0 rule, EVERY row here has a number — this
+    // column is what tells a reader whether it's a real physical
+    // count or an assumption (untouched, defaulted to 0) / an
+    // auto-match (Mark Remaining as Match), which read identically
+    // as numbers but mean very different things for an audit.
+    const verified = !r.missing ? 'Yes' : (r.autoMatched ? 'No — auto-matched' : 'No — not counted');
+    // "Manually resolved" rather than a bare yes/no, so a reader can't
+    // mistake a flagged-but-unresolved conflict for a settled one.
+    const conflictMarker = conflictedItemKeys.has(r.itemKey) ? 'Yes — see appendix' : '';
+    return {
+      code: r.code || '', name: r.name, company: r.company, price: r.price,
+      systemQty: r.systemQty, countedQty: r.countedQty, variance, valueVariance,
+      auditorName: r.auditorName, verified, confirmedSame: !!r.confirmedSame, conflictMarker,
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+  return rows;
+}
 
-  companies.forEach(company => {
-    rows.push([company]);
-    const companyRows = compiledRound.variances.filter(r => r.company === company).sort((a, b) => a.name.localeCompare(b.name));
-    let companyQtyVar = 0, companyValueVar = 0;
-    companyRows.forEach(r => {
-      const variance = r.countedQty - r.systemQty;
-      const valueVariance = Number((variance * r.price).toFixed(2));
-      const productLabel = r.name + ' (' + (r.code || 'No SKU') + ') — Rs ' + r.price;
-      // "Manually resolved" rather than a bare yes/no, so a reader can't
-      // mistake a flagged-but-unresolved conflict for a settled one.
-      const conflictMarker = conflictedItemKeys.has(r.itemKey) ? 'Yes — see appendix' : '';
-      // Under the uncounted=0 rule, EVERY row here has a number — this
-      // column is what tells a reader whether it's a real physical
-      // count or an assumption (untouched, defaulted to 0) / an
-      // auto-match (Mark Remaining as Match), which read identically
-      // as numbers but mean very different things for an audit.
-      const verified = !r.missing ? 'Yes' : (r.autoMatched ? 'No — auto-matched' : 'No — not counted');
-      rows.push([productLabel, r.systemQty, r.countedQty, variance, valueVariance, r.auditorName, verified, r.confirmedSame ? 'Yes' : '', conflictMarker]);
-      companyQtyVar += variance;
-      companyValueVar += valueVariance;
-    });
-    rows.push(['Subtotal — ' + company, '', '', companyQtyVar, Number(companyValueVar.toFixed(2))]);
-    rows.push([]);
-    grandQtyVar += companyQtyVar;
-    grandValueVar += companyValueVar;
+function exportVarianceReportXLSX(compiledRound, roundLabel, meta) {
+  meta = meta || {};
+  const varianceRows = buildVarianceReportRows(compiledRound);
+  const rows = [['Variance Report — ' + roundLabel + (meta.engagementName ? ' — ' + meta.engagementName : '')]];
+  rows.push(['Generated', new Date().toLocaleString('en-PK')]);
+  if (meta.mainAuditorName) rows.push(['Main Auditor', meta.mainAuditorName]);
+  if (meta.branchName) rows.push(['Branch', meta.branchName]);
+  rows.push([]);
+  rows.push(['Product Code', 'Product Name', 'Company', 'Unit Price (Rs)', 'System Quantity', 'Physical Quantity', 'Variance', 'Variance Amount (Rs)', 'Sub Auditor', 'Verified', 'Confirmed Same', 'Cross-Round Conflict']);
+  let grandQtyVar = 0, grandValueVar = 0;
+  varianceRows.forEach(r => {
+    rows.push([r.code, r.name, r.company, r.price, r.systemQty, r.countedQty, r.variance, r.valueVariance, r.auditorName, r.verified, r.confirmedSame ? 'Yes' : '', r.conflictMarker]);
+    grandQtyVar += r.variance;
+    grandValueVar += r.valueVariance;
   });
-  rows.push(['GRAND TOTAL', '', '', grandQtyVar, Number(grandValueVar.toFixed(2))]);
+  rows.push([]);
+  rows.push(['GRAND TOTAL', '', '', '', '', '', grandQtyVar, Number(grandValueVar.toFixed(2))]);
 
   const sheets = { 'Variance Report': rows };
 
@@ -144,6 +157,6 @@ function exportAuditTrailXLSX(engagement, auditLog) {
 }
 
 export const ReportActions = {
-  exportFinalAuditReportXLSX, exportVarianceReportXLSX,
+  exportFinalAuditReportXLSX, exportVarianceReportXLSX, buildVarianceReportRows,
   exportRoundHistoryXLSX, exportSubmissionHistoryXLSX, exportAuditTrailXLSX,
 };

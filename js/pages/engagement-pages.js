@@ -528,6 +528,7 @@ Bus.on('compile:missingAssignments', ({ missing }) => {
 // which is a much more useful default ordering for a Main Auditor triaging
 // results than "whatever order compileRound happened to produce."
 let varianceSortDesc = true;   // true = biggest impact first
+let varianceSortMode = 'impact'; // 'impact' | 'alpha' — cycled via toggle-variance-sort
 let varianceFilterMin = null;  // absolute rupee impact, inclusive
 let varianceFilterMax = null;
 
@@ -538,16 +539,89 @@ function _visibleVariances(variances) {
   if (varianceFilterMin !== null) list = list.filter(row => Math.abs(_varianceImpact(row)) >= varianceFilterMin);
   if (varianceFilterMax !== null) list = list.filter(row => Math.abs(_varianceImpact(row)) <= varianceFilterMax);
   list = list.slice().sort((a, b) => {
+    if (varianceSortMode === 'alpha') return (a.name || '').localeCompare(b.name || '');
     const diff = Math.abs(_varianceImpact(b)) - Math.abs(_varianceImpact(a));
     return varianceSortDesc ? diff : -diff;
   });
   return list;
 }
 
+function _varianceSortLabel() {
+  if (varianceSortMode === 'alpha') return '🔤 A → Z (product name)';
+  return varianceSortDesc ? '↕️ Impact ↓ (biggest first)' : '↕️ Impact ↑ (smallest first)';
+}
+
 function resetVarianceControls() {
   varianceSortDesc = true;
+  varianceSortMode = 'impact';
   varianceFilterMin = null;
   varianceFilterMax = null;
+}
+
+// ── §Reporting — shared meta + printable Variance Report (PDF) ──
+function _reportMeta() {
+  const { engagements, currentEngagementId, currentAuditorName } = Store.getState();
+  const eng = engagements.find(e => e.id === currentEngagementId);
+  return {
+    engagementName: eng ? eng.name : '',
+    mainAuditorName: currentAuditorName || '',
+    branchName: Actions.getBranchName ? Actions.getBranchName() : '',
+  };
+}
+
+// Same #printable-report-canvas / @media-print trick used by the
+// Inventory Snapshot Report (see inventory-pages.js) and the legacy
+// audit-history PDFs — reuses the app's one print stylesheet instead
+// of introducing a second PDF pipeline.
+let _originalVarianceCanvasHTML = null;
+function printVarianceReportPDF(round, compiled, meta) {
+  const varianceRows = Actions.buildVarianceReportRows(compiled);
+  if (varianceRows.length === 0) { Bus.emit('toast', { msg: 'No variances to report for this round', kind: 'error' }); return; }
+
+  const esc = Components.esc;
+  const roundLabel = 'Round ' + round.roundNumber + (round.roundSuffix || '');
+  const totalQtyVar = varianceRows.reduce((s, r) => s + r.variance, 0);
+  const totalValueVar = varianceRows.reduce((s, r) => s + r.valueVariance, 0);
+
+  const tableRows = varianceRows.map(r => `
+    <tr>
+      <td>${esc(r.code || '—')}</td>
+      <td>${esc(r.name)}</td>
+      <td style="text-align:right;">Rs ${Number(r.price || 0).toLocaleString()}</td>
+      <td style="text-align:right;">${r.systemQty}</td>
+      <td style="text-align:right;">${r.countedQty}</td>
+      <td style="text-align:right;">${r.variance > 0 ? '+' : ''}${r.variance}</td>
+      <td style="text-align:right;">Rs ${r.valueVariance.toLocaleString()}</td>
+      <td>${esc(r.auditorName || '')}</td>
+    </tr>`).join('');
+
+  const canvas = $('printable-report-canvas');
+  if (_originalVarianceCanvasHTML === null) _originalVarianceCanvasHTML = canvas.innerHTML;
+  canvas.innerHTML = `
+    <div class="pdf-meta-box">
+      <div>
+        <div class="pdf-brand-title">${esc(meta.branchName || 'Pharmacy Audit')}</div>
+        <div style="font-size:13px; font-weight:700; color:#475569; margin-top:2px;">Variance Report — ${esc(roundLabel)}</div>
+        <div style="font-size:12px; color:#64748B; margin-top:1px;">${esc(meta.engagementName || '')}</div>
+      </div>
+      <div style="text-align:right; font-size:12px; color:#475569; line-height:1.6;">
+        <div><strong>Generated:</strong> ${new Date().toLocaleString('en-PK')}</div>
+        <div><strong>Main Auditor:</strong> ${esc(meta.mainAuditorName || '—')}</div>
+        <div><strong>Items:</strong> ${varianceRows.length.toLocaleString()}</div>
+      </div>
+    </div>
+    <div class="pdf-summary-grid">
+      <div class="pdf-stat-card" style="border-top:4px solid #1B3A6B;"><div class="pdf-stat-val">${varianceRows.length.toLocaleString()}</div><div class="pdf-stat-lbl">Variances</div></div>
+      <div class="pdf-stat-card" style="border-top:4px solid #D97706;"><div class="pdf-stat-val">${totalQtyVar > 0 ? '+' : ''}${totalQtyVar.toLocaleString()}</div><div class="pdf-stat-lbl">Net Qty Variance</div></div>
+      <div class="pdf-stat-card" style="border-top:4px solid #DC2626; grid-column: span 2;"><div class="pdf-stat-val">Rs ${totalValueVar.toLocaleString()}</div><div class="pdf-stat-lbl">Net Value Variance</div></div>
+    </div>
+    <table class="pdf-table">
+      <thead><tr><th>Product Code</th><th>Product Name</th><th>Unit Price</th><th>System Qty</th><th>Physical Qty</th><th>Variance</th><th>Variance Amount</th><th>Sub Auditor</th></tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+    <div style="margin-top:14px; font-size:10px; color:#64748B;">Sorted alphabetically by product name · Sign-off: Main Auditor — ${esc(meta.mainAuditorName || '_______________')}</div>`;
+  window.print();
+  setTimeout(() => { canvas.innerHTML = _originalVarianceCanvasHTML; }, 500);
 }
 
 // ── §Compilation Engine + §Difference Engine (compiled round) ──
@@ -577,12 +651,18 @@ function renderCompiledRoundUI(round) {
   return `
     ${Components.compileSummaryCardHTML(compiled)}
     <div class="card" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
-      <button class="sort-btn" data-action="toggle-variance-sort">↕️ Impact ${varianceSortDesc ? '↓ (biggest first)' : '↑ (smallest first)'}</button>
+      <button class="sort-btn" data-action="toggle-variance-sort">${_varianceSortLabel()}</button>
       <input type="number" id="variance-filter-min" class="search-input" placeholder="Min impact (Rs)" aria-label="Minimum variance impact in Rupees" style="flex:1; min-width:100px;" value="${varianceFilterMin ?? ''}">
       <input type="number" id="variance-filter-max" class="search-input" placeholder="Max impact (Rs)" aria-label="Maximum variance impact in Rupees" style="flex:1; min-width:100px;" value="${varianceFilterMax ?? ''}">
       <button class="btn btn-primary" style="font-size:11px; padding:10px;" data-action="apply-variance-filter">Apply</button>
       ${filtered ? '<button class="sort-btn" data-action="clear-variance-filter">Clear filter</button>' : ''}
       ${filtered ? `<div style="width:100%; font-size:10px; color:var(--grey);">Showing ${visible.length} of ${compiled.variances.length} variance(s)</div>` : ''}
+    </div>
+    <div class="card" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
+      <div style="font-size:11px; font-weight:700; color:var(--navy);">Variance Report — Round ${round.roundNumber}${round.roundSuffix || ''}</div>
+      <div style="flex:1;"></div>
+      <button class="btn btn-primary" style="font-size:11px; padding:8px 12px;" data-action="print-variance-report-round" data-round-id="${round.id}">🖨️ Print PDF</button>
+      <button class="btn" style="font-size:11px; padding:8px 12px; background:var(--green-ink); color:white;" data-action="export-variance-report-round" data-round-id="${round.id}">📊 Export xlsx</button>
     </div>
     <div style="background:white; border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; margin-bottom:14px;">
       <table class="audit-table">
@@ -879,7 +959,13 @@ export function initEngagementPages() {
       // clears the pending preview and re-renders it — nothing more to do here.
     },
     'cancel-split-preview': () => clearSplitPreview(),
-    'toggle-variance-sort': () => { varianceSortDesc = !varianceSortDesc; renderRoundWorkspace(); },
+    'toggle-variance-sort': () => {
+      // Cycle: Impact ↓ (biggest first) → Impact ↑ (smallest first) → A-Z → back to Impact ↓
+      if (varianceSortMode === 'impact' && varianceSortDesc) { varianceSortDesc = false; }
+      else if (varianceSortMode === 'impact' && !varianceSortDesc) { varianceSortMode = 'alpha'; }
+      else { varianceSortMode = 'impact'; varianceSortDesc = true; }
+      renderRoundWorkspace();
+    },
     'apply-variance-filter': () => {
       const minEl = $('variance-filter-min'), maxEl = $('variance-filter-max');
       const minRaw = minEl ? minEl.value.trim() : '';
@@ -957,7 +1043,21 @@ export function initEngagementPages() {
       const engRounds = rounds.filter(r => r.engagementId === currentEngagementId).sort((a, b) => a.roundNumber - b.roundNumber);
       const latestRound = engRounds[engRounds.length - 1];
       const compiled = latestRound ? compiledRounds.filter(c => c.roundId === latestRound.id).pop() : null;
-      if (compiled) Actions.exportVarianceReportXLSX(compiled, 'Round ' + latestRound.roundNumber + (latestRound.roundSuffix || ''));
+      if (compiled) Actions.exportVarianceReportXLSX(compiled, 'Round ' + latestRound.roundNumber + (latestRound.roundSuffix || ''), _reportMeta());
+      else Bus.emit('toast', { msg: 'Compile the round first — there\'s nothing to report on yet', kind: 'error' });
+    },
+    'export-variance-report-round': (el) => {
+      const { rounds, compiledRounds } = Store.getState();
+      const round = rounds.find(r => r.id === el.dataset.roundId);
+      const compiled = round ? compiledRounds.filter(c => c.roundId === round.id).pop() : null;
+      if (round && compiled) Actions.exportVarianceReportXLSX(compiled, 'Round ' + round.roundNumber + (round.roundSuffix || ''), _reportMeta());
+      else Bus.emit('toast', { msg: 'Compile the round first — there\'s nothing to report on yet', kind: 'error' });
+    },
+    'print-variance-report-round': (el) => {
+      const { rounds, compiledRounds } = Store.getState();
+      const round = rounds.find(r => r.id === el.dataset.roundId);
+      const compiled = round ? compiledRounds.filter(c => c.roundId === round.id).pop() : null;
+      if (round && compiled) printVarianceReportPDF(round, compiled, _reportMeta());
       else Bus.emit('toast', { msg: 'Compile the round first — there\'s nothing to report on yet', kind: 'error' });
     },
     'export-round-history': () => {
