@@ -95,8 +95,8 @@ export function templateListItem(template, isActive, matchInfo) {
       <div class="company-card-meta">${matchLabel}${isActive && matchInfo && matchInfo.matched < matchInfo.total ? ` · <span style="color:var(--red);">${matchInfo.total - matchInfo.matched} discontinued</span>` : ''}</div>
     </div>
     <div class="company-card-badges" style="gap:6px;">
-      <button class="btn btn-sm" data-action="rename-template" data-template-id="${template.id}" onclick="event.stopPropagation()">✎</button>
-      <button class="btn btn-sm btn-danger" data-action="delete-template" data-template-id="${template.id}" onclick="event.stopPropagation()">🗑</button>
+      <button class="btn btn-sm" data-action="rename-template" data-template-id="${template.id}">✎</button>
+      <button class="btn btn-sm btn-danger" data-action="delete-template" data-template-id="${template.id}">🗑</button>
     </div>
   `;
   return div;
