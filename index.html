@@ -451,6 +451,13 @@
     </div>
   </div>
 
+  <!-- ── Report Overview popup (branded preview before Print/Export) ── -->
+  <div id="report-overview-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:320; align-items:center; justify-content:center; padding:16px;" data-action="close-report-overview" role="dialog" aria-modal="true" aria-label="Report overview">
+    <div style="background:white; padding:20px; border-radius:20px; max-width:720px; width:100%; max-height:88vh; box-shadow:var(--shadow-md);" data-action="noop">
+      <div id="report-overview-content"></div>
+    </div>
+  </div>
+
 </div><!-- /#app -->
 
 <!-- ── Printable Report Canvas ────────────────────────────────

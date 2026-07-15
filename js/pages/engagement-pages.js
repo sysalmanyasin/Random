@@ -558,7 +558,7 @@ function resetVarianceControls() {
   varianceFilterMax = null;
 }
 
-// ── §Reporting — shared meta + printable Variance Report (PDF) ──
+// ── §Reporting — shared meta + printable/previewable reports ──
 function _reportMeta() {
   const { engagements, currentEngagementId, currentAuditorName } = Store.getState();
   const eng = engagements.find(e => e.id === currentEngagementId);
@@ -569,59 +569,237 @@ function _reportMeta() {
   };
 }
 
+// ── Generic pdf-* building blocks (see app.css for the pdf-* classes) —
+//    every report's branded body is assembled from these three, so the
+//    Overview popup and the printed page are always pixel-identical. ──
+function _pdfHeader({ branchName, title, subtitle, rightLines }) {
+  const esc = Components.esc;
+  return `
+    <div class="pdf-meta-box">
+      <div>
+        <div class="pdf-brand-title">${esc(branchName || 'Pharmacy Audit')}</div>
+        <div style="font-size:13px; font-weight:700; color:#475569; margin-top:2px;">${esc(title)}</div>
+        ${subtitle ? `<div style="font-size:12px; color:#64748B; margin-top:1px;">${esc(subtitle)}</div>` : ''}
+      </div>
+      <div style="text-align:right; font-size:12px; color:#475569; line-height:1.6;">
+        ${rightLines.map(l => `<div>${l}</div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function _pdfStatGrid(stats) {
+  return `<div class="pdf-summary-grid">${stats.map(s => `
+      <div class="pdf-stat-card" style="border-top:4px solid ${s.color};${s.span ? ' grid-column: span ' + s.span + ';' : ''}">
+        <div class="pdf-stat-val">${s.val}</div><div class="pdf-stat-lbl">${s.label}</div>
+      </div>`).join('')}</div>`;
+}
+
+function _pdfTable(headers, rows) {
+  return `<table class="pdf-table">
+      <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>${rows.length ? rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${headers.length}" style="text-align:center; color:#94A3B8; padding:16px;">No data</td></tr>`}</tbody>
+    </table>`;
+}
+
 // Same #printable-report-canvas / @media-print trick used by the
 // Inventory Snapshot Report (see inventory-pages.js) and the legacy
 // audit-history PDFs — reuses the app's one print stylesheet instead
 // of introducing a second PDF pipeline.
-let _originalVarianceCanvasHTML = null;
-function printVarianceReportPDF(round, compiled, meta) {
-  const varianceRows = Actions.buildVarianceReportRows(compiled);
-  if (varianceRows.length === 0) { Bus.emit('toast', { msg: 'No variances to report for this round', kind: 'error' }); return; }
+let _originalReportCanvasHTML = null;
+function _printHTMLToCanvas(html) {
+  const canvas = $('printable-report-canvas');
+  if (_originalReportCanvasHTML === null) _originalReportCanvasHTML = canvas.innerHTML;
+  canvas.innerHTML = html;
+  window.print();
+  setTimeout(() => { canvas.innerHTML = _originalReportCanvasHTML; }, 500);
+}
 
+// ── Variance Report body (used by both the round-workspace Print PDF
+//    button and the Reports-tab Overview popup) ──
+function _varianceReportBodyHTML(round, compiled, meta) {
   const esc = Components.esc;
+  const varianceRows = Actions.buildVarianceReportRows(compiled);
   const roundLabel = 'Round ' + round.roundNumber + (round.roundSuffix || '');
   const totalQtyVar = varianceRows.reduce((s, r) => s + r.variance, 0);
   const totalValueVar = varianceRows.reduce((s, r) => s + r.valueVariance, 0);
 
-  const tableRows = varianceRows.map(r => `
-    <tr>
-      <td>${esc(r.code || '—')}</td>
-      <td>${esc(r.name)}</td>
-      <td style="text-align:right;">Rs ${Number(r.price || 0).toLocaleString()}</td>
-      <td style="text-align:right;">${r.systemQty}</td>
-      <td style="text-align:right;">${r.countedQty}</td>
-      <td style="text-align:right;">${r.variance > 0 ? '+' : ''}${r.variance}</td>
-      <td style="text-align:right;">Rs ${r.valueVariance.toLocaleString()}</td>
-      <td>${esc(r.auditorName || '')}</td>
-    </tr>`).join('');
+  const header = _pdfHeader({
+    branchName: meta.branchName, title: 'Variance Report — ' + roundLabel, subtitle: meta.engagementName,
+    rightLines: [
+      `<strong>Generated:</strong> ${esc(new Date().toLocaleString('en-PK'))}`,
+      `<strong>Main Auditor:</strong> ${esc(meta.mainAuditorName || '—')}`,
+      `<strong>Items:</strong> ${varianceRows.length.toLocaleString()}`,
+    ],
+  });
+  const stats = _pdfStatGrid([
+    { val: varianceRows.length.toLocaleString(), label: 'Variances', color: '#1B3A6B' },
+    { val: (totalQtyVar > 0 ? '+' : '') + totalQtyVar.toLocaleString(), label: 'Net Qty Variance', color: '#D97706' },
+    { val: 'Rs ' + totalValueVar.toLocaleString(), label: 'Net Value Variance', color: '#DC2626', span: 2 },
+  ]);
+  const table = _pdfTable(
+    ['Product Code', 'Product Name', 'Unit Price', 'System Qty', 'Physical Qty', 'Variance', 'Variance Amount', 'Sub Auditor'],
+    varianceRows.map(r => [
+      esc(r.code || '—'), esc(r.name), 'Rs ' + Number(r.price || 0).toLocaleString(),
+      r.systemQty, r.countedQty, (r.variance > 0 ? '+' : '') + r.variance,
+      'Rs ' + r.valueVariance.toLocaleString(), esc(r.auditorName || ''),
+    ]));
+  const footer = `<div style="margin-top:14px; font-size:10px; color:#64748B;">Sorted alphabetically by product name · Sign-off: Main Auditor — ${esc(meta.mainAuditorName || '_______________')}</div>`;
+  return header + stats + table + footer;
+}
 
-  const canvas = $('printable-report-canvas');
-  if (_originalVarianceCanvasHTML === null) _originalVarianceCanvasHTML = canvas.innerHTML;
-  canvas.innerHTML = `
-    <div class="pdf-meta-box">
-      <div>
-        <div class="pdf-brand-title">${esc(meta.branchName || 'Pharmacy Audit')}</div>
-        <div style="font-size:13px; font-weight:700; color:#475569; margin-top:2px;">Variance Report — ${esc(roundLabel)}</div>
-        <div style="font-size:12px; color:#64748B; margin-top:1px;">${esc(meta.engagementName || '')}</div>
-      </div>
-      <div style="text-align:right; font-size:12px; color:#475569; line-height:1.6;">
-        <div><strong>Generated:</strong> ${new Date().toLocaleString('en-PK')}</div>
-        <div><strong>Main Auditor:</strong> ${esc(meta.mainAuditorName || '—')}</div>
-        <div><strong>Items:</strong> ${varianceRows.length.toLocaleString()}</div>
-      </div>
-    </div>
-    <div class="pdf-summary-grid">
-      <div class="pdf-stat-card" style="border-top:4px solid #1B3A6B;"><div class="pdf-stat-val">${varianceRows.length.toLocaleString()}</div><div class="pdf-stat-lbl">Variances</div></div>
-      <div class="pdf-stat-card" style="border-top:4px solid #D97706;"><div class="pdf-stat-val">${totalQtyVar > 0 ? '+' : ''}${totalQtyVar.toLocaleString()}</div><div class="pdf-stat-lbl">Net Qty Variance</div></div>
-      <div class="pdf-stat-card" style="border-top:4px solid #DC2626; grid-column: span 2;"><div class="pdf-stat-val">Rs ${totalValueVar.toLocaleString()}</div><div class="pdf-stat-lbl">Net Value Variance</div></div>
-    </div>
-    <table class="pdf-table">
-      <thead><tr><th>Product Code</th><th>Product Name</th><th>Unit Price</th><th>System Qty</th><th>Physical Qty</th><th>Variance</th><th>Variance Amount</th><th>Sub Auditor</th></tr></thead>
-      <tbody>${tableRows}</tbody>
-    </table>
-    <div style="margin-top:14px; font-size:10px; color:#64748B;">Sorted alphabetically by product name · Sign-off: Main Auditor — ${esc(meta.mainAuditorName || '_______________')}</div>`;
-  window.print();
-  setTimeout(() => { canvas.innerHTML = _originalVarianceCanvasHTML; }, 500);
+function printVarianceReportPDF(round, compiled, meta) {
+  if (compiled.variances.length === 0) { Bus.emit('toast', { msg: 'No variances to report for this round', kind: 'error' }); return; }
+  _printHTMLToCanvas(_varianceReportBodyHTML(round, compiled, meta));
+}
+
+// ── Final Audit Report body — capped inventory preview (a Final
+//    Snapshot can carry thousands of SKUs; the popup/print stay
+//    responsive, the full list is always still in the xlsx). ──
+const _FINAL_AUDIT_PREVIEW_CAP = 500;
+function _finalAuditReportBodyHTML(snap, meta) {
+  const esc = Components.esc;
+  const header = _pdfHeader({
+    branchName: meta.branchName, title: 'Final Audit Report', subtitle: meta.engagementName,
+    rightLines: [
+      `<strong>Generated:</strong> ${esc(new Date(snap.generatedAt).toLocaleString('en-PK'))}`,
+      `<strong>Main Auditor:</strong> ${esc(meta.mainAuditorName || '—')}`,
+      `<strong>Items:</strong> ${snap.report.totalItems.toLocaleString()}`,
+    ],
+  });
+  const stats = _pdfStatGrid([
+    { val: snap.report.totalCompanies, label: 'Companies', color: '#1B3A6B' },
+    { val: snap.report.totalItems.toLocaleString(), label: 'Items In Scope', color: '#059669' },
+    { val: 'Rs ' + Number(snap.report.totalVarianceValue).toLocaleString(), label: 'Net Variance Value', color: '#D97706', span: 2 },
+  ]);
+  const roundsTable = _pdfTable(['Round #', 'State', 'Items', 'Variances', 'Compiled At'], snap.report.roundsSummary.map(r => [
+    esc(String(r.roundNumber + (r.roundSuffix || ''))), esc(r.state), r.itemCount, r.varianceCount,
+    r.compiledAt ? esc(new Date(r.compiledAt).toLocaleString('en-PK')) : '—',
+  ]));
+  const previewRows = snap.finalInventory.slice(0, _FINAL_AUDIT_PREVIEW_CAP);
+  const invTable = _pdfTable(['Company', 'Code', 'Name', 'Book Qty', 'Final Qty', 'Variance', 'Price', 'Variance Value'], previewRows.map(p => {
+    const variance = p.qty - (p.systemQty !== undefined ? p.systemQty : p.qty);
+    return [
+      esc(p.company), esc(p.code || ''), esc(p.name), p.systemQty !== undefined ? p.systemQty : p.qty, p.qty,
+      (variance > 0 ? '+' : '') + variance, 'Rs ' + Number(p.price || 0).toLocaleString(),
+      'Rs ' + Number((variance * p.price).toFixed(2)).toLocaleString(),
+    ];
+  }));
+  const cappedNote = snap.finalInventory.length > _FINAL_AUDIT_PREVIEW_CAP
+    ? `<div style="font-size:10px; color:#64748B; margin:4px 0 10px;">Showing first ${_FINAL_AUDIT_PREVIEW_CAP.toLocaleString()} of ${snap.finalInventory.length.toLocaleString()} SKUs — the full list is included in the exported Excel file.</div>` : '';
+  return header + stats
+    + `<div style="font-weight:700; color:#1B3A6B; margin:14px 0 6px; font-size:12px;">Round Summary</div>` + roundsTable
+    + `<div style="font-weight:700; color:#1B3A6B; margin:14px 0 6px; font-size:12px;">Final Inventory (${snap.finalInventory.length.toLocaleString()} SKUs)</div>` + cappedNote + invTable;
+}
+
+// ── Round History body ──
+function _roundHistoryBodyHTML(rounds, meta) {
+  const esc = Components.esc;
+  const header = _pdfHeader({
+    branchName: meta.branchName, title: 'Round History', subtitle: meta.engagementName,
+    rightLines: [
+      `<strong>Generated:</strong> ${esc(new Date().toLocaleString('en-PK'))}`,
+      `<strong>Main Auditor:</strong> ${esc(meta.mainAuditorName || '—')}`,
+      `<strong>Rounds:</strong> ${rounds.length}`,
+    ],
+  });
+  const table = _pdfTable(['Round #', 'Unit', 'State', 'Created', 'Locked', 'Compiled', 'Finalized'], rounds.map(r => [
+    esc(String(r.roundNumber + (r.roundSuffix || ''))), esc(r.unit), esc(r.state),
+    esc(new Date(r.createdAt).toLocaleString('en-PK')),
+    r.lockedAt ? esc(new Date(r.lockedAt).toLocaleString('en-PK')) : '—',
+    r.compiledAt ? esc(new Date(r.compiledAt).toLocaleString('en-PK')) : '—',
+    r.finalizedAt ? esc(new Date(r.finalizedAt).toLocaleString('en-PK')) : '—',
+  ]));
+  return header + table;
+}
+
+// ── Submission History body ──
+function _submissionHistoryBodyHTML(submissions, assignments, meta) {
+  const esc = Components.esc;
+  const header = _pdfHeader({
+    branchName: meta.branchName, title: 'Submission History', subtitle: meta.engagementName,
+    rightLines: [
+      `<strong>Generated:</strong> ${esc(new Date().toLocaleString('en-PK'))}`,
+      `<strong>Main Auditor:</strong> ${esc(meta.mainAuditorName || '—')}`,
+      `<strong>Submissions:</strong> ${submissions.length}`,
+    ],
+  });
+  const table = _pdfTable(['Auditor', 'Assignment', 'Companies', 'Item Count', 'Submitted At', 'Time Taken', 'Force Submitted By'], submissions.map(s => {
+    const a = assignments.find(x => x.id === s.assignmentId);
+    const timeTaken = (a && a.startedAt) ? Actions.formatDuration((new Date(s.submittedAt) - new Date(a.startedAt)) / 1000) : '—';
+    return [
+      esc(s.auditorName), esc(s.assignmentId), esc(a ? a.companies.join(', ') : ''),
+      Object.keys(s.counts || {}).length, esc(new Date(s.submittedAt).toLocaleString('en-PK')),
+      esc(timeTaken), esc(s.forceSubmittedBy || '—'),
+    ];
+  }));
+  return header + table;
+}
+
+// ── Audit Trail body ──
+function _auditTrailBodyHTML(auditLog, meta) {
+  const esc = Components.esc;
+  const header = _pdfHeader({
+    branchName: meta.branchName, title: 'Audit Trail', subtitle: meta.engagementName,
+    rightLines: [
+      `<strong>Generated:</strong> ${esc(new Date().toLocaleString('en-PK'))}`,
+      `<strong>Main Auditor:</strong> ${esc(meta.mainAuditorName || '—')}`,
+      `<strong>Entries:</strong> ${auditLog.length}`,
+    ],
+  });
+  const table = _pdfTable(['Timestamp', 'Actor', 'Role', 'Action', 'Details'], auditLog.map(e => [
+    esc(new Date(e.ts).toLocaleString('en-PK')), esc(e.actor), esc(e.role), esc(e.action), esc(JSON.stringify(e.details)),
+  ]));
+  return header + table;
+}
+
+// ── Reports tab Overview popup — one dispatcher per report `key`,
+//    each returning { title, bodyHTML, exportFn } or null when there's
+//    nothing to preview yet (e.g. Final Audit before the engagement is
+//    locked to Final, or Variance before any round is compiled). ──
+let reportOverviewKey = null;
+function _buildReportOverview(key) {
+  const meta = _reportMeta();
+  const { finalSnapshots, rounds, compiledRounds, engagements, submissions, assignments, auditLog, currentEngagementId } = Store.getState();
+  const eng = engagements.find(e => e.id === currentEngagementId);
+  if (!eng) return null;
+
+  if (key === 'final-audit') {
+    const snap = finalSnapshots.filter(s => s.engagementId === currentEngagementId).pop();
+    if (!snap) return { title: 'Final Audit Report', empty: 'Generate the Final Snapshot first — see the Difference Engine screen for the current round.' };
+    return { title: 'Final Audit Report', bodyHTML: _finalAuditReportBodyHTML(snap, meta), exportFn: () => Actions.exportFinalAuditReportXLSX(snap, eng.name) };
+  }
+  if (key === 'variance') {
+    const engRounds = rounds.filter(r => r.engagementId === currentEngagementId).sort((a, b) => a.roundNumber - b.roundNumber);
+    const latestRound = engRounds[engRounds.length - 1];
+    const compiled = latestRound ? compiledRounds.filter(c => c.roundId === latestRound.id).pop() : null;
+    if (!compiled) return { title: 'Variance Report', empty: 'Compile a round first — there\'s nothing to report on yet.' };
+    const roundLabel = 'Round ' + latestRound.roundNumber + (latestRound.roundSuffix || '');
+    return { title: 'Variance Report — ' + roundLabel, bodyHTML: _varianceReportBodyHTML(latestRound, compiled, meta), exportFn: () => Actions.exportVarianceReportXLSX(compiled, roundLabel, meta) };
+  }
+  if (key === 'round-history') {
+    const engRounds = rounds.filter(r => r.engagementId === currentEngagementId).sort((a, b) => a.roundNumber - b.roundNumber);
+    if (engRounds.length === 0) return { title: 'Round History', empty: 'No rounds yet for this engagement.' };
+    return { title: 'Round History', bodyHTML: _roundHistoryBodyHTML(engRounds, meta), exportFn: () => Actions.exportRoundHistoryXLSX(eng, engRounds) };
+  }
+  if (key === 'submission-history') {
+    if (submissions.length === 0) return { title: 'Submission History', empty: 'No submissions yet for this engagement.' };
+    return { title: 'Submission History', bodyHTML: _submissionHistoryBodyHTML(submissions, assignments, meta), exportFn: () => Actions.exportSubmissionHistoryXLSX(eng, submissions, assignments) };
+  }
+  if (key === 'audit-trail') {
+    if (auditLog.length === 0) return { title: 'Audit Trail', empty: 'Nothing logged yet for this engagement.' };
+    return { title: 'Audit Trail', bodyHTML: _auditTrailBodyHTML(auditLog, meta), exportFn: () => Actions.exportAuditTrailXLSX(eng, auditLog) };
+  }
+  return null;
+}
+
+function renderReportOverview() {
+  const content = $('report-overview-content');
+  if (!content || !reportOverviewKey) return;
+  const built = _buildReportOverview(reportOverviewKey);
+  if (!built) { content.innerHTML = Components.reportOverviewEmptyHTML('Report', 'Open an engagement first.'); return; }
+  content.innerHTML = built.empty
+    ? Components.reportOverviewEmptyHTML(built.title, built.empty)
+    : Components.reportOverviewShellHTML(built.title, built.bodyHTML);
 }
 
 // ── §Compilation Engine + §Difference Engine (compiled round) ──
@@ -1031,21 +1209,6 @@ export function initEngagementPages() {
         renderRoundWorkspace();
       }
     },
-    'export-final-audit-report': () => {
-      const { finalSnapshots, engagements, currentEngagementId } = Store.getState();
-      const snap = finalSnapshots.filter(s => s.engagementId === currentEngagementId).pop();
-      const eng = engagements.find(e => e.id === currentEngagementId);
-      if (snap && eng) Actions.exportFinalAuditReportXLSX(snap, eng.name);
-      else Bus.emit('toast', { msg: 'Generate the Final Snapshot first', kind: 'error' });
-    },
-    'export-variance-report': () => {
-      const { rounds, compiledRounds, currentEngagementId } = Store.getState();
-      const engRounds = rounds.filter(r => r.engagementId === currentEngagementId).sort((a, b) => a.roundNumber - b.roundNumber);
-      const latestRound = engRounds[engRounds.length - 1];
-      const compiled = latestRound ? compiledRounds.filter(c => c.roundId === latestRound.id).pop() : null;
-      if (compiled) Actions.exportVarianceReportXLSX(compiled, 'Round ' + latestRound.roundNumber + (latestRound.roundSuffix || ''), _reportMeta());
-      else Bus.emit('toast', { msg: 'Compile the round first — there\'s nothing to report on yet', kind: 'error' });
-    },
     'export-variance-report-round': (el) => {
       const { rounds, compiledRounds } = Store.getState();
       const round = rounds.find(r => r.id === el.dataset.roundId);
@@ -1060,20 +1223,29 @@ export function initEngagementPages() {
       if (round && compiled) printVarianceReportPDF(round, compiled, _reportMeta());
       else Bus.emit('toast', { msg: 'Compile the round first — there\'s nothing to report on yet', kind: 'error' });
     },
-    'export-round-history': () => {
-      const { rounds, engagements, currentEngagementId } = Store.getState();
-      const eng = engagements.find(e => e.id === currentEngagementId);
-      if (eng) Actions.exportRoundHistoryXLSX(eng, rounds);
+    // Reports tab — Overview popup replaces immediate download. Tapping
+    // "Overview" opens a branded preview (identical markup to the printed
+    // page); Print/Export live inside the popup itself.
+    'open-report-overview': (el) => {
+      reportOverviewKey = el.dataset.report;
+      renderReportOverview();
+      const overlay = $('report-overview-overlay');
+      if (overlay) overlay.style.display = 'flex';
     },
-    'export-submission-history': () => {
-      const { submissions, assignments, engagements, currentEngagementId } = Store.getState();
-      const eng = engagements.find(e => e.id === currentEngagementId);
-      if (eng) Actions.exportSubmissionHistoryXLSX(eng, submissions, assignments);
+    'close-report-overview': () => {
+      const overlay = $('report-overview-overlay');
+      if (overlay) overlay.style.display = 'none';
+      reportOverviewKey = null;
     },
-    'export-audit-trail': () => {
-      const { auditLog, engagements, currentEngagementId } = Store.getState();
-      const eng = engagements.find(e => e.id === currentEngagementId);
-      if (eng) Actions.exportAuditTrailXLSX(eng, auditLog);
+    'print-report-overview': () => {
+      if (!reportOverviewKey) return;
+      const built = _buildReportOverview(reportOverviewKey);
+      if (built && built.bodyHTML) _printHTMLToCanvas(built.bodyHTML);
+    },
+    'export-report-overview': () => {
+      if (!reportOverviewKey) return;
+      const built = _buildReportOverview(reportOverviewKey);
+      if (built && built.exportFn) built.exportFn();
     },
   };
 
