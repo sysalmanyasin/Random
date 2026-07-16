@@ -3,9 +3,9 @@
    The ONLY import path other floors use for storage. Internally
    split into js/repository/*.js by concern (db core, legacy
    single-auditor stores, new multi-auditor entities, localStorage/
-   sessionStorage, Dropbox network) — but the golden rule still
-   holds file-system-wide: grep for `localStorage.`, `sessionStorage.`,
-   `indexedDB.` or `Dropbox.` outside js/repository/* → zero matches.
+   sessionStorage) — but the golden rule still holds file-system-wide:
+   grep for `localStorage.`, `sessionStorage.`, `indexedDB.` or
+   `Dropbox.` outside js/repository/* → zero matches.
    No other floor may import anything from js/repository/* directly;
    everyone goes through this barrel.
    ══════════════════════════════════════════════════════════════ */

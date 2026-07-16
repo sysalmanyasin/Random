@@ -497,6 +497,47 @@ alter table submissions add column if not exists row_times jsonb not null defaul
 alter table submissions add column if not exists auto_matched jsonb not null default '{}';
 
 -- ══════════════════════════════════════════════════════════════
+-- SHARED INVENTORY — server-synced from Dropbox.
+-- These two tables are queried directly by js/repository/supabase.js
+-- (fetchInventoryProducts, fetchLatestInventorySync) but were missing
+-- from this file even though the app depends on them from first
+-- bootstrap (Actions.bootstrap() -> loadInventoryFromSupabase). Only
+-- the sync-inventory-from-dropbox Edge Function (service-role key,
+-- bypasses RLS) ever writes to these — every client only ever reads.
+-- ══════════════════════════════════════════════════════════════
+
+create table if not exists inventory_products (
+  id uuid primary key default gen_random_uuid(),
+  code text not null,
+  name text not null,
+  qty numeric not null default 0,
+  price numeric not null default 0,
+  company text not null default 'Unassigned Manufacturer',
+  generic text not null default '',
+  supplier text not null default 'Unassigned Supplier',
+  conversion_factor numeric not null default 1
+);
+
+alter table inventory_products enable row level security;
+drop policy if exists "inventory read all staff" on inventory_products;
+create policy "inventory read all staff" on inventory_products for select using (is_access_valid());
+
+create index if not exists idx_inventory_products_code on inventory_products(code);
+
+create table if not exists inventory_sync_log (
+  id uuid primary key default gen_random_uuid(),
+  synced_at timestamptz not null default now(),
+  item_count integer not null,
+  source text not null
+);
+
+alter table inventory_sync_log enable row level security;
+drop policy if exists "inventory sync log read all staff" on inventory_sync_log;
+create policy "inventory sync log read all staff" on inventory_sync_log for select using (is_access_valid());
+
+create index if not exists idx_inventory_sync_log_synced_at on inventory_sync_log(synced_at desc);
+
+-- ══════════════════════════════════════════════════════════════
 -- ONE-TIME: create your own Main Auditor login.
 -- Do this AFTER deploying the create-staff Edge Function (see
 -- supabase/admin-actions/index.ts) — call it once with your own

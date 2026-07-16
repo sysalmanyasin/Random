@@ -35,6 +35,86 @@ function _visibleProducts() {
     (p.supplier || '').toLowerCase().includes(q));
 }
 
+// ── Template Builder popup — its own search state, deliberately kept
+//    separate from the main Inventory tab's inventorySearchQuery (Store
+//    state) so opening the popup never disturbs whatever the user was
+//    already filtering the big table by underneath it. ──
+let templateBuilderQuery = '';
+let templateBuilderDebounce = null;
+let templateBuilderMode = 'search'; // 'search' | 'company'
+let templateBuilderCompanyFilter = '';
+let templateBuilderCompanyFilterDebounce = null;
+const TEMPLATE_BUILDER_RESULT_CAP = 40;
+
+function _templateBuilderMatches() {
+  const { products } = Store.getState();
+  const q = templateBuilderQuery.toLowerCase().trim();
+  if (!q) return [];
+  return products.filter(p =>
+    (p.name || '').toLowerCase().includes(q) ||
+    (p.code || '').toLowerCase().includes(q) ||
+    (p.generic || '').toLowerCase().includes(q) ||
+    (p.company || '').toLowerCase().includes(q) ||
+    (p.supplier || '').toLowerCase().includes(q));
+}
+
+// [{ name, codes }] sorted alphabetically — codes excludes blank-code
+// rows, since those can never be added to a template anyway (same rule
+// the Search Products tab already applies per-row).
+function _templateBuilderCompanies() {
+  const { products } = Store.getState();
+  const map = new Map();
+  products.forEach(p => {
+    if (!p.code) return;
+    const name = p.company || 'Unassigned';
+    if (!map.has(name)) map.set(name, []);
+    map.get(name).push(p.code);
+  });
+  return [...map.keys()].sort((a, b) => a.localeCompare(b)).map(name => ({ name, codes: map.get(name) }));
+}
+
+// Swaps the whole browse pane (search box + results, or company filter +
+// list) when the mode tab is switched — a click, not a keystroke, so
+// rebuilding the input here doesn't cost any focus/cursor position.
+function renderTemplateBuilderBrowse() {
+  const el = $('template-builder-browse');
+  if (!el) return;
+  el.innerHTML = Components.templateBuilderBrowseHTML(templateBuilderMode, templateBuilderQuery);
+  if (templateBuilderMode === 'company') renderTemplateBuilderCompanyList();
+  else renderTemplateBuilderResults();
+}
+
+// Only these two containers are touched on every keystroke/add/remove —
+// the search input itself lives in the shell, rendered once on open, so
+// it never loses focus mid-type.
+function renderTemplateBuilderResults() {
+  const el = $('template-builder-results');
+  if (!el) return;
+  const { inventorySelectedCodes } = Store.getState();
+  const all = _templateBuilderMatches();
+  const truncated = all.length > TEMPLATE_BUILDER_RESULT_CAP;
+  const results = all.slice(0, TEMPLATE_BUILDER_RESULT_CAP);
+  el.innerHTML = Components.templateBuilderResultsHTML(templateBuilderQuery, results, truncated, all.length, new Set(inventorySelectedCodes));
+}
+
+function renderTemplateBuilderCompanyList() {
+  const el = $('template-builder-company-list');
+  if (!el) return;
+  const { inventorySelectedCodes } = Store.getState();
+  el.innerHTML = Components.templateBuilderCompanyListHTML(_templateBuilderCompanies(), new Set(inventorySelectedCodes), templateBuilderCompanyFilter);
+  // Tri-state checkboxes: "indeterminate" has no HTML attribute, so it
+  // has to be set as a live DOM property after the checkbox exists.
+  el.querySelectorAll('input[data-indeterminate="true"]').forEach(cb => { cb.indeterminate = true; });
+}
+
+function renderTemplateBuilderSelected() {
+  const el = $('template-builder-selected');
+  if (!el) return;
+  const { inventorySelectedCodes } = Store.getState();
+  const { items } = Actions.resolveCodes(inventorySelectedCodes);
+  el.innerHTML = Components.templateBuilderSelectedHTML(items);
+}
+
 function renderInventoryTable() {
   const tbody = $('inv-table-body');
   if (!tbody) return;
@@ -241,6 +321,58 @@ export function initInventoryPages() {
         Bus.emit('nav:goto', 'team');
       }
     },
+    // Template Builder — search-and-add popup (Candela "Product Code
+    // Help"-style). Adds/removes go straight through the same
+    // inventorySelectedCodes selection every other entry point (checkbox,
+    // file, manual paste) uses, so it's fully interchangeable with them.
+    'open-template-builder': () => {
+      templateBuilderQuery = '';
+      templateBuilderCompanyFilter = '';
+      templateBuilderMode = 'search';
+      const content = $('template-builder-content');
+      if (content) content.innerHTML = Components.templateBuilderShellHTML(templateBuilderMode, templateBuilderQuery);
+      renderTemplateBuilderBrowse();
+      renderTemplateBuilderSelected();
+      const overlay = $('template-builder-overlay');
+      if (overlay) overlay.style.display = 'flex';
+      setTimeout(() => { const input = $('template-builder-search-input'); if (input) input.focus(); }, 0);
+    },
+    'close-template-builder': () => {
+      const overlay = $('template-builder-overlay');
+      if (overlay) overlay.style.display = 'none';
+    },
+    'template-builder-set-mode': (el) => {
+      if (templateBuilderMode === el.dataset.mode) return;
+      templateBuilderMode = el.dataset.mode;
+      const content = $('template-builder-content');
+      if (content) content.innerHTML = Components.templateBuilderShellHTML(templateBuilderMode, templateBuilderQuery);
+      renderTemplateBuilderBrowse();
+      renderTemplateBuilderSelected();
+      if (templateBuilderMode === 'search') { const input = $('template-builder-search-input'); if (input) input.focus(); }
+    },
+    'template-builder-add': (el) => {
+      if (!el.dataset.code) return;
+      Actions.selectManyForInventory([el.dataset.code], true);
+      renderTemplateBuilderBrowse();
+      renderTemplateBuilderSelected();
+    },
+    'template-builder-remove': (el) => {
+      if (!el.dataset.code) return;
+      Actions.selectManyForInventory([el.dataset.code], false);
+      renderTemplateBuilderBrowse();
+      renderTemplateBuilderSelected();
+    },
+    'template-builder-clear': () => {
+      Actions.clearInventorySelection();
+      renderTemplateBuilderBrowse();
+      renderTemplateBuilderSelected();
+    },
+    'template-builder-save': async () => {
+      const name = prompt('Name this template:');
+      if (!name) return;
+      const t = await Actions.saveSelectionAsTemplate(name);
+      if (t) { const overlay = $('template-builder-overlay'); if (overlay) overlay.style.display = 'none'; }
+    },
   };
   const inputHandlers = {
     // Debounced — with 5000+ rows, re-filtering and re-rendering on every
@@ -249,6 +381,19 @@ export function initInventoryPages() {
       const value = el.value;
       clearTimeout(searchDebounceTimer);
       searchDebounceTimer = setTimeout(() => Actions.setInventorySearch(value), 250);
+    },
+    'template-builder-search': (el) => {
+      const value = el.value;
+      clearTimeout(templateBuilderDebounce);
+      // Only the results pane re-renders here — the input itself is
+      // never touched, so it keeps focus and cursor position while the
+      // person keeps typing.
+      templateBuilderDebounce = setTimeout(() => { templateBuilderQuery = value; renderTemplateBuilderResults(); }, 200);
+    },
+    'template-builder-company-filter': (el) => {
+      const value = el.value;
+      clearTimeout(templateBuilderCompanyFilterDebounce);
+      templateBuilderCompanyFilterDebounce = setTimeout(() => { templateBuilderCompanyFilter = value; renderTemplateBuilderCompanyList(); }, 200);
     },
   };
   const changeHandlers = {
@@ -261,6 +406,13 @@ export function initInventoryPages() {
       Actions.selectManyForInventory(codes, el.checked);
     },
     'handle-inventory-codes-file': (el) => { if (el.files[0]) Actions.importCodesFromFile(el.files[0]); el.value = ''; },
+    'toggle-template-builder-company': (el) => {
+      const company = _templateBuilderCompanies().find(c => c.name === el.dataset.company);
+      if (!company) return;
+      Actions.selectManyForInventory(company.codes, el.checked);
+      renderTemplateBuilderBrowse();
+      renderTemplateBuilderSelected();
+    },
   };
   return { clickHandlers, inputHandlers, changeHandlers, keydownHandlers: {} };
 }

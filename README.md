@@ -104,8 +104,9 @@ js/repository/
   db.js                             IndexedDB schema + generic CRUD (legacy data only now).
   legacy.js                         Products / session-checkpoint / history-ledger storage.
   storage.js                        localStorage / sessionStorage wrapper.
-  dropbox.js                        Dropbox network calls — inventory sync ONLY.
-  supabase.js                       Supabase client, auth, and all multi-auditor table CRUD.
+  supabase.js                       Supabase client, auth, all multi-auditor table CRUD, and the
+                                     shared inventory table (the Dropbox pull itself runs server-side,
+                                     in a Supabase Edge Function — no client-side Dropbox module exists).
 
 js/store.js                         Floor 2 door. Re-exports `Store` (getState/setState).
 js/store/
@@ -153,6 +154,8 @@ js/pages/
   staff-pages.js                    Staff tab wiring.
   engagement-pages.js               Main Auditor's Team Audit workspace (engagement→round→assignment→compile→dashboard→reports).
   sub-pages.js                      Sub-Auditor's own assignment view + counting table.
+  inventory-pages.js                Inventory tab: searchable/groupable browser + saved Templates.
+  home-stats-page.js                Keeps the three home-screen tile stat lines live via Bus events.
   event-delegation.js               The ONE set of DOM listeners, merging every page module's handler map.
 
 js/main.js                          Entry point: initPages() then Actions.bootstrap().

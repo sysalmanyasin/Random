@@ -1,6 +1,5 @@
 import { Actions } from './actions.js';
 import { initPages } from './pages.js';
-import './home-stats.js';
 
 /* ══════════════════════════════════════════════════════════════
    MAIN — app bootstrap

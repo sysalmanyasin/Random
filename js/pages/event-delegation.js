@@ -6,15 +6,21 @@ import { initSubPages, renderTeamTabForSubAuditor } from './sub-pages.js';
 import { initAuthPages, renderAuthRoot } from './auth-pages.js';
 import { initStaffPages, renderStaffTab } from './staff-pages.js';
 import { initInventoryPages } from './inventory-pages.js';
+import { initHomeStatsPage } from './home-stats-page.js';
 import { Components } from '../components.js';
 
 /* ══════════════════════════════════════════════════════════════
    FLOOR 5 — PAGES / event-delegation.js
    EVENT DELEGATION — the only place DOM listeners are attached.
-   Exactly one addEventListener per event type on #app, same
-   contract as the original single-file Pages module — the
+   Exactly one addEventListener per event type on #app (click,
+   keydown, input, change, focusin, focusout — checked by grep),
+   same contract as the original single-file Pages module — the
    handler *maps* now come from every page module (legacy +
-   engagement + sub + auth + staff) merged together here.
+   engagement + sub + auth + staff + inventory) merged together
+   here. The one #app 'keydown' listener below covers both the
+   explicit [data-keydown-action] map and the generic Enter/Space
+   activation safety net, rather than being split into two
+   competing listeners for the same event type.
    ══════════════════════════════════════════════════════════════ */
 
 const $ = (id) => document.getElementById(id);
@@ -67,7 +73,7 @@ Bus.on('auth:needsConfig', renderAuthRoot);
 // like a dialog; the moment it's hidden again, focus returns to
 // whatever was focused before it opened. New overlays just need adding
 // to this list — no per-handler wiring required.
-const DIALOG_OVERLAY_IDS = ['pin-gate-overlay', 'live-snapshot-overlay', 'force-submit-overlay', 'report-overview-overlay'];
+const DIALOG_OVERLAY_IDS = ['pin-gate-overlay', 'live-snapshot-overlay', 'force-submit-overlay', 'report-overview-overlay', 'template-builder-overlay'];
 // Maps each overlay to the click-handler name that closes it, so Escape
 // can reuse the exact same close logic as its own visible "✕"/Cancel
 // button rather than just hiding the element and leaving app state
@@ -77,6 +83,7 @@ const DIALOG_CLOSE_ACTION = {
   'live-snapshot-overlay': 'close-live-snapshot',
   'force-submit-overlay': 'close-force-submit',
   'report-overview-overlay': 'close-report-overview',
+  'template-builder-overlay': 'close-template-builder',
 };
 let _lastFocusedBeforeDialog = null;
 function _isVisible(el) { return el && el.style.display !== 'none' && el.style.display !== ''; }
@@ -133,6 +140,7 @@ export function initPages() {
   const auth = initAuthPages();
   const staff = initStaffPages();
   const inventory = initInventoryPages();
+  initHomeStatsPage();
 
   const clickHandlers = { ...legacy.clickHandlers, ...engagement.clickHandlers, ...sub.clickHandlers, ...auth.clickHandlers, ...staff.clickHandlers, ...inventory.clickHandlers };
   const inputHandlers = { ...legacy.inputHandlers, ...engagement.inputHandlers, ...sub.inputHandlers, ...auth.inputHandlers, ...staff.inputHandlers, ...inventory.inputHandlers };
@@ -144,31 +152,6 @@ export function initPages() {
   app.addEventListener('click', (e) => {
     const el = e.target.closest('[data-action]');
     if (!el || !app.contains(el)) return;
-    const handler = clickHandlers[el.dataset.action];
-    if (handler) handler(el);
-  });
-
-  // Safety net for the clickable divs/rows across the app that stand in
-  // for a button (assignment cards, accordion headers, company/engagement
-  // cards, etc.) — each of those already gets tabindex="0" at render time,
-  // but Enter/Space activation isn't native on a non-<button> element, so
-  // it has to be wired up once, here, rather than repeated in every
-  // component that renders one.
-  app.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    const el = e.target.closest('[data-action]');
-    if (!el || !app.contains(el)) return;
-    // Must be pressed directly on the data-action element itself, not
-    // bubbled up from some nested interactive child of it (e.g. a
-    // search input or a real <button> sitting inside a card that also
-    // carries its own data-action) — otherwise typing Enter in a
-    // nested field would wrongly trigger the card's own action instead
-    // of whatever the field itself does.
-    if (e.target !== el) return;
-    const nativelyHandlesItsOwnKeys = ['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName);
-    if (nativelyHandlesItsOwnKeys) return;
-    if (el.dataset.action === 'noop') return;
-    e.preventDefault(); // stop Space from also scrolling the page
     const handler = clickHandlers[el.dataset.action];
     if (handler) handler(el);
   });
@@ -187,11 +170,39 @@ export function initPages() {
     if (handler) handler(el);
   });
 
+  // Single keydown listener on #app, covering both keydown-driven
+  // behaviors so there is exactly one 'keydown' registration here:
+  //  1) explicit [data-keydown-action] handlers, and
+  //  2) the Enter/Space activation safety net for the clickable
+  //     divs/rows across the app that stand in for a button
+  //     (assignment cards, accordion headers, company/engagement
+  //     cards, etc.) — each already gets tabindex="0" at render time,
+  //     but Enter/Space activation isn't native on a non-<button>
+  //     element, so it has to be wired up once, here, rather than
+  //     repeated in every component that renders one.
   app.addEventListener('keydown', (e) => {
-    const el = e.target.closest('[data-keydown-action]');
-    if (!el) return;
-    const handler = keydownHandlers[el.dataset.keydownAction];
-    if (handler) handler(e, el);
+    const keydownActionEl = e.target.closest('[data-keydown-action]');
+    if (keydownActionEl) {
+      const handler = keydownHandlers[keydownActionEl.dataset.keydownAction];
+      if (handler) handler(e, keydownActionEl);
+    }
+
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const el = e.target.closest('[data-action]');
+    if (!el || !app.contains(el)) return;
+    // Must be pressed directly on the data-action element itself, not
+    // bubbled up from some nested interactive child of it (e.g. a
+    // search input or a real <button> sitting inside a card that also
+    // carries its own data-action) — otherwise typing Enter in a
+    // nested field would wrongly trigger the card's own action instead
+    // of whatever the field itself does.
+    if (e.target !== el) return;
+    const nativelyHandlesItsOwnKeys = ['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName);
+    if (nativelyHandlesItsOwnKeys) return;
+    if (el.dataset.action === 'noop') return;
+    e.preventDefault(); // stop Space from also scrolling the page
+    const handler = clickHandlers[el.dataset.action];
+    if (handler) handler(el);
   });
 
   // Shared row-highlight behavior for both the legacy audit table and the

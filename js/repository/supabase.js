@@ -2,9 +2,10 @@
    FLOOR 1 — REPOSITORY / supabase.js
    The only module that talks to Supabase. Multi-auditor data
    (engagements/rounds/assignments/submissions/staff) now lives
-   here instead of IndexedDB + Dropbox file drops — Dropbox is
-   still used, but only for inventory sync (repository/dropbox.js,
-   unchanged). RLS on the Supabase side is what actually enforces
+   here instead of IndexedDB + Dropbox file drops. Dropbox itself
+   is pulled server-side only (see triggerInventorySync() below) —
+   there is no client-side Dropbox networking module in this app
+   any more. RLS on the Supabase side is what actually enforces
    Sub-Auditor isolation now; this file just shapes the requests.
    ══════════════════════════════════════════════════════════════ */
 

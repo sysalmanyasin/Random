@@ -189,6 +189,13 @@ Bus.on('cloud:state', ({ state, text }) => {
 });
 
 // ── PWA install banner ──
+// The two window-level listeners below are browser-mandated PWA
+// lifecycle hooks (same carve-out as the service worker registration
+// in main.js) — they cannot be dispatched through #app's data-action
+// delegation because the browser fires them on `window` itself, not
+// on any element in the document. The "exactly one addEventListener
+// per event type" golden rule is scoped to #app; these two event
+// types never fire there at all.
 function initPwaInstallBanner() {
   let deferredInstallPrompt = null;
   const banner = $('pwa-install-banner');
@@ -230,7 +237,6 @@ export function initLegacyPages() {
     'noop': () => {},
     'cloud-bar-tapped': () => Actions.cloudBarTapped(),
     'font-scale': (el) => applyFontScaleAdjustment(el.dataset.scale, el),
-    'goto-settings-pin-gate': () => { executeViewNavigation('settings'); openSettingsPinGate(); },
     'fetch-dropbox-inventory': () => fetchInventoryFromDropbox(),
     'trigger-file-input': (el) => { const t = $(el.dataset.target); if (t) t.click(); },
     // Shared with the Reports list (report-components.js) and the
