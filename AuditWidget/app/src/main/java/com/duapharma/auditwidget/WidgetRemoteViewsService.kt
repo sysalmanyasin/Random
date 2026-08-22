@@ -1,8 +1,11 @@
 package com.duapharma.auditwidget
 
 import android.content.Intent
+import android.util.Log
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
+
+private const val TAG = "AuditWidget"
 
 class WidgetRemoteViewsService : RemoteViewsService() {
     override fun onGetViewFactory(intent: Intent): RemoteViewsFactory =
@@ -17,10 +20,30 @@ class RoundsRemoteViewsFactory(private val context: android.content.Context) :
     override fun onCreate() {}
 
     // Called by the system on a background thread — safe to do blocking network I/O here.
+    // Must never throw: an uncaught exception here leaves the widget stuck on the
+    // system's default "Loading..." placeholder rows indefinitely.
     override fun onDataSetChanged() {
-        rows = when (val result = RoundsRepository.fetchOpenIndividualRounds(context)) {
-            is RoundsResult.Success -> result.rows
-            else -> emptyList()
+        rows = try {
+            when (val result = RoundsRepository.fetchOpenIndividualRounds(context)) {
+                is RoundsResult.Success -> {
+                    Log.i(TAG, "Fetched ${result.rows.size} open individual-assignment rows")
+                    result.rows
+                }
+                is RoundsResult.NotLoggedIn -> {
+                    Log.i(TAG, "onDataSetChanged: not logged in")
+                    emptyList()
+                }
+                is RoundsResult.Error -> {
+                    Log.e(TAG, "onDataSetChanged fetch error: ${result.message}")
+                    emptyList()
+                }
+            }
+        } catch (t: Throwable) {
+            // Belt-and-braces: RoundsRepository already catches Exception internally,
+            // but catch Throwable here too so nothing (OOM, linkage errors, etc.) can
+            // escape and leave the widget stuck showing the loading stub forever.
+            Log.e(TAG, "onDataSetChanged crashed", t)
+            emptyList()
         }
     }
 

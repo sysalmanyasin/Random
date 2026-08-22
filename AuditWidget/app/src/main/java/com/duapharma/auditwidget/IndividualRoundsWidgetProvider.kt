@@ -39,7 +39,10 @@ class IndividualRoundsWidgetProvider : AppWidgetProvider() {
 
             val adapterIntent = Intent(context, WidgetRemoteViewsService::class.java).apply {
                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
-                data = android.net.Uri.parse(toUri(Intent.URI_INTENT_SCHEME))
+                // A unique data URI per widget instance so the system treats each
+                // widget's adapter intent as distinct (required for setRemoteAdapter
+                // to rebind correctly) — NOT meant to encode real data.
+                data = android.net.Uri.parse("auditwidget://rounds/$id")
             }
             views.setRemoteAdapter(R.id.roundsList, adapterIntent)
             views.setEmptyView(R.id.roundsList, R.id.emptyText)

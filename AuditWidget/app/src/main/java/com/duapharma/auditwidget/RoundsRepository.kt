@@ -134,8 +134,8 @@ object RoundsRepository {
         val conn = url.openConnection() as HttpURLConnection
         try {
             conn.requestMethod = "GET"
-            conn.connectTimeout = 15000
-            conn.readTimeout = 15000
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
             conn.setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
             conn.setRequestProperty("Authorization", "Bearer $accessToken")
 
