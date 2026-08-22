@@ -1,3 +1,5 @@
+import { esc } from './dom-utils.js';
+
 /* ══════════════════════════════════════════════════════════════
    FLOOR 4 — COMPONENTS / round-components.js
    Blueprint §Round Management — pure render only.
@@ -12,7 +14,13 @@ const STATE_BADGE = {
   compiled: 'val-green', final: 'val-green',
 };
 
-export function roundCard(round, isLatest) {
+// `individualInfo` (optional): { auditorName, companies, topCompanies }
+// — passed only for rounds inside an Individual Assignments pool (see
+// IndividualActions.summarizeIndividualRounds), where each round is
+// one auditor's self-pick and the plain round meta alone doesn't say
+// who picked what. Renders an extra strip: Auditor name, the
+// company(ies) picked, and the top 3 by counted value (qty × price).
+export function roundCard(round, isLatest, individualInfo) {
   const card = document.createElement('div');
   card.className = 'company-card';
   card.dataset.action = 'open-round';
@@ -20,10 +28,24 @@ export function roundCard(round, isLatest) {
   card.tabIndex = 0;
   card.setAttribute('role', 'button');
   const label = round.roundNumber + (round.roundSuffix || '');
+  const individualStrip = individualInfo ? `
+    <div class="round-card-individual-strip" style="margin-top:6px; padding-top:6px; border-top:1px dashed var(--border, #e2e2e2);">
+      <div style="font-size:11px; color:var(--navy); font-weight:700;">👤 ${esc(individualInfo.auditorName || 'Unknown auditor')}</div>
+      <div style="font-size:10.5px; color:var(--grey); margin-top:2px;">
+        ${individualInfo.companies && individualInfo.companies.length
+          ? '🏢 ' + individualInfo.companies.map(esc).join(', ')
+          : 'No company scope recorded'}
+      </div>
+      ${individualInfo.topCompanies && individualInfo.topCompanies.length ? `
+      <div style="font-size:10.5px; color:var(--grey); margin-top:2px;">
+        📊 Top by value: ${individualInfo.topCompanies.map(t => esc(t.company) + ' (Rs ' + Math.round(t.value).toLocaleString() + ')').join(' · ')}
+      </div>` : ''}
+    </div>` : '';
   card.innerHTML = `
     <div style="flex:1; min-width:0;">
       <div class="company-card-name">Round ${label} ${isLatest ? '(current)' : ''}</div>
       <div class="company-card-meta">Unit: ${round.unit === 'company' ? 'Company-level' : 'Company + Item'} · Created ${new Date(round.createdAt).toLocaleDateString('en-PK')}</div>
+      ${individualStrip}
     </div>
     <div class="company-card-badges">
       <span class="val-badge ${STATE_BADGE[round.state] || 'val-grey'}">${STATE_LABEL[round.state] || round.state}</span>

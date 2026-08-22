@@ -327,15 +327,32 @@ function refreshSubRoundSection() {
   if (showSubRoundPicker) renderSubRoundCompanyPicker(engagement);
 }
 
-function refreshRoundList() {
+async function refreshRoundList() {
   const holder = $('round-list-holder');
   if (!holder) return;
-  const { rounds } = Store.getState();
+  const { rounds, engagements, currentEngagementId } = Store.getState();
   const sorted = rounds.slice().sort((a, b) => a.roundNumber - b.roundNumber);
   holder.innerHTML = '';
   if (sorted.length === 0) { holder.appendChild(Components.noRoundsEmptyState()); return; }
   const latest = sorted[sorted.length - 1];
-  sorted.forEach(r => holder.appendChild(Components.roundCard(r, r.id === latest.id)));
+
+  // Individual Assignments pool: each round is one auditor's self-pick,
+  // so enrich every round card with who picked it, which company(ies),
+  // and their top companies by counted value — see
+  // IndividualActions.summarizeIndividualRounds.
+  const engagement = engagements.find(e => e.id === currentEngagementId);
+  let individualSummary = null;
+  if (engagement && engagement.scope && engagement.scope.type === 'individual') {
+    // Uses the same read-only loader as the grouped-by-staff view
+    // (Actions.loadIndividualDashboardData) rather than
+    // loadAssignmentsForRound, since that one overwrites Store's
+    // shared `assignments` (used by the currently-open round's
+    // workspace) as a side effect — this is a display-only summary.
+    const { assignments } = await Actions.loadIndividualDashboardData(engagement);
+    individualSummary = Actions.summarizeIndividualRounds(sorted, assignments);
+  }
+
+  sorted.forEach(r => holder.appendChild(Components.roundCard(r, r.id === latest.id, individualSummary ? individualSummary.get(r.id) : null)));
   refreshDashboard();
 }
 Bus.on('rounds:changed', () => { if (currentSubView === 'detail') refreshRoundList(); });

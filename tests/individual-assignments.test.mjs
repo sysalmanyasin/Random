@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { _testables } from '../js/actions/individual-actions.js';
 
-const { _currentMonthKey, _monthLabel, groupIndividualAssignmentsByStaff } = _testables;
+const { _currentMonthKey, _monthLabel, groupIndividualAssignmentsByStaff, summarizeIndividualRounds } = _testables;
 
 test('_currentMonthKey: formats as YYYY-MM with a zero-padded month', () => {
   assert.equal(_currentMonthKey(new Date(2026, 0, 15)), '2026-01');
@@ -55,4 +55,58 @@ test('groupIndividualAssignmentsByStaff: a staff member with multiple rounds get
 
 test('groupIndividualAssignmentsByStaff: empty input produces an empty list without throwing', () => {
   assert.deepEqual(groupIndividualAssignmentsByStaff([], [], []), []);
+});
+
+test('summarizeIndividualRounds: carries auditor name and companies through from the assignment', () => {
+  const rounds = [{ id: 'r1' }];
+  const assignments = [{ roundId: 'r1', auditorName: 'Ali', companies: ['Acme', 'Beta'], items: [] }];
+  const summary = summarizeIndividualRounds(rounds, assignments);
+  assert.deepEqual(summary.get('r1'), { auditorName: 'Ali', companies: ['Acme', 'Beta'], topCompanies: [] });
+});
+
+test('summarizeIndividualRounds: ranks companies by summed qty × price, highest value first, capped at 3', () => {
+  const rounds = [{ id: 'r1' }];
+  const assignments = [{
+    roundId: 'r1', auditorName: 'Ali', companies: ['A', 'B', 'C', 'D'],
+    items: [
+      { company: 'A', qty: 10, price: 5 },   // 50
+      { company: 'B', qty: 100, price: 10 }, // 1000
+      { company: 'C', qty: 1, price: 1 },    // 1
+      { company: 'D', qty: 20, price: 20 },  // 400
+    ],
+  }];
+  const { topCompanies } = summarizeIndividualRounds(rounds, assignments).get('r1');
+  assert.deepEqual(topCompanies.map(t => t.company), ['B', 'D', 'A']);
+  assert.equal(topCompanies[0].value, 1000);
+});
+
+test('summarizeIndividualRounds: sums multiple line items of the same company before ranking', () => {
+  const rounds = [{ id: 'r1' }];
+  const assignments = [{
+    roundId: 'r1', auditorName: 'Ali', companies: ['A'],
+    items: [
+      { company: 'A', qty: 5, price: 10 },  // 50
+      { company: 'A', qty: 5, price: 10 },  // 50 → 100 total
+    ],
+  }];
+  const { topCompanies } = summarizeIndividualRounds(rounds, assignments).get('r1');
+  assert.equal(topCompanies[0].value, 100);
+});
+
+test('summarizeIndividualRounds: a round with no matching assignment is simply absent from the map', () => {
+  const rounds = [{ id: 'r1' }, { id: 'r2' }];
+  const assignments = [{ roundId: 'r1', auditorName: 'Ali', companies: [], items: [] }];
+  const summary = summarizeIndividualRounds(rounds, assignments);
+  assert.equal(summary.has('r1'), true);
+  assert.equal(summary.has('r2'), false);
+});
+
+test('summarizeIndividualRounds: missing qty/price on a line item is treated as zero, not NaN', () => {
+  const rounds = [{ id: 'r1' }];
+  const assignments = [{
+    roundId: 'r1', auditorName: 'Ali', companies: ['A'],
+    items: [{ company: 'A' }],
+  }];
+  const { topCompanies } = summarizeIndividualRounds(rounds, assignments).get('r1');
+  assert.equal(topCompanies[0].value, 0);
 });

@@ -227,6 +227,42 @@ async function loadIndividualDashboardData(engagement) {
   return { rounds, assignments, compiledRounds };
 }
 
+// ── Per-round summary for the Main Auditor's plain Engagement-detail
+// view (renderEngagementDetailHTML/roundCard in engagement-pages.js) ──
+// An Individual Assignments pool's rounds are each one auditor's
+// self-pick, so unlike a normal Team round the round card alone
+// ("Round 1", "Company + Item", a state badge) tells the Main Auditor
+// nothing about who picked what. This builds a roundId → summary map
+// with the auditor's name, the company(ies) they picked, and their
+// top 3 companies by counted value (qty × price, summed per company
+// from the assignment's item snapshot) so that shows up right on the
+// round list without opening each round individually.
+// An individual round has exactly one assignment by construction (see
+// startIndividualAssignment above), so `assignments` here is expected
+// to already be filtered/scoped to just this engagement's rounds.
+function summarizeIndividualRounds(rounds, assignments) {
+  const summary = new Map();
+  rounds.forEach(round => {
+    const a = assignments.find(x => x.roundId === round.id);
+    if (!a) return;
+    const valueByCompany = new Map();
+    (a.items || []).forEach(it => {
+      const value = (Number(it.qty) || 0) * (Number(it.price) || 0);
+      valueByCompany.set(it.company, (valueByCompany.get(it.company) || 0) + value);
+    });
+    const topCompanies = [...valueByCompany.entries()]
+      .sort((x, y) => y[1] - x[1])
+      .slice(0, 3)
+      .map(([company, value]) => ({ company, value }));
+    summary.set(round.id, {
+      auditorName: a.auditorName,
+      companies: a.companies || [],
+      topCompanies,
+    });
+  });
+  return summary;
+}
+
 // ── Main Auditor's grouped view ──────────────────────────────
 // Flattens every round in the Individual pool into one list, grouped
 // by auditor name (A–Z), each entry showing what they picked and the
@@ -283,7 +319,7 @@ async function recompileIndividualRounds(roundIds, templateName) {
 export const IndividualActions = {
   getOrCreateCurrentIndividualEngagement, findMyOpenIndividualAssignment, startIndividualAssignment,
   autoCompileIfIndividual, groupIndividualAssignmentsByStaff, recompileIndividualRounds, isCurrentIndividualMonth,
-  loadIndividualDashboardData,
+  loadIndividualDashboardData, summarizeIndividualRounds,
 };
 
-export const _testables = { _currentMonthKey, _monthLabel, groupIndividualAssignmentsByStaff, isCurrentIndividualMonth };
+export const _testables = { _currentMonthKey, _monthLabel, groupIndividualAssignmentsByStaff, isCurrentIndividualMonth, summarizeIndividualRounds };
