@@ -16,14 +16,16 @@ android {
 
         // Public anon/publishable key — safe to bake in, same as the PWA does.
         // Override at build time with -PsupabaseUrl=... -PsupabaseAnonKey=... if needed.
-        buildConfigField(
-            "String", "SUPABASE_URL",
-            "\"${project.findProperty("supabaseUrl") ?: "https://vtcrdkqhuvxatclobsby.supabase.co"}\""
-        )
-        buildConfigField(
-            "String", "SUPABASE_ANON_KEY",
-            "\"${project.findProperty("supabaseAnonKey") ?: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0Y3Jka3FodXZ4YXRjbG9ic2J5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMTcxMTksImV4cCI6MjA5ODc5MzExOX0.heqbikHbfHQ-kWZVOXxJZvQP5ENc8UXyF4Vb5FNOgpU"}\""
-        )
+        // .toString().ifBlank so an *empty-but-set* Gradle property (e.g. an unset GitHub
+        // Actions secret, which arrives as "" rather than unset) doesn't silently clobber
+        // the default the way `?: default` would.
+        val supabaseUrl = (project.findProperty("supabaseUrl") as String?).orEmpty()
+            .ifBlank { "https://vtcrdkqhuvxatclobsby.supabase.co" }
+        val supabaseAnonKey = (project.findProperty("supabaseAnonKey") as String?).orEmpty()
+            .ifBlank { "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0Y3Jka3FodXZ4YXRjbG9ic2J5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMTcxMTksImV4cCI6MjA5ODc5MzExOX0.heqbikHbfHQ-kWZVOXxJZvQP5ENc8UXyF4Vb5FNOgpU" }
+
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
     }
 
     buildTypes {

@@ -30,13 +30,13 @@ jobs:
         run: gradle wrapper --gradle-version 8.9
 
       - name: Build debug APK
+        # Uses the Supabase URL/anon key already baked into app/build.gradle.kts.
+        # To point at a different project instead, add SUPABASE_URL and
+        # SUPABASE_ANON_KEY as repo secrets, then reintroduce an `env:` block
+        # here passing them as ORG_GRADLE_PROJECT_supabaseUrl / ...AnonKey —
+        # app/build.gradle.kts already falls back to the baked-in defaults if
+        # either property comes through blank.
         run: ./gradlew :app:assembleDebug --no-daemon
-        env:
-          # Optional overrides — set these as repo Actions secrets if you ever
-          # want the built APK to point at a different Supabase project.
-          # Falls back to the values already baked into app/build.gradle.kts.
-          ORG_GRADLE_PROJECT_supabaseUrl: ${{ secrets.SUPABASE_URL }}
-          ORG_GRADLE_PROJECT_supabaseAnonKey: ${{ secrets.SUPABASE_ANON_KEY }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
