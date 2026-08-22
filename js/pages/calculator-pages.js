@@ -1,4 +1,4 @@
-import { Bus } from '../actions.js';
+import { Actions, Bus } from '../actions.js';
 
 /* ══════════════════════════════════════════════════════════════
    FLOOR 5 — PAGES / calculator-pages.js
@@ -155,7 +155,93 @@ function insertIntoField() {
   lastCountInput.focus();
 }
 
+// ── Draggable FAB ─────────────────────────────────────────────
+// The button starts in the bottom-right corner (plain CSS), but any
+// auditor can drag it wherever it's out of their way — over an empty
+// area of whichever screen they're on — and it stays there (per
+// device, via Actions.saveCalcFabPosition) until dragged again.
+// Deliberately its own small, self-contained pointer listeners on the
+// button itself rather than routed through the app's single delegated
+// click/data-action system: dragging is a one-off physical gesture on
+// one specific element, not app business logic.
+const FAB_MARGIN = 8;
+
+function _fabSize(btn) { return { w: btn.offsetWidth || 52, h: btn.offsetHeight || 52 }; }
+
+function _clampFabPosition(btn, pos) {
+  const { w, h } = _fabSize(btn);
+  const maxLeft = Math.max(FAB_MARGIN, window.innerWidth - w - FAB_MARGIN);
+  const maxTop = Math.max(FAB_MARGIN, window.innerHeight - h - FAB_MARGIN);
+  return {
+    left: Math.min(Math.max(pos.left, FAB_MARGIN), maxLeft),
+    top: Math.min(Math.max(pos.top, FAB_MARGIN), maxTop),
+  };
+}
+
+function _applyFabPosition(btn, pos) {
+  const clamped = _clampFabPosition(btn, pos);
+  btn.style.left = clamped.left + 'px';
+  btn.style.top = clamped.top + 'px';
+  btn.style.right = 'auto';
+  btn.style.bottom = 'auto';
+}
+
+function _initFabDragging() {
+  const btn = $('calculator-fab');
+  if (!btn || typeof window.PointerEvent === 'undefined') return; // graceful no-op on ancient browsers — tap still opens it
+
+  const saved = Actions.getSavedCalcFabPosition();
+  if (saved) _applyFabPosition(btn, saved);
+
+  let dragging = false;
+  let moved = false;
+  let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+
+  btn.addEventListener('pointerdown', (e) => {
+    dragging = true; moved = false;
+    startX = e.clientX; startY = e.clientY;
+    const rect = btn.getBoundingClientRect();
+    startLeft = rect.left; startTop = rect.top;
+    try { btn.setPointerCapture(e.pointerId); } catch { /* unsupported — drag still works via move/up on the button */ }
+  });
+
+  btn.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (!moved && Math.hypot(dx, dy) > 6) { moved = true; btn.classList.add('calc-fab-dragging'); }
+    if (!moved) return;
+    _applyFabPosition(btn, { left: startLeft + dx, top: startTop + dy });
+  });
+
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging = false;
+    btn.classList.remove('calc-fab-dragging');
+    if (moved) {
+      const rect = btn.getBoundingClientRect();
+      Actions.saveCalcFabPosition({ left: rect.left, top: rect.top });
+    }
+  };
+  btn.addEventListener('pointerup', endDrag);
+  btn.addEventListener('pointercancel', endDrag);
+
+  // A drag release still fires a native 'click' right after — swallow
+  // just that one so repositioning the button doesn't also pop the
+  // calculator open. A plain tap (moved stays false) is untouched and
+  // reaches the app's normal data-action="open-calculator" handler.
+  btn.addEventListener('click', (e) => {
+    if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; }
+  });
+
+  window.addEventListener('resize', () => {
+    const rect = btn.getBoundingClientRect();
+    if (btn.style.left) _applyFabPosition(btn, { left: rect.left, top: rect.top });
+  });
+}
+
 export function initCalculatorPage() {
+  _initFabDragging();
   const clickHandlers = {
     'open-calculator': () => { resetCalc(); openCalculator(); },
     'close-calculator': closeCalculator,
