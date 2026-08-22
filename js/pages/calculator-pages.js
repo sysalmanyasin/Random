@@ -47,20 +47,37 @@ function compute(a, op, b) {
   }
 }
 
+function _hasTarget() {
+  return !!(lastCountInput && document.body.contains(lastCountInput) && !lastCountInput.disabled);
+}
+
 function render() {
   const displayEl = $('calc-display');
   const exprEl = $('calc-expr');
   if (displayEl) displayEl.textContent = current;
   if (exprEl) exprEl.textContent = exprLabel;
   const hint = $('calc-insert-hint');
-  if (hint) {
-    const hasTarget = !!(lastCountInput && document.body.contains(lastCountInput) && !lastCountInput.disabled);
-    hint.style.display = hasTarget ? 'none' : 'block';
+  const targetEl = $('calc-target');
+  const hasTarget = _hasTarget();
+  if (hint) hint.style.display = hasTarget ? 'none' : 'block';
+  if (targetEl) {
+    if (hasTarget) {
+      const name = lastCountInput.dataset.itemName || 'this item';
+      targetEl.textContent = `📌 Will insert into: ${name}`;
+      targetEl.style.display = 'block';
+    } else {
+      targetEl.style.display = 'none';
+    }
   }
 }
 
+// Fresh calc session. If the target Count box already has a value in it,
+// that becomes the starting point (so "add 3 more" is just "+ 3 =" instead
+// of having to re-type the existing count first) — otherwise starts at 0.
 function resetCalc() {
-  current = '0'; stored = null; pendingOp = null; resetOnNextDigit = false; exprLabel = '';
+  const existing = _hasTarget() ? parseFloat(lastCountInput.value) : NaN;
+  current = isFinite(existing) ? fmt(existing) : '0';
+  stored = null; pendingOp = null; resetOnNextDigit = false; exprLabel = '';
 }
 
 function pressDigit(d) {

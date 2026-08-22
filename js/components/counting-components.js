@@ -61,7 +61,7 @@ export function countingRow(item, countedVal, noteVal, readOnly, confirmedSame, 
     <td style="text-align:right; font-weight:700; color:var(--navy); font-size:14px;">${item.qty}</td>
     <td style="text-align:right;">
       <input type="number" min="0" step="1" value="${sysVal}" placeholder="-" class="audit-count-input"
-        data-item-key="${esc(item.itemKey)}"
+        data-item-key="${esc(item.itemKey)}" data-item-name="${esc(item.name)}"
         data-input-action="record-assignment-count" data-keydown-action="counting-input-enter-next"
         aria-label="Physical count for ${esc(item.name)}, system quantity ${item.qty}"
         inputmode="decimal" enterkeyhint="next" ${dis}>

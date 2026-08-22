@@ -603,6 +603,11 @@
     border: none; background: var(--light); color: var(--navy);
     width: 28px; height: 28px; border-radius: 50%; font-size: 13px; cursor: pointer;
   }
+  .calc-target {
+    font-size: 12px; font-weight: 700; color: var(--gold-ink); background: var(--gold-bg);
+    border-radius: 10px; padding: 6px 10px; margin-bottom: 8px; text-align: center;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .calc-screen {
     background: var(--navy); border-radius: 14px; padding: 14px 16px;
     text-align: right; margin-bottom: 10px;
