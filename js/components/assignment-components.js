@@ -93,13 +93,42 @@ export function assignmentCard(assignment, allAssignments, roundState, groupByCo
     ${showProgress ? countingProgressBarHTML({ counted, total: totalItems, pct }) : ''}
     <div style="font-size:11px; color:var(--grey); margin-bottom:6px;">Visible the moment they log in — no link to send for this.</div>
     <div class="movable-rows-wrap">${movableRows}</div>
-    <div style="display:flex; gap:6px; margin-top:10px;">
+    <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;">
       ${assignment.status === 'submitted' ? `<button class="btn" style="flex:1; background:var(--light); color:var(--text);" data-action="reopen-assignment" data-assignment-id="${esc(assignment.id)}">↺ Reopen for editing</button>` : ''}
       ${assignment.status === 'counting' || assignment.status === 'assigned' ? `<button class="btn" style="flex:1; background:var(--red); color:#fff;" data-action="open-force-submit" data-assignment-id="${esc(assignment.id)}">⚠️ Force Submit</button>` : ''}
+      ${assignment.status !== 'revoked' ? `<button class="btn" style="flex:1; background:var(--light); color:var(--text);" data-action="open-reassign" data-assignment-id="${esc(assignment.id)}">↪ Reassign</button>` : ''}
       <button class="btn btn-danger" style="flex:1;" data-action="revoke-assignment" data-assignment-id="${esc(assignment.id)}">Revoke</button>
     </div>
   `;
   return card;
+}
+
+// ── Reassign modal ──────────────────────────────────────────────
+// One tap per staff member (no dropdown+confirm two-step) since the
+// staff roster on a real audit team is short — matches the button-list
+// style already used by forceSubmitModalHTML for its own binary choice.
+export function reassignModalHTML(assignment, staffList, mainAuditor) {
+  if (!assignment) return '';
+  const candidates = (staffList || []).filter(s => s.role === 'sub').slice();
+  const rows = candidates.map(s => `
+      <button class="btn btn-block" style="text-align:left; background:var(--light); color:var(--navy); margin-bottom:6px;"
+        data-action="confirm-reassign" data-assignment-id="${esc(assignment.id)}"
+        data-new-auditor-id="${esc(s.id)}" data-new-auditor-name="${esc(s.name)}">
+        ${esc(s.name)}${s.id === assignment.auditorId ? ' <span style="font-weight:400; color:var(--grey); font-size:11px;">(current — reopens for them)</span>' : ''}
+      </button>`).join('');
+  const selfRow = mainAuditor ? `
+      <button class="btn btn-block" style="text-align:left; background:var(--light); color:var(--navy); margin-bottom:6px;"
+        data-action="confirm-reassign" data-assignment-id="${esc(assignment.id)}"
+        data-new-auditor-id="${esc(mainAuditor.id)}" data-new-auditor-name="${esc(mainAuditor.name)}">
+        ${esc(mainAuditor.name)} <span style="font-weight:400; color:var(--grey); font-size:11px;">(yourself)</span>
+      </button>` : '';
+  return `
+    <h3 style="color:var(--navy); font-size:15px; font-weight:800; margin-bottom:8px;">Reassign ${esc(assignment.auditorName)}'s assignment</h3>
+    <div style="font-size:12.5px; color:var(--grey); margin-bottom:12px;">
+      Item list and inventory cutoff stay exactly as they are. Counts already entered are kept as a starting point for whoever picks it up next — nothing is wiped. ${esc(assignment.auditorName)} loses access the moment you pick someone else.
+    </div>
+    <div style="max-height:40vh; overflow:auto; margin-bottom:8px;">${rows}${selfRow || ''}</div>
+    <button class="sort-btn btn-block" data-action="close-reassign">Cancel</button>`;
 }
 
 export function splitPreviewHTML(preview) {

@@ -1182,6 +1182,27 @@ export function initEngagementPages() {
     'clear-variance-filter': () => { varianceFilterMin = null; varianceFilterMax = null; renderRoundWorkspace(); },
     'revoke-assignment': (el) => Actions.revokeAssignment(el.dataset.assignmentId),
     'reopen-assignment': (el) => Actions.reopenAssignment(el.dataset.assignmentId),
+    'open-reassign': (el) => {
+      const overlay = $('reassign-overlay');
+      const content = $('reassign-content');
+      if (!overlay || !content) return;
+      const { assignments, staff, currentAuditorId, currentAuditorName } = Store.getState();
+      const assignment = assignments.find(a => a.id === el.dataset.assignmentId);
+      if (!assignment) return;
+      const mainAuditor = currentAuditorId ? { id: currentAuditorId, name: currentAuditorName } : null;
+      content.innerHTML = Components.reassignModalHTML(assignment, staff, mainAuditor);
+      overlay.style.display = 'flex';
+    },
+    'close-reassign': () => {
+      const overlay = $('reassign-overlay');
+      if (overlay) overlay.style.display = 'none';
+    },
+    'confirm-reassign': async (el) => {
+      await Actions.reassignAssignment(el.dataset.assignmentId, el.dataset.newAuditorId, el.dataset.newAuditorName);
+      const overlay = $('reassign-overlay');
+      if (overlay) overlay.style.display = 'none';
+      renderRoundWorkspace();
+    },
     'team-lock-round': async (el) => { await Actions.lockRound(el.dataset.roundId); renderRoundWorkspace(); },
     'team-compile-round': async (el) => { await Actions.compileRound(el.dataset.roundId); renderRoundWorkspace(); },
     'compile-with-missing': async () => { if (openRoundId) { await Actions.compileRoundWithMissingOverride(openRoundId); renderRoundWorkspace(); } },

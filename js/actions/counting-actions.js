@@ -131,6 +131,27 @@ async function openMyAssignment(assignmentId) {
     delete counts.__autoMatched__;
     Store.setState({ myCounts: counts, myNotes: notes, myConfirms: confirms, myExtraNote: extraNote, myRowTimes: rowTimes, myAutoMatched: autoMatched });
     Bus.emit('counting:checkpointRestored', { counts, notes, confirms, extraNote, rowTimes, autoMatched });
+  } else {
+    // No local checkpoint on THIS device — either a brand-new device for
+    // this person, or this assignment was just Reassigned to them and
+    // they've never opened it before. If the server already holds counts
+    // (live_snapshot — either their own in-progress sync, or counts the
+    // Main Auditor carried over from a prior submission at Reassign time),
+    // seed the screen from that instead of starting blank, so "keep
+    // counts as a starting point" actually shows up on open, not just
+    // in the database.
+    const { myAssignments: _existing } = Store.getState();
+    const liveAssignment = _existing.find(a => a.id === assignmentId);
+    const snap = liveAssignment && liveAssignment.liveSnapshot;
+    if (snap && snap.counts && Object.keys(snap.counts).length > 0) {
+      const counts = Object.assign({}, snap.counts);
+      const confirms = Object.assign({}, snap.confirms || {});
+      const extraNote = snap.extraNote || '';
+      const rowTimes = Object.assign({}, snap.rowTimes || {});
+      const autoMatched = Object.assign({}, snap.autoMatched || {});
+      Store.setState({ myCounts: counts, myConfirms: confirms, myExtraNote: extraNote, myRowTimes: rowTimes, myAutoMatched: autoMatched });
+      Bus.emit('counting:checkpointRestored', { counts, notes: {}, confirms, extraNote, rowTimes, autoMatched });
+    }
   }
 
   // This is the real "counting has begun" signal — the Main Auditor's

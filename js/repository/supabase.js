@@ -182,6 +182,11 @@ async function updateAssignment(client, id, patch) {
   if (patch.progressCount !== undefined) dbPatch.progress_count = patch.progressCount;
   if (patch.liveSnapshot !== undefined) dbPatch.live_snapshot = patch.liveSnapshot;
   if (patch.startedAt !== undefined) dbPatch.started_at = patch.startedAt;
+  // Main-Auditor-only columns (blocked for a Sub-Auditor's own row by
+  // restrict_subauditor_assignment_updates in schema.sql) — used by
+  // Reassign to hand the row to a different owner entirely.
+  if (patch.auditorId !== undefined) dbPatch.auditor_id = patch.auditorId;
+  if (patch.auditorName !== undefined) dbPatch.auditor_name = patch.auditorName;
   const { error } = await client.from('assignments').update(dbPatch).eq('id', id);
   if (error) throw error;
 }

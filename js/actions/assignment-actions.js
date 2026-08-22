@@ -392,6 +392,72 @@ async function reopenAssignment(assignmentId) {
   }
 }
 
+// ── Reassign ──────────────────────────────────────────────────
+// Hands an assignment — in ANY state (assigned, counting, or already
+// submitted) — to a different Sub-Auditor, or to the Main Auditor
+// themselves. Unlike "Move to…" (which only shuffles companies/items
+// between assignments that already exist on the round), this changes
+// who OWNS the whole assignment row. `items`/`companies` are never
+// touched, so the frozen inventory cutoff stays byte-for-byte
+// identical — same guarantee as Reopen.
+//
+// Per the Main Auditor's own call, counts already entered are kept as
+// an editable starting point for the incoming person, never wiped:
+//   - If the assignment hadn't been submitted yet, any in-progress
+//     counts already live in live_snapshot (synced while counting) —
+//     that carries straight over untouched.
+//   - If it HAD been submitted, the real counts live in `submissions`
+//     instead (live_snapshot is only a pre-submission mirror), so they're
+//     pulled across into live_snapshot explicitly here. openMyAssignment
+//     (counting-actions.js) falls back to live_snapshot whenever a
+//     device has no local checkpoint for this assignment — which is
+//     exactly the incoming person's situation on their first open.
+async function reassignAssignment(assignmentId, newAuditorId, newAuditorName) {
+  const { assignments, sbClient } = Store.getState();
+  const assignment = assignments.find(a => a.id === assignmentId);
+  if (!assignment) { Bus.emit('toast', { msg: 'Assignment not found', kind: 'error' }); return; }
+  if (assignment.status === 'revoked') {
+    Bus.emit('toast', { msg: 'This assignment was revoked — reopen or recreate it before reassigning', kind: 'error' });
+    return;
+  }
+  const samePerson = assignment.auditorId === newAuditorId;
+  const warning = samePerson
+    ? 'Reopen this assignment for ' + newAuditorName + '? They\'ll be able to edit their counts again.'
+    : 'Reassign this assignment from ' + assignment.auditorName + ' to ' + newAuditorName + '? '
+      + assignment.auditorName + ' will lose access to it immediately, and ' + newAuditorName
+      + ' will pick it up with the counts already entered so far — editable from there, nothing wiped. '
+      + 'The item list and inventory cutoff stay exactly as they are.';
+  if (!confirm(warning)) return;
+
+  try {
+    let liveSnapshot = assignment.liveSnapshot || {};
+    if (assignment.status === 'submitted') {
+      const priorSubmission = await Repo.fetchMySubmission(sbClient, assignmentId, assignment.auditorId);
+      if (priorSubmission) {
+        liveSnapshot = {
+          counts: priorSubmission.counts || {}, confirms: priorSubmission.confirms || {},
+          extraNote: priorSubmission.extraNote || '', rowTimes: priorSubmission.rowTimes || {},
+          autoMatched: priorSubmission.autoMatched || {}, updatedAt: new Date().toISOString(),
+        };
+      }
+    }
+    const fromAuditorName = assignment.auditorName;
+    await Repo.updateAssignment(sbClient, assignmentId, {
+      auditorId: newAuditorId, auditorName: newAuditorName, status: 'counting', liveSnapshot,
+    });
+    Object.assign(assignment, { auditorId: newAuditorId, auditorName: newAuditorName, status: 'counting', liveSnapshot });
+    Store.setState({ assignments: assignments.slice() });
+    logAudit('assignment:reassigned', {
+      assignmentId, fromAuditorName, toAuditorName: newAuditorName,
+      carriedOverCounts: Object.keys(liveSnapshot.counts || {}).length,
+    });
+    Bus.emit('assignments:changed', Store.getState().assignments);
+    Bus.emit('toast', { msg: 'Reassigned to ' + newAuditorName, kind: 'success' });
+  } catch (err) {
+    Bus.emit('toast', { msg: 'Could not reassign: ' + err.message, kind: 'error' });
+  }
+}
+
 // ── Force Submit ──────────────────────────────────────────────
 // For when a Sub-Auditor is mid-round, unreachable, or gone, and the
 // Main Auditor needs their in-progress counts committed as the real
@@ -480,7 +546,7 @@ async function forceSubmitAssignment(assignmentId, leftoverMode, mainAuditorName
 export const AssignmentActions = {
   loadAssignmentsForRound, previewSplitByCompanyCount, previewSplitByItemVolume, commitSplitPreview,
   assignMainAuditorToSelf, previewSplitItems, commitItemSplitPreview,
-  manualMoveCompany, manualMoveItem, revokeAssignment, reopenAssignment,
+  manualMoveCompany, manualMoveItem, revokeAssignment, reopenAssignment, reassignAssignment,
   forceSubmitAssignment,
 };
 
