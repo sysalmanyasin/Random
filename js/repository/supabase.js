@@ -160,12 +160,14 @@ function _rowToAssignment(row) {
     auditorName: row.auditor_name, unit: row.unit, companies: row.companies || [], items: row.items || [],
     method: row.method, status: row.status, progressCount: row.progress_count || 0,
     liveSnapshot: row.live_snapshot || {}, createdAt: row.created_at, startedAt: row.started_at || null,
+    templateName: row.template_name || null,
   };
 }
 async function insertAssignments(client, list) {
   const rows = list.map(a => ({
     round_id: a.roundId, engagement_id: a.engagementId, auditor_id: a.auditorId, auditor_name: a.auditorName,
     unit: a.unit, companies: a.companies, items: a.items, method: a.method, status: a.status,
+    template_name: a.templateName || null,
   }));
   const { data, error } = await client.from('assignments').insert(rows).select();
   if (error) throw error;

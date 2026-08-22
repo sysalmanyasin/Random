@@ -61,7 +61,14 @@ test('summarizeIndividualRounds: carries auditor name and companies through from
   const rounds = [{ id: 'r1' }];
   const assignments = [{ roundId: 'r1', auditorName: 'Ali', companies: ['Acme', 'Beta'], items: [] }];
   const summary = summarizeIndividualRounds(rounds, assignments);
-  assert.deepEqual(summary.get('r1'), { auditorName: 'Ali', companies: ['Acme', 'Beta'], topCompanies: [] });
+  assert.deepEqual(summary.get('r1'), { auditorName: 'Ali', companies: ['Acme', 'Beta'], templateName: null, topCompanies: [] });
+});
+
+test('summarizeIndividualRounds: carries the template name through when the pick came from a saved template', () => {
+  const rounds = [{ id: 'r1' }];
+  const assignments = [{ roundId: 'r1', auditorName: 'Ali', companies: ['Acme'], templateName: 'Cold Chain Products', items: [] }];
+  const summary = summarizeIndividualRounds(rounds, assignments);
+  assert.equal(summary.get('r1').templateName, 'Cold Chain Products');
 });
 
 test('summarizeIndividualRounds: ranks companies by summed qty × price, highest value first, capped at 3', () => {

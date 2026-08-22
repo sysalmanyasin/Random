@@ -486,6 +486,18 @@ end $$;
 alter table assignments add column if not exists started_at timestamptz;
 alter table submissions add column if not exists row_times jsonb not null default '{}';
 
+-- Which saved Template (Inventory tab) an Individual self-pick audit
+-- was started from, purely for display (Main Auditor's plain
+-- Engagement-detail round list — see individual-actions.js
+-- summarizeIndividualRounds / round-components.js roundCard). A
+-- template can bundle several companies under one meaningful label
+-- (e.g. a category or a recurring spot-check list), which the
+-- companies[] array alone doesn't convey. Null whenever the pick was
+-- direct companies (selection.source === 'companies') rather than a
+-- template. Never used to gate or route anything — purely cosmetic,
+-- same spirit as round_suffix above.
+alter table assignments add column if not exists template_name text;
+
 -- The uncounted=0 rule: any item never actually typed defaults to a
 -- full assumed-shortage variance (countedQty=0) rather than being
 -- excluded from the report. auto_matched marks the ONE sanctioned way

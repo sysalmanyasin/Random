@@ -152,9 +152,15 @@ async function startIndividualAssignment(selection) {
       unit: 'item', state: 'counting', baseRoundId: null, itemSnapshot,
     });
     const companies = [...new Set(itemSnapshot.map(it => it.company))];
+    // Only a real template pick gets a templateName — a direct
+    // company selection has no "template" to name (its companies[]
+    // already says what it is), so leave it null rather than reusing
+    // `label` (which for that branch is just the joined company list).
+    const templateName = selection.source === 'template' ? label : null;
     const [assignment] = await Repo.insertAssignments(sbClient, [{
       roundId: round.id, engagementId: engagement.id, auditorId: currentAuditorId, auditorName: currentAuditorName,
       unit: 'item', companies, items: itemSnapshot, method: 'individual-self-pick', status: 'assigned',
+      templateName,
     }]);
 
     logAudit('individual:assignmentStarted', {
@@ -233,10 +239,12 @@ async function loadIndividualDashboardData(engagement) {
 // self-pick, so unlike a normal Team round the round card alone
 // ("Round 1", "Company + Item", a state badge) tells the Main Auditor
 // nothing about who picked what. This builds a roundId → summary map
-// with the auditor's name, the company(ies) they picked, and their
-// top 3 companies by counted value (qty × price, summed per company
-// from the assignment's item snapshot) so that shows up right on the
-// round list without opening each round individually.
+// with the auditor's name, the saved Template they picked from (if
+// any — see startIndividualAssignment's templateName), the
+// company(ies) they picked, and their top 3 companies by counted
+// value (qty × price, summed per company from the assignment's item
+// snapshot) so that shows up right on the round list without opening
+// each round individually.
 // An individual round has exactly one assignment by construction (see
 // startIndividualAssignment above), so `assignments` here is expected
 // to already be filtered/scoped to just this engagement's rounds.
@@ -257,6 +265,7 @@ function summarizeIndividualRounds(rounds, assignments) {
     summary.set(round.id, {
       auditorName: a.auditorName,
       companies: a.companies || [],
+      templateName: a.templateName || null,
       topCompanies,
     });
   });

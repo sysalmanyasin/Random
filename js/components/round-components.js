@@ -14,12 +14,13 @@ const STATE_BADGE = {
   compiled: 'val-green', final: 'val-green',
 };
 
-// `individualInfo` (optional): { auditorName, companies, topCompanies }
+// `individualInfo` (optional): { auditorName, companies, templateName, topCompanies }
 // — passed only for rounds inside an Individual Assignments pool (see
 // IndividualActions.summarizeIndividualRounds), where each round is
 // one auditor's self-pick and the plain round meta alone doesn't say
-// who picked what. Renders an extra strip: Auditor name, the
-// company(ies) picked, and the top 3 by counted value (qty × price).
+// who picked what. Renders an extra strip: Auditor name, the saved
+// Template name (if the pick came from one), the company(ies)
+// picked, and the top 3 by counted value (qty × price).
 export function roundCard(round, isLatest, individualInfo) {
   const card = document.createElement('div');
   card.className = 'company-card';
@@ -31,6 +32,8 @@ export function roundCard(round, isLatest, individualInfo) {
   const individualStrip = individualInfo ? `
     <div class="round-card-individual-strip" style="margin-top:6px; padding-top:6px; border-top:1px dashed var(--border, #e2e2e2);">
       <div style="font-size:11px; color:var(--navy); font-weight:700;">👤 ${esc(individualInfo.auditorName || 'Unknown auditor')}</div>
+      ${individualInfo.templateName ? `
+      <div style="font-size:10.5px; color:var(--grey); margin-top:2px;">📋 Template: <strong>${esc(individualInfo.templateName)}</strong></div>` : ''}
       <div style="font-size:10.5px; color:var(--grey); margin-top:2px;">
         ${individualInfo.companies && individualInfo.companies.length
           ? '🏢 ' + individualInfo.companies.map(esc).join(', ')
