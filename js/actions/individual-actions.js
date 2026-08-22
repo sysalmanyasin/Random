@@ -241,10 +241,18 @@ async function loadIndividualDashboardData(engagement) {
 // nothing about who picked what. This builds a roundId → summary map
 // with the auditor's name, the saved Template they picked from (if
 // any — see startIndividualAssignment's templateName), the
-// company(ies) they picked, and their top 3 companies by counted
-// value (qty × price, summed per company from the assignment's item
-// snapshot) so that shows up right on the round list without opening
-// each round individually.
+// company(ies) they picked, their top 3 companies by counted value
+// (qty × price, summed per company from the assignment's item
+// snapshot), and the grand total value across every item — so that
+// shows up right on the round list without opening each round
+// individually.
+// Template picks show ONLY the template name + total value on the
+// card (roundCard in round-components.js) — the company breakdown is
+// exactly what the template name is meant to replace, since a
+// template can span dozens of companies (see the screenshot this was
+// built from) that would otherwise swamp the card. A direct
+// company-pick round has no template name to summarize it, so it
+// still shows the company list + top-3-by-value breakdown.
 // An individual round has exactly one assignment by construction (see
 // startIndividualAssignment above), so `assignments` here is expected
 // to already be filtered/scoped to just this engagement's rounds.
@@ -258,6 +266,7 @@ function summarizeIndividualRounds(rounds, assignments) {
       const value = (Number(it.qty) || 0) * (Number(it.price) || 0);
       valueByCompany.set(it.company, (valueByCompany.get(it.company) || 0) + value);
     });
+    const totalValue = [...valueByCompany.values()].reduce((s, v) => s + v, 0);
     const topCompanies = [...valueByCompany.entries()]
       .sort((x, y) => y[1] - x[1])
       .slice(0, 3)
@@ -267,6 +276,7 @@ function summarizeIndividualRounds(rounds, assignments) {
       companies: a.companies || [],
       templateName: a.templateName || null,
       topCompanies,
+      totalValue,
     });
   });
   return summary;

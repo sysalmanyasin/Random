@@ -61,7 +61,7 @@ test('summarizeIndividualRounds: carries auditor name and companies through from
   const rounds = [{ id: 'r1' }];
   const assignments = [{ roundId: 'r1', auditorName: 'Ali', companies: ['Acme', 'Beta'], items: [] }];
   const summary = summarizeIndividualRounds(rounds, assignments);
-  assert.deepEqual(summary.get('r1'), { auditorName: 'Ali', companies: ['Acme', 'Beta'], templateName: null, topCompanies: [] });
+  assert.deepEqual(summary.get('r1'), { auditorName: 'Ali', companies: ['Acme', 'Beta'], templateName: null, topCompanies: [], totalValue: 0 });
 });
 
 test('summarizeIndividualRounds: carries the template name through when the pick came from a saved template', () => {
@@ -69,6 +69,20 @@ test('summarizeIndividualRounds: carries the template name through when the pick
   const assignments = [{ roundId: 'r1', auditorName: 'Ali', companies: ['Acme'], templateName: 'Cold Chain Products', items: [] }];
   const summary = summarizeIndividualRounds(rounds, assignments);
   assert.equal(summary.get('r1').templateName, 'Cold Chain Products');
+});
+
+test('summarizeIndividualRounds: totalValue sums qty x price across every item regardless of company', () => {
+  const rounds = [{ id: 'r1' }];
+  const assignments = [{
+    roundId: 'r1', auditorName: 'Ali', companies: ['A', 'B'], templateName: 'Narcotics Random',
+    items: [
+      { company: 'A', qty: 10, price: 5 },  // 50
+      { company: 'B', qty: 100, price: 10 }, // 1000
+      { company: 'B', qty: 1, price: 1 },    // 1
+    ],
+  }];
+  const { totalValue } = summarizeIndividualRounds(rounds, assignments).get('r1');
+  assert.equal(totalValue, 1051);
 });
 
 test('summarizeIndividualRounds: ranks companies by summed qty × price, highest value first, capped at 3', () => {
