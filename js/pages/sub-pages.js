@@ -96,6 +96,12 @@ function _individualAssignmentLabel(a) {
   return (a.companies && a.companies.join(', ')) || (a.items.length + ' items');
 }
 
+// qty × price summed across every item — same total shown on the
+// Main Auditor's round card (IndividualActions.summarizeIndividualRounds).
+function _assignmentTotalValue(a) {
+  return (a.items || []).reduce((sum, it) => sum + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
+}
+
 let showIndividualPicker = false;
 let individualPickerSource = 'template'; // 'template' | 'companies'
 let individualSelectedCompanies = new Set();
@@ -110,9 +116,13 @@ function renderIndividualPickerHTML() {
   // round doesn't).
   const openSelfPick = (myAssignments || []).find(a => a.method === 'individual-self-pick' && (a.status === 'assigned' || a.status === 'counting'));
   if (openSelfPick) {
+    const label = _individualAssignmentLabel(openSelfPick);
+    const detail = openSelfPick.templateName
+      ? `Total value: Rs ${Math.round(_assignmentTotalValue(openSelfPick)).toLocaleString()}`
+      : `${openSelfPick.items.length} item line(s)`;
     return `<div class="card" style="margin-bottom:14px; background:var(--gold-bg); border:1px solid var(--gold);">
       <div style="font-size:12.5px; font-weight:700; color:var(--navy);">🎲 You have an open random audit — submit it first</div>
-      <div style="font-size:11px; color:var(--grey); margin-top:2px;">${Components.esc(_individualAssignmentLabel(openSelfPick))}. Open it below to finish, then you can start another.</div>
+      <div style="font-size:11px; color:var(--grey); margin-top:2px;">${Components.esc(label)} · ${Components.esc(detail)}. Open it below to finish, then you can start another.</div>
     </div>`;
   }
 
@@ -172,12 +182,19 @@ function renderAssignmentPickerHTML(myAssignments) {
 
   const card = (a) => {
     const label = a.method === 'individual-self-pick' ? _individualAssignmentLabel(a) : (a.companies.join(', ') || (a.items.length + ' items'));
+    // Template picks: total value only (matches the Main Auditor's
+    // round card — the item-line count is exactly the noisy detail
+    // the template name is meant to replace). Everything else keeps
+    // the plain item-line count as before.
+    const subLine = (a.method === 'individual-self-pick' && a.templateName)
+      ? `💰 Total value: Rs ${Math.round(_assignmentTotalValue(a)).toLocaleString()}`
+      : `${a.items.length} item line(s)`;
     return `
     <div class="card assignment-card" data-action="sub-open-assignment" data-assignment-id="${a.id}" style="cursor:pointer;${a.status === 'revoked' ? ' opacity:0.6;' : ''}" role="button" tabindex="0" aria-label="Open assignment — ${Components.esc(label)}, status ${Components.esc(a.status)}">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <div>
           <div style="font-weight:800; color:var(--navy); font-size:13px;">${Components.esc(label)}</div>
-          <div style="font-size:11px; color:var(--grey); margin-top:2px;">${a.items.length} item line(s)</div>
+          <div style="font-size:11px; color:var(--grey); margin-top:2px;">${Components.esc(subLine)}</div>
         </div>
         <span class="val-badge ${a.status === 'submitted' ? 'val-green' : a.status === 'revoked' ? 'val-red' : 'val-gold'}">${Components.esc(a.status)}</span>
       </div>
