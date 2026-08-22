@@ -86,6 +86,16 @@ export function renderTeamTabForSubAuditor() {
   if (noteEl) { noteEl.style.height = 'auto'; noteEl.style.height = noteEl.scrollHeight + 'px'; }
 }
 
+// Sub-Auditor-facing label for a self-pick assignment: the saved
+// Template name if that's how it was started (so "many companies"
+// collapses to the one meaningful name instead of a long comma list —
+// see individual-actions.js startIndividualAssignment/templateName),
+// else the picked companies, else a plain item count as a last resort.
+function _individualAssignmentLabel(a) {
+  if (a.templateName) return a.templateName;
+  return (a.companies && a.companies.join(', ')) || (a.items.length + ' items');
+}
+
 let showIndividualPicker = false;
 let individualPickerSource = 'template'; // 'template' | 'companies'
 let individualSelectedCompanies = new Set();
@@ -102,7 +112,7 @@ function renderIndividualPickerHTML() {
   if (openSelfPick) {
     return `<div class="card" style="margin-bottom:14px; background:var(--gold-bg); border:1px solid var(--gold);">
       <div style="font-size:12.5px; font-weight:700; color:var(--navy);">🎲 You have an open random audit — submit it first</div>
-      <div style="font-size:11px; color:var(--grey); margin-top:2px;">${Components.esc(openSelfPick.companies.join(', ') || (openSelfPick.items.length + ' items'))}. Open it below to finish, then you can start another.</div>
+      <div style="font-size:11px; color:var(--grey); margin-top:2px;">${Components.esc(_individualAssignmentLabel(openSelfPick))}. Open it below to finish, then you can start another.</div>
     </div>`;
   }
 
@@ -160,16 +170,19 @@ function renderAssignmentPickerHTML(myAssignments) {
   // had just silently vanishes from their history without explanation.
   const past = myAssignments.filter(a => a.status === 'submitted' || a.status === 'revoked');
 
-  const card = (a) => `
-    <div class="card assignment-card" data-action="sub-open-assignment" data-assignment-id="${a.id}" style="cursor:pointer;${a.status === 'revoked' ? ' opacity:0.6;' : ''}" role="button" tabindex="0" aria-label="Open assignment — ${Components.esc(a.companies.join(', ') || (a.items.length + ' items'))}, status ${Components.esc(a.status)}">
+  const card = (a) => {
+    const label = a.method === 'individual-self-pick' ? _individualAssignmentLabel(a) : (a.companies.join(', ') || (a.items.length + ' items'));
+    return `
+    <div class="card assignment-card" data-action="sub-open-assignment" data-assignment-id="${a.id}" style="cursor:pointer;${a.status === 'revoked' ? ' opacity:0.6;' : ''}" role="button" tabindex="0" aria-label="Open assignment — ${Components.esc(label)}, status ${Components.esc(a.status)}">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <div>
-          <div style="font-weight:800; color:var(--navy); font-size:13px;">${Components.esc(a.companies.join(', ') || (a.items.length + ' items'))}</div>
+          <div style="font-weight:800; color:var(--navy); font-size:13px;">${Components.esc(label)}</div>
           <div style="font-size:11px; color:var(--grey); margin-top:2px;">${a.items.length} item line(s)</div>
         </div>
         <span class="val-badge ${a.status === 'submitted' ? 'val-green' : a.status === 'revoked' ? 'val-red' : 'val-gold'}">${Components.esc(a.status)}</span>
       </div>
     </div>`;
+  };
 
   const openCards = openWork.map(card).join('') || '<div style="font-size:12px; color:var(--grey); padding:10px 0;">Nothing open right now.</div>';
   // If there's no open work, the Submitted section is all there is to
