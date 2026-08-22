@@ -475,6 +475,52 @@
     </div>
   </div>
 
+  <!-- ── Counting Calculator — floating button, available on every
+       screen (legacy Verify Stock + Team Audit + Individual counting)
+       for every auditor. ── -->
+  <button id="calculator-fab" class="calc-fab" data-action="open-calculator" aria-label="Open calculator">🧮</button>
+
+  <div id="calculator-overlay" class="calc-overlay" style="display:none;" role="dialog" aria-modal="true" aria-label="Calculator">
+    <div class="calc-sheet" data-action="noop">
+      <div class="calc-header">
+        <span>🧮 Calculator</span>
+        <button class="calc-close-btn" data-action="close-calculator" aria-label="Close calculator">✕</button>
+      </div>
+      <div class="calc-screen">
+        <div id="calc-expr" class="calc-expr" aria-hidden="true"></div>
+        <div id="calc-display" class="calc-display" role="status" aria-live="polite">0</div>
+      </div>
+      <div id="calc-insert-hint" class="calc-insert-hint" style="display:none;">Tap a Count box first, then Insert will fill it in</div>
+      <button class="calc-insert-btn" data-action="calc-insert">↳ Insert into Count field</button>
+      <div class="calc-keypad">
+        <button class="calc-key calc-key-fn" data-action="calc-clear">C</button>
+        <button class="calc-key calc-key-fn" data-action="calc-sign">±</button>
+        <button class="calc-key calc-key-fn" data-action="calc-percent">%</button>
+        <button class="calc-key calc-key-op" data-action="calc-key" data-key="÷">÷</button>
+
+        <button class="calc-key" data-action="calc-key" data-key="7">7</button>
+        <button class="calc-key" data-action="calc-key" data-key="8">8</button>
+        <button class="calc-key" data-action="calc-key" data-key="9">9</button>
+        <button class="calc-key calc-key-op" data-action="calc-key" data-key="×">×</button>
+
+        <button class="calc-key" data-action="calc-key" data-key="4">4</button>
+        <button class="calc-key" data-action="calc-key" data-key="5">5</button>
+        <button class="calc-key" data-action="calc-key" data-key="6">6</button>
+        <button class="calc-key calc-key-op" data-action="calc-key" data-key="−">−</button>
+
+        <button class="calc-key" data-action="calc-key" data-key="1">1</button>
+        <button class="calc-key" data-action="calc-key" data-key="2">2</button>
+        <button class="calc-key" data-action="calc-key" data-key="3">3</button>
+        <button class="calc-key calc-key-op" data-action="calc-key" data-key="+">+</button>
+
+        <button class="calc-key calc-key-wide" data-action="calc-key" data-key="0">0</button>
+        <button class="calc-key" data-action="calc-key" data-key=".">.</button>
+        <button class="calc-key calc-key-eq" data-action="calc-equals">=</button>
+      </div>
+      <button class="calc-key calc-key-fn calc-backspace-btn" data-action="calc-backspace" aria-label="Backspace">⌫ Backspace</button>
+    </div>
+  </div>
+
 </div><!-- /#app -->
 
 <!-- ── Printable Report Canvas ────────────────────────────────

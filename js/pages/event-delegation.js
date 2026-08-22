@@ -7,6 +7,7 @@ import { initAuthPages, renderAuthRoot } from './auth-pages.js';
 import { initStaffPages, renderStaffTab } from './staff-pages.js';
 import { initInventoryPages } from './inventory-pages.js';
 import { initHomeStatsPage } from './home-stats-page.js';
+import { initCalculatorPage, setLastCountInput } from './calculator-pages.js';
 import { Components } from '../components.js';
 
 /* ══════════════════════════════════════════════════════════════
@@ -73,7 +74,7 @@ Bus.on('auth:needsConfig', renderAuthRoot);
 // like a dialog; the moment it's hidden again, focus returns to
 // whatever was focused before it opened. New overlays just need adding
 // to this list — no per-handler wiring required.
-const DIALOG_OVERLAY_IDS = ['pin-gate-overlay', 'live-snapshot-overlay', 'force-submit-overlay', 'report-overview-overlay', 'template-builder-overlay'];
+const DIALOG_OVERLAY_IDS = ['pin-gate-overlay', 'live-snapshot-overlay', 'force-submit-overlay', 'report-overview-overlay', 'template-builder-overlay', 'calculator-overlay'];
 // Maps each overlay to the click-handler name that closes it, so Escape
 // can reuse the exact same close logic as its own visible "✕"/Cancel
 // button rather than just hiding the element and leaving app state
@@ -84,6 +85,7 @@ const DIALOG_CLOSE_ACTION = {
   'force-submit-overlay': 'close-force-submit',
   'report-overview-overlay': 'close-report-overview',
   'template-builder-overlay': 'close-template-builder',
+  'calculator-overlay': 'close-calculator',
 };
 let _lastFocusedBeforeDialog = null;
 function _isVisible(el) { return el && el.style.display !== 'none' && el.style.display !== ''; }
@@ -141,11 +143,12 @@ export function initPages() {
   const staff = initStaffPages();
   const inventory = initInventoryPages();
   initHomeStatsPage();
+  const calculator = initCalculatorPage();
 
-  const clickHandlers = { ...legacy.clickHandlers, ...engagement.clickHandlers, ...sub.clickHandlers, ...auth.clickHandlers, ...staff.clickHandlers, ...inventory.clickHandlers };
-  const inputHandlers = { ...legacy.inputHandlers, ...engagement.inputHandlers, ...sub.inputHandlers, ...auth.inputHandlers, ...staff.inputHandlers, ...inventory.inputHandlers };
-  const changeHandlers = { ...legacy.changeHandlers, ...engagement.changeHandlers, ...sub.changeHandlers, ...auth.changeHandlers, ...staff.changeHandlers, ...inventory.changeHandlers };
-  const keydownHandlers = { ...legacy.keydownHandlers, ...engagement.keydownHandlers, ...sub.keydownHandlers, ...auth.keydownHandlers, ...staff.keydownHandlers, ...inventory.keydownHandlers };
+  const clickHandlers = { ...legacy.clickHandlers, ...engagement.clickHandlers, ...sub.clickHandlers, ...auth.clickHandlers, ...staff.clickHandlers, ...inventory.clickHandlers, ...calculator.clickHandlers };
+  const inputHandlers = { ...legacy.inputHandlers, ...engagement.inputHandlers, ...sub.inputHandlers, ...auth.inputHandlers, ...staff.inputHandlers, ...inventory.inputHandlers, ...calculator.inputHandlers };
+  const changeHandlers = { ...legacy.changeHandlers, ...engagement.changeHandlers, ...sub.changeHandlers, ...auth.changeHandlers, ...staff.changeHandlers, ...inventory.changeHandlers, ...calculator.changeHandlers };
+  const keydownHandlers = { ...legacy.keydownHandlers, ...engagement.keydownHandlers, ...sub.keydownHandlers, ...auth.keydownHandlers, ...staff.keydownHandlers, ...inventory.keydownHandlers, ...calculator.keydownHandlers };
 
   _setUpDialogFocusManagement(clickHandlers);
 
@@ -215,6 +218,10 @@ export function initPages() {
       // field) so typing a new count replaces it immediately instead of
       // requiring a manual delete first.
       e.target.select();
+      // Remember it as the calculator's insert target — reusing this
+      // single delegated focusin listener rather than adding a second
+      // one, per the one-listener-per-event-type rule.
+      setLastCountInput(e.target);
     }
   });
   app.addEventListener('focusout', (e) => {
