@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Audit Rounds Widget</string>
+    <string name="widget_title">Individual Assignments — Open Rounds</string>
+    <string name="login_phone_hint">Phone (e.g. 923001234567)</string>
+    <string name="login_pin_hint">PIN</string>
+    <string name="login_button">Log In as Main Auditor</string>
+    <string name="login_error">Login failed. Check phone/PIN and try again.</string>
+    <string name="login_success">Logged in. Add the widget to your home screen.</string>
+    <string name="empty_state">No open rounds right now.</string>
+    <string name="not_logged_in">Not logged in — open the app</string>
+</resources>
