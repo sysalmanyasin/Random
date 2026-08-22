@@ -411,7 +411,7 @@ function renderRoundWorkspace() {
   `;
   if (round.state === 'draft') refreshStaffChips();
   if (round.state === 'draft' && (round.unit === 'company' || round.unit === 'item')) renderSplitPreview();
-  if (['draft', 'locked', 'counting'].includes(round.state)) refreshAssignmentCards();
+  if (['draft', 'locked', 'counting', 'compiled'].includes(round.state)) refreshAssignmentCards();
   if (round.state === 'locked' || round.state === 'counting') refreshCompileStatus();
 }
 
@@ -845,6 +845,8 @@ function renderCompiledRoundUI(round) {
 
   return `
     ${Components.compileSummaryCardHTML(compiled)}
+    <div class="card-title">Assignments — Reopen, Reassign, or Revoke</div>
+    <div id="assignment-cards-holder"></div>
     <div class="card" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
       <button class="sort-btn" data-action="toggle-variance-sort">${_varianceSortLabel()}</button>
       <input type="number" id="variance-filter-min" class="search-input" placeholder="Min impact (Rs)" aria-label="Minimum variance impact in Rupees" style="flex:1; min-width:100px;" value="${varianceFilterMin ?? ''}">
