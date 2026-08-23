@@ -1,7 +1,7 @@
 import { Store } from '../store.js';
 import { Bus } from '../actions.js';
 import { initLegacyPages, highlightAuditRow, unhighlightAuditRow } from './legacy-pages.js';
-import { initEngagementPages, renderTeamTab } from './engagement-pages.js';
+import { initEngagementPages, renderTeamTab, syncEngagementSwipeFromScroll } from './engagement-pages.js';
 import { initSubPages, renderTeamTabForSubAuditor } from './sub-pages.js';
 import { initAuthPages, renderAuthRoot } from './auth-pages.js';
 import { initStaffPages, renderStaffTab } from './staff-pages.js';
@@ -165,6 +165,15 @@ export function initPages() {
     const handler = inputHandlers[el.dataset.inputAction];
     if (handler) handler(el);
   });
+
+  // Scroll doesn't bubble, so this delegated listener uses the capture
+  // phase (still fires for any descendant scroll container, same
+  // single-listener-per-event-type contract as the others above). Keeps
+  // the Rounds/Dashboard/Reports pill row in sync when someone swipes
+  // the panel directly instead of tapping a pill.
+  app.addEventListener('scroll', (e) => {
+    if (e.target && e.target.id === 'engagement-swipe-track') syncEngagementSwipeFromScroll(e.target);
+  }, true);
 
   app.addEventListener('change', (e) => {
     const el = e.target.closest('[data-change-action]');

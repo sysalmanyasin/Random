@@ -290,9 +290,17 @@ function renderSubRoundCompanyPicker(engagement) {
 }
 
 // ── Engagement detail: Round Management + Assignment + Compile + Dashboard + Reports ──
+// Rounds / Dashboard / Reports are swipeable panels (scroll-snap) rather
+// than one long vertical stack — see .swipe-track / .swipe-panel in
+// app.css. The pill row mirrors the existing .section-sub-tab look used
+// for the Engagements/Staff/Individual tabs, so it stays visually
+// consistent while acting as tap-to-jump shortcuts for the swipe.
+let engagementSwipeTab = 'rounds';
+
 function renderEngagementDetailHTML(engagement) {
   const { rounds } = Store.getState();
   const hasRounds = rounds.some(r => r.engagementId === engagement.id);
+  const tab = (key) => engagementSwipeTab === key ? 'section-sub-tab active' : 'section-sub-tab';
   return `
     <button class="sort-btn" data-action="team-back-to-list" style="margin-bottom:10px;">← All Engagements</button>
     ${Components.engagementHeaderHTML(engagement)}
@@ -301,20 +309,59 @@ function renderEngagementDetailHTML(engagement) {
       <button class="btn btn-danger" style="flex:1; font-size:11px; padding:8px;" data-action="team-close-engagement" data-engagement-id="${engagement.id}">Close Permanently</button>
     </div>
     <button class="btn btn-danger" style="width:100%; font-size:11px; padding:8px; margin-bottom:10px; background:#7a1212;" data-action="team-delete-engagement" data-engagement-id="${engagement.id}">🗑️ Delete Engagement Forever</button>
-    <div class="card-title">Rounds</div>
-    <div id="round-list-holder"></div>
-    ${hasRounds
-      ? '<div style="font-size:11px; color:var(--grey); margin-bottom:14px; text-align:center;">To start Round 2+, compile the current round below, then use "Generate Next Round" — it builds the right item list for you.</div>'
-      : '<button class="btn btn-primary btn-block" style="margin-bottom:14px;" data-action="team-create-round">➕ Create Round 1</button>'}
-    <div id="subround-section-holder">${hasRounds ? renderSubRoundSection(engagement) : ''}</div>
-    <div id="round-workspace-holder"></div>
-    <div class="card-title">Dashboard</div>
-    <div id="dashboard-holder"></div>
-    <div class="card-title">Reports</div>
-    <div style="font-size:11px; color:var(--grey); margin:-4px 0 8px;">Tap a report to see what it includes, or tap Export to download it right away.</div>
-    ${Components.reportButtonsHTML()}
-    <div id="final-snapshot-holder"></div>
+
+    <div class="section-nav-card" style="margin-bottom:10px;">
+      <div class="section-sub-tabs">
+        <button class="${tab('rounds')}" data-action="team-swipe-tab" data-swipe="rounds">Rounds</button>
+        <button class="${tab('dashboard')}" data-action="team-swipe-tab" data-swipe="dashboard">Dashboard</button>
+        <button class="${tab('reports')}" data-action="team-swipe-tab" data-swipe="reports">Reports</button>
+      </div>
+    </div>
+
+    <div class="swipe-track" id="engagement-swipe-track" data-action-scroll="team-swipe-scroll">
+      <div class="swipe-panel" id="swipe-panel-rounds">
+        <div class="card-title" style="margin-top:0;">Rounds</div>
+        <div id="round-list-holder"></div>
+        ${hasRounds
+          ? '<div style="font-size:11px; color:var(--grey); margin-bottom:14px; text-align:center;">To start Round 2+, compile the current round below, then use "Generate Next Round" — it builds the right item list for you.</div>'
+          : '<button class="btn btn-primary btn-block" style="margin-bottom:14px;" data-action="team-create-round">➕ Create Round 1</button>'}
+        <div id="subround-section-holder">${hasRounds ? renderSubRoundSection(engagement) : ''}</div>
+        <div id="round-workspace-holder"></div>
+      </div>
+      <div class="swipe-panel" id="swipe-panel-dashboard">
+        <div class="card-title" style="margin-top:0;">Dashboard</div>
+        <div id="dashboard-holder"></div>
+      </div>
+      <div class="swipe-panel" id="swipe-panel-reports">
+        <div class="card-title" style="margin-top:0;">Reports</div>
+        <div style="font-size:11px; color:var(--grey); margin:-4px 0 8px;">Tap a report to see what it includes, or tap Export to download it right away.</div>
+        ${Components.reportButtonsHTML()}
+        <div id="final-snapshot-holder"></div>
+      </div>
+    </div>
   `;
+}
+
+// Scrolls the swipe track to the requested panel and syncs the pill
+// row's active state. Called both from the pill tap handler and from
+// the scroll-sync listener in event-delegation.js (so a manual swipe
+// keeps the pills honest too).
+function setEngagementSwipeTab(key, { scroll = true } = {}) {
+  engagementSwipeTab = key;
+  const track = $('engagement-swipe-track');
+  const panel = $('swipe-panel-' + key);
+  if (scroll && track && panel) track.scrollTo({ left: panel.offsetLeft, behavior: 'smooth' });
+  document.querySelectorAll('.section-sub-tab[data-swipe]')
+    .forEach(btn => btn.classList.toggle('active', btn.dataset.swipe === key));
+}
+
+// Called on scroll of #engagement-swipe-track (delegated once in
+// event-delegation.js) to keep the pill row in sync during a manual swipe.
+export function syncEngagementSwipeFromScroll(track) {
+  const panels = ['rounds', 'dashboard', 'reports'];
+  const idx = Math.round(track.scrollLeft / track.clientWidth);
+  const key = panels[Math.max(0, Math.min(panels.length - 1, idx))];
+  if (key !== engagementSwipeTab) setEngagementSwipeTab(key, { scroll: false });
 }
 
 function refreshSubRoundSection() {
@@ -930,10 +977,11 @@ export function initEngagementPages() {
   const clickHandlers = {
     'open-engagement': async (el) => {
       await Actions.openEngagement(el.dataset.engagementId);
-      currentSubView = 'detail'; openRoundId = null;
+      currentSubView = 'detail'; openRoundId = null; engagementSwipeTab = 'rounds';
       renderTeamTab();
     },
-    'team-back-to-list': () => { Actions.closeEngagementView(); currentSubView = 'list'; openRoundId = null; dashboardOpenSections = new Set(); renderTeamTab(); },
+    'team-back-to-list': () => { Actions.closeEngagementView(); currentSubView = 'list'; openRoundId = null; dashboardOpenSections = new Set(); engagementSwipeTab = 'rounds'; renderTeamTab(); },
+    'team-swipe-tab': (el) => setEngagementSwipeTab(el.dataset.swipe),
     'toggle-dashboard-section': (el) => {
       const key = el.dataset.section;
       dashboardOpenSections.has(key) ? dashboardOpenSections.delete(key) : dashboardOpenSections.add(key);

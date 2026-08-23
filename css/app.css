@@ -163,6 +163,18 @@
   }
   .section-sub-tab + .section-sub-tab { border-left: 1px solid var(--border); }
 
+  /* ── Engagement detail: swipeable Rounds/Dashboard/Reports ── */
+  .swipe-track {
+    display: flex; overflow-x: auto; scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch; scroll-behavior: smooth;
+    margin: 0 -14px; padding: 0 0 4px;
+  }
+  .swipe-track::-webkit-scrollbar { display: none; }
+  .swipe-panel {
+    flex: 0 0 100%; scroll-snap-align: start; scroll-snap-stop: always;
+    padding: 0 14px; min-width: 0;
+  }
+
   /* ── Layout & View Management ────────────────────────────── */
   .page { display: none; padding: 14px; }
   .page.active { display: block; }
