@@ -69,13 +69,23 @@ export function reportButtonsHTML() {
 // box / pdf-summary-grid / pdf-table classes, see app.css) — the popup is
 // deliberately just that content in a scrollable frame, so what a Main
 // Auditor previews here is exactly what they'll get on paper or in xlsx.
+// These tables commonly run 8-10 columns (Product Code, Name, Company,
+// Unit Price...) which cannot fit a phone's width without either
+// shrinking text below legible size or scrolling horizontally — we
+// keep the latter (matches the print/export layout exactly) but wrap
+// it in .pdf-table-scroll so: (1) the product-identifying first column
+// stays pinned while scrolling right, so a reader never loses track of
+// which row they're looking at, and (2) a fading edge + one-time hint
+// signal there's more to see, instead of the table just cutting off
+// with no affordance (the original bug this fixes).
 export function reportOverviewShellHTML(title, bodyHTML) {
   return `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
       <h3 style="color:var(--navy); font-size:15px; font-weight:800;">${esc(title)}</h3>
       <button class="sort-btn" data-action="close-report-overview" style="padding:4px 10px;">✕</button>
     </div>
-    <div id="report-overview-canvas" style="max-height:56vh; overflow:auto; border:1px solid #E2E8F0; border-radius:10px; padding:16px; background:#fff;">${bodyHTML}</div>
+    <div class="pdf-table-scroll-hint">👉 Swipe the table sideways for more columns</div>
+    <div id="report-overview-canvas" class="pdf-table-scroll" style="max-height:56vh; overflow:auto; border:1px solid #E2E8F0; border-radius:10px; padding:16px; background:#fff;">${bodyHTML}</div>
     <div style="display:flex; gap:8px; margin-top:12px;">
       <button class="btn btn-primary" style="flex:1;" data-action="print-report-overview">🖨️ Print PDF</button>
       <button class="btn" style="flex:1; background:var(--green-ink); color:white;" data-action="export-report-overview">📊 Export xlsx</button>

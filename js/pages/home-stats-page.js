@@ -25,14 +25,16 @@ function updateInventoryStat() {
 
 function updateTeamStat() {
   const el = $('home-stat-team');
+  const badge = $('home-badge-team');
   if (!el) return;
-  const { role, engagements, currentEngagementId, rounds } = Store.getState();
-  if (!role) { el.textContent = 'Not logged in'; return; }
+  const { role, engagements, currentEngagementId, rounds, assignments } = Store.getState();
+  if (!role) { el.textContent = 'Not logged in'; if (badge) badge.hidden = true; return; }
   if (!currentEngagementId) {
     const openCount = (engagements || []).filter(e => e.status === 'open').length;
     el.textContent = openCount > 0
       ? openCount + ' open engagement' + (openCount === 1 ? '' : 's')
       : 'No active engagement';
+    if (badge) badge.hidden = true; // no per-assignment data loaded until an engagement is opened
     return;
   }
   const engagement = (engagements || []).find(e => e.id === currentEngagementId);
@@ -42,6 +44,30 @@ function updateTeamStat() {
     ? 'Round ' + roundCount + ' — ' + (lastRound.state || 'draft')
     : 'No rounds yet';
   el.textContent = (engagement ? engagement.name : 'Active engagement') + ' · ' + roundLabel;
+
+  // "Did my team submit yet?" is the most common daily check a Main
+  // Auditor makes, and previously required drilling into the
+  // engagement's Dashboard tab to see it. Surface it directly on the
+  // Home tile whenever we already have assignment data in Store for
+  // the current round (no extra query — see initial-state.js comment
+  // on `assignments` being scoped to the currently open round).
+  const currentRoundAssignments = lastRound
+    ? (assignments || []).filter(a => a.roundId === lastRound.id)
+    : [];
+  if (badge && currentRoundAssignments.length > 0) {
+    const pending = currentRoundAssignments.filter(a => a.status !== 'submitted').length;
+    if (pending > 0) {
+      badge.hidden = false;
+      badge.textContent = pending + ' pending';
+      badge.className = 'section-tile-badge section-tile-badge--pending';
+    } else {
+      badge.hidden = false;
+      badge.textContent = 'All submitted';
+      badge.className = 'section-tile-badge section-tile-badge--done';
+    }
+  } else if (badge) {
+    badge.hidden = true;
+  }
 }
 
 function updateSyncStat() {

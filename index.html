@@ -94,7 +94,9 @@
       <button class="section-tile section-tile--team" data-action="navigate" data-view="team">
         <div class="section-tile-icon">👥</div>
         <div class="section-tile-body">
-          <div class="section-tile-name">Team Audit</div>
+          <div class="section-tile-name">Team Audit
+            <span class="section-tile-badge" id="home-badge-team" hidden></span>
+          </div>
           <div class="section-tile-desc">Engagements · Rounds · Staff</div>
           <div class="section-tile-stat" id="home-stat-team">Loading…</div>
         </div>
@@ -274,7 +276,8 @@
       <div style="font-size:12px; color:var(--grey); margin-top:4px;">Sync from Dropbox or upload a CSV on the Sync tab first.</div>
     </div>
 
-    <div id="inv-table-wrap" class="card" style="padding:0; overflow-x:auto;">
+    <div id="inv-table-scroll-hint" class="pdf-table-scroll-hint" style="display:none;">👉 Swipe the table sideways for Supplier &amp; Conv. columns</div>
+    <div id="inv-table-wrap" class="card inv-table-scroll" style="padding:0; overflow-x:auto;">
       <table class="audit-table" style="width:100%; border-collapse:collapse;">
         <thead>
           <tr style="background:var(--light);">

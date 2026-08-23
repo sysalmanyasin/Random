@@ -128,6 +128,18 @@
   .section-tile-stat {
     font-size: 11px; color: rgba(255,255,255,0.55); margin-top: 6px; font-weight: 600;
   }
+  /* Home-tile status badge (e.g. "2 pending" / "All submitted") — lets
+     a Main Auditor see submission status at a glance without opening
+     the engagement's Dashboard tab. Uses the same red/green ink pair
+     as the rest of the app (see :root), just on a translucent white
+     fill so it reads against every tile's gradient. */
+  .section-tile-badge {
+    display: inline-block; margin-left: 8px; padding: 2px 9px;
+    border-radius: 10px; font-size: 10px; font-weight: 800;
+    vertical-align: middle; background: rgba(255,255,255,0.92);
+  }
+  .section-tile-badge--pending { color: var(--red-ink); }
+  .section-tile-badge--done    { color: var(--green-ink); }
   .section-tile-chevron {
     font-size: 22px; color: rgba(255,255,255,0.45); flex-shrink: 0; line-height: 1;
   }
@@ -281,6 +293,16 @@
   }
   .audit-table td { padding: 11px 6px; border-bottom: 1px solid var(--light); vertical-align: middle; }
   .audit-table tbody tr:nth-child(even) td { background: #F8FAFC; }
+
+  /* ── Variance severity (financial impact, not just over/short) ───
+     A left border strip is used rather than recoloring the whole row
+     or text, so it doesn't fight with the existing diff-pos/diff-neg
+     (direction) coloring in the Var column — direction and magnitude
+     are two different questions and now have two different visual
+     channels instead of competing for the same one. */
+  .variance-sev-high td:first-child { border-left: 4px solid var(--red); }
+  .variance-sev-med  td:first-child { border-left: 4px solid var(--gold); }
+  .variance-sev-low  td:first-child { border-left: 4px solid var(--border); }
   .audit-table input[type=number] {
     width: 75px; padding: 8px; border: 1.5px solid var(--border); border-radius: 8px;
     font-size: 14px; font-weight: 700; text-align: right; color: var(--navy);
@@ -343,6 +365,24 @@
   }
   .pdf-table td { padding: 10px; border-bottom: 1px solid #E2E8F0; font-size: 12px; }
   .pdf-table tr:nth-child(even) td { background: #F8FAFC; }
+
+  /* ── Report Overview mobile scroll affordance (see report-components.js) ── */
+  .pdf-table-scroll-hint {
+    font-size: 11px; font-weight: 700; color: var(--navy); background: var(--gold-bg);
+    border: 1px solid #FDE68A; border-radius: 8px; padding: 6px 10px; margin-bottom: 8px;
+    text-align: center;
+  }
+  .pdf-table-scroll { position: relative; }
+  /* Pin the first column (product code/name) so it never scrolls out of
+     view — without this, scrolling right to read Unit Price/Company
+     loses the very thing that tells you which row you're on. */
+  .pdf-table-scroll .pdf-table th:first-child,
+  .pdf-table-scroll .pdf-table td:first-child {
+    position: sticky; left: 0; z-index: 1;
+    background: #ffffff; box-shadow: 2px 0 4px rgba(0,0,0,0.06);
+  }
+  .pdf-table-scroll .pdf-table th:first-child { background: #1B3A6B; z-index: 2; }
+  .pdf-table-scroll .pdf-table tr:nth-child(even) td:first-child { background: #F8FAFC; }
 
   @media print {
     body { background: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -529,6 +569,32 @@
   .inv-group-header:active { background: #EEF2F7; }
   .inv-group-header .arrow-toggle.open { transform: rotate(90deg); }
   .inv-subtotal-row td { background: var(--gold-bg) !important; border-top: 1.5px solid var(--gold); border-bottom: none; }
+
+  /* Long pharmacy product names (often 60-80 characters with pack size,
+     brand, and unit count all run together) used to force a 4-5 line
+     row height that pushed Qty/Price/Company out of visual alignment
+     with the name they belong to. Two lines plus an ellipsis keeps
+     every row a predictable height for fast scanning; the full name is
+     still available via native tooltip (title attr) and in any
+     export/print, which are unclamped. */
+  .inv-product-name {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  /* Same sticky-first-column + scroll-fade treatment as the Report
+     Overview tables (see .pdf-table-scroll) — the checkbox and Product
+     columns are what identifies a row, so they stay put while Qty/
+     Price/Company/Supplier/Conv. scroll underneath them. */
+  .inv-table-scroll .audit-table th:nth-child(-n+2),
+  .inv-table-scroll .audit-table td:nth-child(-n+2) {
+    position: sticky; z-index: 1; background: var(--white);
+  }
+  .inv-table-scroll .audit-table th:nth-child(1),
+  .inv-table-scroll .audit-table td:nth-child(1) { left: 0; }
+  .inv-table-scroll .audit-table th:nth-child(2),
+  .inv-table-scroll .audit-table td:nth-child(2) { left: 34px; box-shadow: 2px 0 4px rgba(0,0,0,0.06); }
+  .inv-table-scroll .audit-table th:nth-child(-n+2) { background: var(--light); z-index: 2; }
+  .inv-table-scroll .audit-table tbody tr:nth-child(even) td:nth-child(-n+2) { background: #F8FAFC; }
   .company-card.active { border-color: var(--navy); box-shadow: 0 2px 12px rgba(27,58,107,0.18); background: #F3F6FB; }
 
   /* ── Accessibility ────────────────────────────────────────

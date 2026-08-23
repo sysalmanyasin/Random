@@ -124,6 +124,8 @@ function renderInventoryTable() {
 
   $('inv-empty-state').style.display = products.length === 0 ? 'block' : 'none';
   $('inv-table-wrap').style.display = products.length === 0 ? 'none' : 'block';
+  const scrollHint = $('inv-table-scroll-hint');
+  if (scrollHint) scrollHint.style.display = products.length === 0 ? 'none' : 'block';
   if (products.length === 0) { tbody.innerHTML = ''; return; }
 
   tbody.innerHTML = '';
@@ -261,6 +263,16 @@ function generateInventoryReport() {
 
 // ── Handlers ──────────────────────────────────────────────
 export function initInventoryPages() {
+  // One-time: dismiss the "swipe sideways" hint the first time the
+  // table is actually scrolled — see index.html #inv-table-scroll-hint
+  // and the matching pattern in engagement-pages.js for Report Overview.
+  const tableWrap = $('inv-table-wrap');
+  const invHint = $('inv-table-scroll-hint');
+  if (tableWrap && invHint) {
+    const dismissInvHint = () => { invHint.style.display = 'none'; tableWrap.removeEventListener('scroll', dismissInvHint); };
+    tableWrap.addEventListener('scroll', dismissInvHint, { passive: true });
+  }
+
   const clickHandlers = {
     'set-inventory-group': (el) => { Actions.setInventoryGroupBy(el.dataset.group); document.querySelectorAll('.inv-group-btn').forEach(b => b.classList.remove('filter-btn-active')); el.classList.add('filter-btn-active'); },
     'toggle-inventory-group-collapse': (el) => { const g = el.dataset.group; collapsedGroups.has(g) ? collapsedGroups.delete(g) : collapsedGroups.add(g); renderInventoryTable(); },

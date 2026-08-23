@@ -16,7 +16,7 @@ export function inventoryRow(product, selected) {
       <input type="checkbox" class="custom-checkbox" data-change-action="toggle-inventory-row" data-code="${esc(product.code || '')}" ${selected ? 'checked' : ''}>
     </td>
     <td>
-      <div style="font-size:13px; font-weight:700; color:var(--navy); line-height:1.3;">${esc(product.name)}</div>
+      <div class="inv-product-name" style="font-size:13px; font-weight:700; color:var(--navy); line-height:1.3;" title="${esc(product.name)}">${esc(product.name)}</div>
       <div style="font-size:10px; color:var(--grey); margin-top:2px;">${product.code ? esc(product.code) : 'No SKU'} · ${esc(product.generic || '—')}</div>
     </td>
     <td style="text-align:right; font-weight:700; color:var(--navy); font-size:13px;">${product.qty}</td>

@@ -303,6 +303,16 @@ function renderSubRoundCompanyPicker(engagement) {
 // for the Engagements/Staff/Individual tabs, so it stays visually
 // consistent while acting as tap-to-jump shortcuts for the swipe.
 let engagementSwipeTab = 'rounds';
+// Closed by default: the two irreversible actions (Close Permanently,
+// Delete Forever) used to sit — full-width, high-contrast red — as the
+// very first tappable elements on an engagement screen a Main Auditor
+// opens every day. They're now tucked behind an explicit disclosure
+// below the actual workflow (Rounds/Dashboard/Reports), so a daily
+// glance/tap pattern never lands anywhere near them by accident.
+// Archive is reversible (see Actions.reopenEngagement) so it stays up
+// near the header as an ordinary secondary action, visually separated
+// from the destructive pair by no longer sharing a row or a color.
+let engagementDangerZoneOpen = false;
 
 function renderEngagementDetailHTML(engagement) {
   const { rounds } = Store.getState();
@@ -311,11 +321,7 @@ function renderEngagementDetailHTML(engagement) {
   return `
     <button class="sort-btn" data-action="team-back-to-list" style="margin-bottom:10px;">← All Engagements</button>
     ${Components.engagementHeaderHTML(engagement)}
-    <div style="display:flex; gap:6px; margin:10px 0;">
-      <button class="btn" style="flex:1; font-size:11px; padding:8px; background:var(--light); color:var(--text);" data-action="team-archive-engagement" data-engagement-id="${engagement.id}">${engagement.status === 'archived' ? 'Reopen' : 'Archive'}</button>
-      <button class="btn btn-danger" style="flex:1; font-size:11px; padding:8px;" data-action="team-close-engagement" data-engagement-id="${engagement.id}">Close Permanently</button>
-    </div>
-    <button class="btn btn-danger" style="width:100%; font-size:11px; padding:8px; margin-bottom:10px; background:#7a1212;" data-action="team-delete-engagement" data-engagement-id="${engagement.id}">🗑️ Delete Engagement Forever</button>
+    <button class="btn" style="width:100%; font-size:11px; padding:8px; margin:10px 0; background:var(--light); color:var(--text);" data-action="team-archive-engagement" data-engagement-id="${engagement.id}">${engagement.status === 'archived' ? '↩️ Reopen Engagement' : '🗄️ Archive (keeps everything, hides from the open list)'}</button>
 
     <div class="section-nav-card" style="margin-bottom:10px;">
       <div class="section-sub-tabs">
@@ -346,6 +352,18 @@ function renderEngagementDetailHTML(engagement) {
         <div id="final-snapshot-holder"></div>
       </div>
     </div>
+
+    <div class="history-header" data-action="toggle-engagement-danger-zone" role="button" tabindex="0" aria-expanded="${engagementDangerZoneOpen}" style="margin-top:18px;">
+      <span style="font-size:11px; font-weight:700; color:var(--grey);">⚠️ Advanced — close or delete this engagement</span>
+      <span class="arrow-toggle" style="transform:rotate(${engagementDangerZoneOpen ? '90deg' : '0deg'});">›</span>
+    </div>
+    ${engagementDangerZoneOpen ? `
+      <div style="border:1.5px solid var(--red-bg); border-radius:12px; padding:10px; margin-top:8px; background:var(--red-bg);">
+        <div style="font-size:11px; color:var(--red-ink); margin-bottom:10px;">These actions are rare, hard to reverse, and separate from day-to-day workflow on purpose.</div>
+        <button class="btn btn-danger" style="width:100%; font-size:11px; padding:8px; margin-bottom:8px;" data-action="team-close-engagement" data-engagement-id="${engagement.id}">Close Permanently</button>
+        <button class="btn btn-danger" style="width:100%; font-size:11px; padding:8px; background:#7a1212;" data-action="team-delete-engagement" data-engagement-id="${engagement.id}">🗑️ Delete Engagement Forever</button>
+      </div>
+    ` : ''}
   `;
 }
 
@@ -672,6 +690,17 @@ function _pdfTable(headers, rows) {
     </table>`;
 }
 
+// Same three-band severity used in the live variance table
+// (see compile-components.js) applied here as a colored, bolded cell
+// so the printed/exported Variance Report also lets a reader triage
+// by rupee impact at a glance instead of reading every row's number.
+function _severityStyledAmount(valueVariance) {
+  const abs = Math.abs(valueVariance);
+  const color = abs >= 5000 ? '#DC2626' : (abs >= 500 ? '#B45309' : '#64748B');
+  const text = 'Rs ' + valueVariance.toLocaleString();
+  return `<span style="color:${color}; font-weight:800;">${text}</span>`;
+}
+
 // Same #printable-report-canvas / @media-print trick used by the
 // Inventory Snapshot Report (see inventory-pages.js) and the legacy
 // audit-history PDFs — reuses the app's one print stylesheet instead
@@ -712,7 +741,7 @@ function _varianceReportBodyHTML(round, compiled, meta) {
     varianceRows.map(r => [
       esc(r.code || '—'), esc(r.name), 'Rs ' + Number(r.price || 0).toLocaleString(),
       r.systemQty, r.countedQty, (r.variance > 0 ? '+' : '') + r.variance,
-      'Rs ' + r.valueVariance.toLocaleString(), esc(r.auditorName || ''),
+      _severityStyledAmount(r.valueVariance), esc(r.auditorName || ''),
     ]));
   const footer = `<div style="margin-top:14px; font-size:10px; color:#64748B;">Sorted alphabetically by product name · Sign-off: Main Auditor — ${esc(meta.mainAuditorName || '_______________')}</div>`;
   return header + stats + table + footer;
@@ -749,7 +778,7 @@ function _combinedVarianceReportBodyHTML(roundsWithCompiled, meta) {
     combinedRows.map(r => [
       esc(r.code || '—'), esc(r.name), esc(r.company), 'Rs ' + Number(r.price || 0).toLocaleString(),
       r.systemQty, r.countedQty, (r.variance > 0 ? '+' : '') + r.variance,
-      'Rs ' + r.valueVariance.toLocaleString(), esc(r.roundAndAuditor), r.isDuplicate ? '⚠️ Yes' : '',
+      _severityStyledAmount(r.valueVariance), esc(r.roundAndAuditor), r.isDuplicate ? '⚠️ Yes' : '',
     ]));
   const footer = `<div style="margin-top:14px; font-size:10px; color:#64748B;">Grouped by product (recounted items adjacent) · Sign-off: Main Auditor — ${esc(meta.mainAuditorName || '_______________')}</div>`;
   return header + stats + table + footer;
@@ -1034,7 +1063,8 @@ export function initEngagementPages() {
       currentSubView = 'detail'; openRoundId = null; engagementSwipeTab = 'rounds';
       renderTeamTab();
     },
-    'team-back-to-list': () => { Actions.closeEngagementView(); currentSubView = 'list'; openRoundId = null; dashboardOpenSections = new Set(); engagementSwipeTab = 'rounds'; renderTeamTab(); },
+    'team-back-to-list': () => { Actions.closeEngagementView(); currentSubView = 'list'; openRoundId = null; dashboardOpenSections = new Set(); engagementSwipeTab = 'rounds'; engagementDangerZoneOpen = false; renderTeamTab(); },
+    'toggle-engagement-danger-zone': () => { engagementDangerZoneOpen = !engagementDangerZoneOpen; renderTeamTab(); },
     'team-swipe-tab': (el) => setEngagementSwipeTab(el.dataset.swipe),
     'toggle-dashboard-section': (el) => {
       const key = el.dataset.section;
@@ -1373,6 +1403,16 @@ export function initEngagementPages() {
       renderReportOverview();
       const overlay = $('report-overview-overlay');
       if (overlay) overlay.style.display = 'flex';
+      // Auto-dismiss the "swipe sideways" hint the first time the
+      // reader actually scrolls the table — it's only useful before
+      // they've discovered the gesture, and left on-screen forever it's
+      // just one more static banner competing for attention.
+      const canvas = $('report-overview-canvas');
+      const hint = document.querySelector('.pdf-table-scroll-hint');
+      if (canvas && hint) {
+        const dismiss = () => { hint.style.display = 'none'; canvas.removeEventListener('scroll', dismiss); };
+        canvas.addEventListener('scroll', dismiss, { passive: true });
+      }
     },
     'close-report-overview': () => {
       const overlay = $('report-overview-overlay');
