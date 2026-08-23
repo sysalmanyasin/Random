@@ -223,6 +223,35 @@ async function autoCompileIfIndividual(assignment) {
 // Fetches everything renderIndividualDashboard (engagement-pages.js)
 // needs in one call, rather than the page reaching into Repo directly
 // — Pages go through Actions in this codebase, never Repository.
+//
+// Also syncs the fetch into the global Store (merged, not overwritten,
+// so other engagements' rows already in the Store survive). This is
+// the missing half of autoCompileIfIndividual: that function compiles
+// an Individual round via a security-definer RPC and never calls
+// Store.setState, unlike compileRound() (compile-actions.js) which
+// does. Anything reading Store.getState() directly — e.g. the Reports
+// tab's _buildReportOverview('combined-variance'/'variance') — never
+// saw an Individual round as compiled even after this very function
+// had just fetched proof from the DB that it was: the Rounds tab (fed
+// straight off this function's return value) showed "Compiled" while
+// the Reports tab (fed off the stale Store) said "compile a round
+// first." Syncing here, in the one Floor-3 place both call paths pass
+// through, fixes that for every Store-reading consumer at once.
+// Pure merge step, split out from loadIndividualDashboardData so it's
+// unit-testable without mocking sbClient/Repo. Replaces this
+// engagement's own rounds wholesale (it's the freshest, full fetch)
+// and drops any assignment/compiledRound belonging to one of those
+// round ids before re-adding the fresh ones — everything belonging to
+// other engagements passes through untouched.
+function _mergeIndividualDataIntoStore(prevState, engagementId, rounds, assignments, compiledRounds) {
+  const roundIds = new Set(rounds.map(r => r.id));
+  return {
+    rounds: prevState.rounds.filter(r => r.engagementId !== engagementId).concat(rounds),
+    assignments: prevState.assignments.filter(a => !roundIds.has(a.roundId)).concat(assignments),
+    compiledRounds: prevState.compiledRounds.filter(c => !roundIds.has(c.roundId)).concat(compiledRounds),
+  };
+}
+
 async function loadIndividualDashboardData(engagement) {
   const { sbClient } = Store.getState();
   const rounds = await Repo.fetchRoundsByEngagement(sbClient, engagement.id);
@@ -230,6 +259,9 @@ async function loadIndividualDashboardData(engagement) {
   const compiledRounds = (await Promise.all(
     rounds.filter(r => r.state === 'compiled').map(r => Repo.fetchCompiledRoundsByRound(sbClient, r.id))
   )).flat();
+
+  Store.setState(_mergeIndividualDataIntoStore(Store.getState(), engagement.id, rounds, assignments, compiledRounds));
+
   return { rounds, assignments, compiledRounds };
 }
 
@@ -341,4 +373,4 @@ export const IndividualActions = {
   loadIndividualDashboardData, summarizeIndividualRounds,
 };
 
-export const _testables = { _currentMonthKey, _monthLabel, groupIndividualAssignmentsByStaff, isCurrentIndividualMonth, summarizeIndividualRounds };
+export const _testables = { _currentMonthKey, _monthLabel, groupIndividualAssignmentsByStaff, isCurrentIndividualMonth, summarizeIndividualRounds, _mergeIndividualDataIntoStore };

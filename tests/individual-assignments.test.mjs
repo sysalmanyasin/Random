@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { _testables } from '../js/actions/individual-actions.js';
 
-const { _currentMonthKey, _monthLabel, groupIndividualAssignmentsByStaff, summarizeIndividualRounds } = _testables;
+const { _currentMonthKey, _monthLabel, groupIndividualAssignmentsByStaff, summarizeIndividualRounds, _mergeIndividualDataIntoStore } = _testables;
 
 test('_currentMonthKey: formats as YYYY-MM with a zero-padded month', () => {
   assert.equal(_currentMonthKey(new Date(2026, 0, 15)), '2026-01');
@@ -130,4 +130,64 @@ test('summarizeIndividualRounds: missing qty/price on a line item is treated as 
   }];
   const { topCompanies } = summarizeIndividualRounds(rounds, assignments).get('r1');
   assert.equal(topCompanies[0].value, 0);
+});
+
+// ── _mergeIndividualDataIntoStore ──────────────────────────────
+// Regression coverage for the bug where an Individual Assignments
+// round showed "Compiled" on the Rounds tab (fed by
+// loadIndividualDashboardData's direct fetch) but the Reports tab's
+// Combined/regular Variance Report said "compile a round first"
+// (fed by the global Store, which autoCompileIfIndividual's RPC-based
+// compile path never updated). loadIndividualDashboardData now runs
+// its fetch result through this function before returning.
+
+test('_mergeIndividualDataIntoStore: freshly-fetched compiled rounds land in the Store', () => {
+  const prevState = { rounds: [], assignments: [], compiledRounds: [] };
+  const rounds = [{ id: 'r1', engagementId: 'e1', state: 'compiled' }];
+  const assignments = [{ id: 'a1', roundId: 'r1', auditorName: 'Ali' }];
+  const compiledRounds = [{ id: 'c1', roundId: 'r1', variances: [] }];
+
+  const next = _mergeIndividualDataIntoStore(prevState, 'e1', rounds, assignments, compiledRounds);
+
+  assert.equal(next.compiledRounds.length, 1);
+  assert.equal(next.compiledRounds[0].roundId, 'r1');
+  // This is exactly what the Reports tab's _buildReportOverview checks
+  // for combined-variance / variance — it must find this round.
+  assert.ok(next.compiledRounds.some(c => c.roundId === 'r1'));
+});
+
+test('_mergeIndividualDataIntoStore: does not clobber other engagements already in the Store', () => {
+  const prevState = {
+    rounds: [{ id: 'other-r', engagementId: 'team-eng-1', state: 'compiled' }],
+    assignments: [{ id: 'other-a', roundId: 'other-r', auditorName: 'Sana' }],
+    compiledRounds: [{ id: 'other-c', roundId: 'other-r', variances: [] }],
+  };
+  const rounds = [{ id: 'r1', engagementId: 'individual-eng', state: 'compiled' }];
+  const assignments = [{ id: 'a1', roundId: 'r1', auditorName: 'Ali' }];
+  const compiledRounds = [{ id: 'c1', roundId: 'r1', variances: [] }];
+
+  const next = _mergeIndividualDataIntoStore(prevState, 'individual-eng', rounds, assignments, compiledRounds);
+
+  assert.ok(next.rounds.some(r => r.id === 'other-r'));
+  assert.ok(next.assignments.some(a => a.id === 'other-a'));
+  assert.ok(next.compiledRounds.some(c => c.id === 'other-c'));
+  assert.ok(next.compiledRounds.some(c => c.id === 'c1'));
+});
+
+test('_mergeIndividualDataIntoStore: re-fetching the same engagement replaces its stale rows instead of duplicating them', () => {
+  const prevState = {
+    rounds: [{ id: 'r1', engagementId: 'individual-eng', state: 'counting' }],
+    assignments: [{ id: 'a1', roundId: 'r1', auditorName: 'Ali' }],
+    compiledRounds: [],
+  };
+  // Round r1 has now been compiled — fresh fetch reflects that.
+  const rounds = [{ id: 'r1', engagementId: 'individual-eng', state: 'compiled' }];
+  const assignments = [{ id: 'a1', roundId: 'r1', auditorName: 'Ali' }];
+  const compiledRounds = [{ id: 'c1', roundId: 'r1', variances: [{ code: 'X1' }] }];
+
+  const next = _mergeIndividualDataIntoStore(prevState, 'individual-eng', rounds, assignments, compiledRounds);
+
+  assert.equal(next.rounds.length, 1);
+  assert.equal(next.rounds[0].state, 'compiled');
+  assert.equal(next.compiledRounds.length, 1);
 });

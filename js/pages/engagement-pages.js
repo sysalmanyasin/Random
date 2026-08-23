@@ -31,6 +31,13 @@ async function renderIndividualDashboard() {
   const engagement = await Actions.getOrCreateCurrentIndividualEngagement();
   if (!engagement) { holder.innerHTML = '<div class="card">Could not load Individual Assignments.</div>'; return; }
 
+  // loadIndividualDashboardData (individual-actions.js) now also syncs
+  // this fetch into the global Store — see that function for why: the
+  // Reports tab's _buildReportOverview reads Store.getState() directly,
+  // and Individual Assignments rounds are auto-compiled via a
+  // security-definer RPC that never went through compileRound()'s
+  // Store.setState, so Reports never saw them as compiled even though
+  // this dashboard (which fetches fresh from the DB) always did.
   const { rounds, assignments, compiledRounds } = await Actions.loadIndividualDashboardData(engagement);
   holder.innerHTML = _renderIndividualDashboardBody(engagement, rounds, assignments, compiledRounds);
 }
