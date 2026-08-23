@@ -123,7 +123,7 @@ export function reassignModalHTML(assignment, staffList, mainAuditor) {
         ${esc(mainAuditor.name)} <span style="font-weight:400; color:var(--grey); font-size:11px;">(yourself)</span>
       </button>` : '';
   return `
-    <h3 style="color:var(--navy); font-size:15px; font-weight:800; margin-bottom:8px;">Reassign ${esc(assignment.auditorName)}'s assignment</h3>
+    <h3 class="modal-title" style="margin-bottom:8px;">Reassign ${esc(assignment.auditorName)}'s assignment</h3>
     <div style="font-size:12.5px; color:var(--grey); margin-bottom:12px;">
       Item list and inventory cutoff stay exactly as they are. Counts already entered are kept as a starting point for whoever picks it up next — nothing is wiped. ${esc(assignment.auditorName)} loses access the moment you pick someone else.
     </div>

@@ -81,7 +81,7 @@ export function reportButtonsHTML() {
 export function reportOverviewShellHTML(title, bodyHTML) {
   return `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-      <h3 style="color:var(--navy); font-size:15px; font-weight:800;">${esc(title)}</h3>
+      <h3 class="modal-title">${esc(title)}</h3>
       <button class="sort-btn" data-action="close-report-overview" style="padding:4px 10px;">✕</button>
     </div>
     <div class="pdf-table-scroll-hint">👉 Swipe the table sideways for more columns</div>
@@ -98,7 +98,7 @@ export function reportOverviewShellHTML(title, bodyHTML) {
 export function reportOverviewEmptyHTML(title, message) {
   return `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-      <h3 style="color:var(--navy); font-size:15px; font-weight:800;">${esc(title)}</h3>
+      <h3 class="modal-title">${esc(title)}</h3>
       <button class="sort-btn" data-action="close-report-overview" style="padding:4px 10px;">✕</button>
     </div>
     <div style="padding:28px 0; text-align:center; color:var(--grey); font-size:13px;">${esc(message)}</div>`;

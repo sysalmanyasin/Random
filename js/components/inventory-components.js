@@ -110,7 +110,7 @@ export function templateListItem(template, isActive, matchInfo) {
 export function templateBuilderShellHTML(mode, query) {
   return `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-      <h3 style="color:var(--navy); font-size:15px; font-weight:800;">🔍 Build a Template</h3>
+      <h3 class="modal-title">🔍 Build a Template</h3>
       <button class="sort-btn" data-action="close-template-builder" style="padding:4px 10px;">✕</button>
     </div>
     <div style="font-size:11px; color:var(--grey); margin-bottom:10px;">Search products one at a time, or switch to <strong>By Company</strong> to add an entire company's products in one tap — then save the list as a named template.</div>

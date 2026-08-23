@@ -239,7 +239,7 @@ export function liveSnapshotModalHTML(assignment, displayRows, filterMode, sortM
 
   return `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-      <h3 style="color:var(--navy); font-size:15px; font-weight:800;">${esc(assignment.auditorName)}'s live counts</h3>
+      <h3 class="modal-title">${esc(assignment.auditorName)}'s live counts</h3>
       <button class="sort-btn" data-action="close-live-snapshot" style="padding:4px 10px;">✕</button>
     </div>
     <div style="font-size:11px; color:var(--grey); margin-bottom:8px;">
@@ -279,7 +279,7 @@ export function forceSubmitModalHTML(assignment) {
   const total = assignment.items.length;
   const leftover = total - countedByAuditor;
   return `
-    <h3 style="color:var(--navy); font-size:15px; font-weight:800; margin-bottom:8px;">Force submit for ${esc(assignment.auditorName)}?</h3>
+    <h3 class="modal-title" style="margin-bottom:8px;">Force submit for ${esc(assignment.auditorName)}?</h3>
     <div style="font-size:12.5px; color:var(--grey); margin-bottom:12px;">
       ${countedByAuditor}/${total} counted so far. This commits their synced counts as the real submission and locks the assignment — they won't be able to edit it unless you reopen it.
     </div>

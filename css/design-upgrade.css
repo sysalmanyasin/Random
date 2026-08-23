@@ -1,0 +1,145 @@
+/* ══════════════════════════════════════════════════════════════
+   DESIGN SYSTEM UPGRADE — international-standard polish layer
+   ------------------------------------------------------------
+   Loaded AFTER app.css / engagement.css / desktop.css. It only
+   redefines shared tokens (:root custom properties) and adds a
+   small number of universal, additive rules — it does not touch
+   component markup or structural selectors, so nothing in
+   js/pages or js/components needs to change.
+
+   What "international standard" means here, concretely:
+   - 4px/8px spacing grid (Material Design 3 / IBM Carbon / Apple HIG
+     all converge on this)
+   - A modular type scale instead of ad-hoc pixel sizes
+   - A 3-tier elevation system (sm/md/lg) instead of two shadows
+   - WCAG 2.2 AA-compliant, always-visible keyboard focus rings
+   - prefers-reduced-motion + prefers-color-scheme respected
+   - Consistent 150–200ms easing curve for all interactive states
+   ══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Spacing scale (4px base unit) ───────────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* ── Type scale (1.2 minor-third-ish ramp, rem-based) ────── */
+  --text-xs:   0.6875rem;  /* 11px — micro labels, eyebrow text */
+  --text-sm:   0.8125rem;  /* 13px — secondary/meta text */
+  --text-base: 0.9375rem;  /* 15px — body copy */
+  --text-md:   1.0625rem;  /* 17px — emphasized body / card titles */
+  --text-lg:   1.25rem;    /* 20px — section headings */
+  --text-xl:   1.625rem;   /* 26px — page/display headings */
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+
+  /* ── Elevation system (soft, layered — Material/HIG-style) ─ */
+  --shadow-sm: 0 1px 2px rgba(15,23,42,0.06);
+  --shadow:    0 2px 6px rgba(15,23,42,0.07), 0 1px 2px rgba(15,23,42,0.05);
+  --shadow-md: 0 8px 24px rgba(15,23,42,0.10), 0 2px 6px rgba(15,23,42,0.06);
+  --shadow-lg: 0 16px 40px rgba(15,23,42,0.14), 0 4px 10px rgba(15,23,42,0.08);
+
+  /* ── Motion ───────────────────────────────────────────────── */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur: 180ms;
+
+  /* ── Refined radii (slightly tighter hierarchy) ──────────── */
+  --radius-sm: 10px;
+  --radius:    16px;
+  --radius-lg: 22px;
+
+  /* ── Type stack: international coverage (Latin/Cyrillic/Greek
+     via Inter where installed, graceful system fallback
+     everywhere else — no external font request, no FOIT) ───── */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+               Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+}
+
+html, body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ── Consistent, always-visible focus ring (WCAG 2.2 AA) ────
+   Applies everywhere by default; components that already ship
+   a bespoke focus treatment (e.g. the dark sidebar) keep theirs
+   since their own selector is more specific than this one. ─── */
+:focus-visible {
+  outline: 2.5px solid var(--navy2, var(--navy));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Motion: unify easing on the interactive elements that
+   already animate, respecting reduced-motion preference ──── */
+@media (prefers-reduced-motion: no-preference) {
+  .btn, .card, .section-tile, .tab-btn, .section-sub-tab,
+  .auditor-chip, .assignment-card {
+    transition-duration: var(--dur);
+    transition-timing-function: var(--ease);
+  }
+}
+
+/* ── Typographic rhythm ─────────────────────────────────────
+   Nudges existing headings/labels onto the new type scale
+   without renaming any class — these selectors are additive
+   refinements layered on top of app.css's own rules. ──────── */
+.header-title       { font-size: var(--text-lg); letter-spacing: -0.01em; }
+.section-tile-title { letter-spacing: -0.01em; }
+
+/* ── Modal/dialog heading ─────────────────────────────────────
+   Was repeated 6x as raw inline style="color:var(--navy);
+   font-size:15px; font-weight:800;" across assignment-,
+   dashboard-, inventory-, and report-components.js. Extracted
+   into a real class so it rides the type scale like everything
+   else, and so a future size/weight tweak is a one-line change
+   instead of a 6-file find-and-replace. Visually identical to
+   the inline version it replaces (15px → --text-md ≈ 17px was
+   intentionally NOT applied here to avoid shifting six existing
+   dialog layouts — kept at the original 15px). */
+.modal-title { color: var(--navy); font-size: 15px; font-weight: 800; }
+
+/* ── Cards: soften into the new elevation system + a subtle
+   lift on hover for pointer devices (skipped on touch so it
+   doesn't cause a "stuck hover" state on mobile) ───────────── */
+@media (hover: hover) and (pointer: fine) {
+  .card, .section-nav-bar, .assignment-card {
+    transition: box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
+  }
+  .section-tile:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+  }
+  .btn:not(:disabled):hover { filter: brightness(1.05); }
+}
+
+/* ── Buttons: consistent radius + weight across all variants,
+   plus a resting shadow so primary actions read as "raised"
+   rather than flat-filled rectangles ───────────────────────── */
+.btn {
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.btn-primary, .btn-gold, .btn-danger {
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── Scrollbar + selection polish (Firefox already themed in
+   app.css; this adds a matching text-selection color) ──────── */
+::selection { background: var(--navy2, var(--navy)); color: var(--white); }
+
+/* ── Dark mode: OFF by default. The component layer uses many
+   literal light-mode hex fallbacks (PDF export, table zebra
+   stripes, etc.) that were never audited for a dark palette, so
+   forcing prefers-color-scheme:dark here would silently break
+   contrast in places this pass didn't touch. Flip this on only
+   after a dedicated dark-mode pass across app.css. ─────────── */
