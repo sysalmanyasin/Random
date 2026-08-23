@@ -17,9 +17,17 @@ async function loadStaffRoster() {
   const { sbClient } = Store.getState();
   if (!sbClient) return [];
   const staff = await Repo.fetchAllStaff(sbClient);
-  Store.setState({ staff });
+  Store.setState({ staff, staffOrder: Repo.LS.getJSON('staffCardOrder_v1', []) });
   Bus.emit('staff:changed', staff);
   return staff;
+}
+
+// Card drag-reorder is a per-device display preference, not roster data —
+// stored locally (see repository/storage.js) rather than in Supabase, so
+// it never needs RLS/schema changes and works instantly offline.
+function reorderStaff(orderedStaffIds) {
+  Repo.LS.setJSON('staffCardOrder_v1', orderedStaffIds);
+  Store.setState({ staffOrder: orderedStaffIds });
 }
 
 async function createStaffMember(name, phone, pin, role) {
@@ -129,4 +137,5 @@ function buildWhatsAppDispatchUrl(staffMember, appUrl, pin) {
 export const StaffActions = {
   loadStaffRoster, createStaffMember, resetStaffPin, setStaffBlocked,
   setStaffAccessExpiry, deleteStaffMember, promoteStaffToMain, buildWhatsAppDispatchUrl,
+  reorderStaff,
 };

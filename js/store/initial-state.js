@@ -29,7 +29,8 @@ export function createInitialState() {
     currentEngagementId: null,
     rounds: [],              // rounds for the currently open engagement
     assignments: [],         // assignments for the currently open round
-    staff: [],               // full staff roster (Main Auditor's Staff tab)
+    staff: [],                // full staff roster (Main Auditor's Staff tab)
+    staffOrder: [],           // display order for Staff cards — device-local preference (see repository/storage.js), not synced server-side
     submissions: [],         // submissions for the currently open round
     compiledRounds: [],      // compiled rounds for the currently open engagement
     finalSnapshots: [],

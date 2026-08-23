@@ -40,6 +40,43 @@
 .auditor-chip.selected { background: var(--navy); color: var(--white); border-color: var(--navy); }
 
 .assignment-card { border: 1.5px solid var(--border); }
+
+/* ── Staff tab: swipe-to-reveal actions + drag-to-reorder ── */
+.staff-card-wrap {
+  position: relative; overflow: hidden;
+  border-radius: var(--radius); margin-bottom: 12px;
+}
+.staff-card-wrap.dragging { z-index: 20; }
+.staff-card-wrap.dragging .staff-card-front { box-shadow: 0 6px 18px rgba(0,0,0,0.18); }
+.staff-swipe-actions {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 132px;
+  display: flex;
+}
+.swipe-action-btn {
+  flex: 1; border: none; color: white; font-size: 11px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.swipe-action-btn.swipe-block { background: #5B6B82; }
+.swipe-action-btn.swipe-delete { background: var(--red-ink, #C0392B); }
+.staff-card-front {
+  position: relative; z-index: 1; margin-bottom: 0;
+  touch-action: pan-y; transition: transform 0.18s ease;
+}
+.staff-card-wrap.dragging .staff-card-front { transition: none; }
+.staff-card-summary {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+}
+.staff-summary-text { flex: 1; min-width: 0; }
+.staff-drag-handle {
+  font-size: 16px; color: var(--grey); padding: 4px 2px; cursor: grab;
+  touch-action: none; user-select: none; line-height: 1;
+}
+.staff-drag-handle:active { cursor: grabbing; }
+.staff-chevron {
+  font-size: 12px; color: var(--grey); transition: transform 0.15s; margin-left: 2px;
+}
+.staff-chevron.open { transform: rotate(-180deg); }
+.staff-card-details { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
 .movable-rows-wrap { max-height: 220px; overflow: auto; }
 .movable-row {
   display: flex; justify-content: space-between; align-items: center;

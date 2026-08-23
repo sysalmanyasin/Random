@@ -4,7 +4,7 @@ import { initLegacyPages, highlightAuditRow, unhighlightAuditRow } from './legac
 import { initEngagementPages, renderTeamTab, syncEngagementSwipeFromScroll } from './engagement-pages.js';
 import { initSubPages, renderTeamTabForSubAuditor } from './sub-pages.js';
 import { initAuthPages, renderAuthRoot } from './auth-pages.js';
-import { initStaffPages, renderStaffTab } from './staff-pages.js';
+import { initStaffPages, renderStaffTab, handleStaffPointerDown, handleStaffPointerMove, handleStaffPointerUp } from './staff-pages.js';
 import { initInventoryPages } from './inventory-pages.js';
 import { initHomeStatsPage } from './home-stats-page.js';
 import { initCalculatorPage, setLastCountInput } from './calculator-pages.js';
@@ -174,6 +174,16 @@ export function initPages() {
   app.addEventListener('scroll', (e) => {
     if (e.target && e.target.id === 'engagement-swipe-track') syncEngagementSwipeFromScroll(e.target);
   }, true);
+
+  // Staff tab: swipe-to-reveal (Block/Delete) + drag-to-reorder, both via
+  // Pointer Events — one delegated listener per event type, same as
+  // every other gesture in this file. The handlers themselves are pure
+  // no-ops outside the Staff tab (they bail out when their target
+  // selectors don't match), so this is safe to leave attached globally.
+  app.addEventListener('pointerdown', handleStaffPointerDown);
+  app.addEventListener('pointermove', handleStaffPointerMove);
+  app.addEventListener('pointerup', handleStaffPointerUp);
+  app.addEventListener('pointercancel', handleStaffPointerUp);
 
   app.addEventListener('change', (e) => {
     const el = e.target.closest('[data-change-action]');
