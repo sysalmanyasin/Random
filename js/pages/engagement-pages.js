@@ -716,6 +716,38 @@ function printVarianceReportPDF(round, compiled, meta) {
   _printHTMLToCanvas(_varianceReportBodyHTML(round, compiled, meta));
 }
 
+// ── Combined Variance Report body (all compiled rounds, one sheet) ──
+function _combinedVarianceReportBodyHTML(roundsWithCompiled, meta) {
+  const esc = Components.esc;
+  const combinedRows = Actions.buildCombinedVarianceReportRows(roundsWithCompiled);
+  const totalQtyVar = combinedRows.reduce((s, r) => s + r.variance, 0);
+  const totalValueVar = combinedRows.reduce((s, r) => s + r.valueVariance, 0);
+  const duplicateCount = new Set(combinedRows.filter(r => r.isDuplicate).map(r => r.dupKey)).size;
+
+  const header = _pdfHeader({
+    branchName: meta.branchName, title: 'Combined Variance Report — All Rounds', subtitle: meta.engagementName,
+    rightLines: [
+      `<strong>Generated:</strong> ${esc(new Date().toLocaleString('en-PK'))}`,
+      `<strong>Main Auditor:</strong> ${esc(meta.mainAuditorName || '—')}`,
+      `<strong>Rounds Included:</strong> ${roundsWithCompiled.length}`,
+    ],
+  });
+  const stats = _pdfStatGrid([
+    { val: combinedRows.length.toLocaleString(), label: 'Variance Lines', color: '#1B3A6B' },
+    { val: duplicateCount.toLocaleString(), label: 'Duplicate Products', color: '#D97706' },
+    { val: 'Rs ' + totalValueVar.toLocaleString(), label: 'Net Value Variance', color: '#DC2626', span: 2 },
+  ]);
+  const table = _pdfTable(
+    ['Product Code', 'Product Name', 'Company', 'Unit Price', 'System Qty', 'Physical Qty', 'Variance', 'Variance Amount', 'Round', 'Duplicate'],
+    combinedRows.map(r => [
+      esc(r.code || '—'), esc(r.name), esc(r.company), 'Rs ' + Number(r.price || 0).toLocaleString(),
+      r.systemQty, r.countedQty, (r.variance > 0 ? '+' : '') + r.variance,
+      'Rs ' + r.valueVariance.toLocaleString(), esc(r.roundAndAuditor), r.isDuplicate ? '⚠️ Yes' : '',
+    ]));
+  const footer = `<div style="margin-top:14px; font-size:10px; color:#64748B;">Grouped by product (recounted items adjacent) · Sign-off: Main Auditor — ${esc(meta.mainAuditorName || '_______________')}</div>`;
+  return header + stats + table + footer;
+}
+
 // ── Final Audit Report body — capped inventory preview (a Final
 //    Snapshot can carry thousands of SKUs; the popup/print stay
 //    responsive, the full list is always still in the xlsx). ──
@@ -839,6 +871,21 @@ function _buildReportOverview(key) {
     if (!compiled) return { title: 'Variance Report', empty: 'Compile a round first — there\'s nothing to report on yet.' };
     const roundLabel = 'Round ' + latestRound.roundNumber + (latestRound.roundSuffix || '');
     return { title: 'Variance Report — ' + roundLabel, bodyHTML: _varianceReportBodyHTML(latestRound, compiled, meta), exportFn: () => Actions.exportVarianceReportXLSX(compiled, roundLabel, meta) };
+  }
+  if (key === 'combined-variance') {
+    const engRounds = rounds.filter(r => r.engagementId === currentEngagementId).sort((a, b) => a.roundNumber - b.roundNumber);
+    // One compiled row per round (latest compile of each, same "pop()"
+    // convention as the single-round Variance Report above), skipping
+    // any round that hasn't been compiled yet.
+    const roundsWithCompiled = engRounds
+      .map(round => ({ round, compiled: compiledRounds.filter(c => c.roundId === round.id).pop() }))
+      .filter(rc => rc.compiled);
+    if (roundsWithCompiled.length === 0) return { title: 'Combined Variance Report', empty: 'Compile at least one round first — there\'s nothing to report on yet.' };
+    return {
+      title: 'Combined Variance Report — All Rounds',
+      bodyHTML: _combinedVarianceReportBodyHTML(roundsWithCompiled, meta),
+      exportFn: () => Actions.exportCombinedVarianceReportXLSX(roundsWithCompiled, meta),
+    };
   }
   if (key === 'round-history') {
     const engRounds = rounds.filter(r => r.engagementId === currentEngagementId).sort((a, b) => a.roundNumber - b.roundNumber);

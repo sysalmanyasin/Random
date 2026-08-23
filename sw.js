@@ -1,4 +1,4 @@
-const CACHE_NAME = "fazal-din-audit-v8.8-staff-swipe-drag";
+const CACHE_NAME = "fazal-din-audit-v8.9-combined-variance-report";
 
 // App-shell assets we want available offline immediately after install.
 // (These are still precached, but at *runtime* they are served network-first,

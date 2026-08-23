@@ -27,6 +27,10 @@ const REPORT_INFO = [
     description: 'Isolates <strong>every SKU where the physical count differed from the system quantity</strong> across the entire compiled engagement. Shows the variance delta, unit cost, and rupee impact per line item — plus a cumulative financial exposure total at the bottom. Use this to <strong>prioritise follow-up action</strong>: which shortages need explanation, which overs need investigation, and which items are candidates for a recount before finalising.',
   },
   {
+    key: 'combined-variance', icon: '🧮', title: 'Combined Variance Report — All Rounds (.xlsx)',
+    description: 'The Variance Report above shows the <strong>latest round only</strong>. This one lists every variance line from <strong>every compiled round in the engagement</strong>, one flat sheet — each row shows which round it came from and who counted it (e.g. "Round 2 — Salman Yasin"). If the same product shows up in more than one round (e.g. it was recounted), those rows are <strong>flagged as duplicates and grouped together</strong> so you can see the count history for that item at a glance instead of hunting across separate round reports.',
+  },
+  {
     key: 'round-history', icon: '📋', title: 'Round History (.xlsx)',
     description: 'A <strong>timeline of every round</strong> run within the engagement: round number, date opened, date closed, state (open / compiled / final), and how many assignments were issued in that round. Gives a clear picture of the audit\'s progression — useful when you need to explain <strong>how many passes were done</strong> and on what dates, especially if a recount round was triggered after a discrepancy.',
   },

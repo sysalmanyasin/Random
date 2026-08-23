@@ -125,6 +125,72 @@ function exportVarianceReportXLSX(compiledRound, roundLabel, meta) {
   Bus.emit('toast', { msg: 'Variance Report exported', kind: 'success' });
 }
 
+// ── Combined Variance Report — all compiled rounds in one sheet ──
+// The per-round Variance Report above only ever shows the latest round.
+// This flattens every compiled round's variance rows across the whole
+// engagement into one table, tagging each row with "Round N — Auditor"
+// (roundLabel already carries the sub-auditor via r.auditorName, same
+// source field the per-round report uses) and flagging any product that
+// shows up in more than one round's variances as a duplicate — grouped
+// together so a recounted item's history reads as one block instead of
+// being scattered across separate round exports.
+//
+// `roundsWithCompiled` is an array of { round, compiled } pairs, one per
+// compiled round in the engagement, already sorted oldest-to-newest by
+// the caller (engagement-pages.js has the round objects; this floor
+// only ever sees what it's handed).
+function buildCombinedVarianceReportRows(roundsWithCompiled) {
+  const rows = [];
+  roundsWithCompiled.forEach(({ round, compiled }) => {
+    const roundLabel = 'Round ' + round.roundNumber + (round.roundSuffix || '');
+    buildVarianceReportRows(compiled).forEach(r => {
+      // company+code is the same dedup key detectCrossRoundConflicts uses —
+      // itemKey alone is only unique within a single round's own snapshot.
+      const dupKey = r.company + '::' + (r.code || r.name);
+      rows.push({ ...r, roundLabel, roundNumber: round.roundNumber, dupKey, roundAndAuditor: roundLabel + (r.auditorName ? ' — ' + r.auditorName : '') });
+    });
+  });
+
+  const countByKey = new Map();
+  rows.forEach(r => countByKey.set(r.dupKey, (countByKey.get(r.dupKey) || 0) + 1));
+  rows.forEach(r => { r.isDuplicate = countByKey.get(r.dupKey) > 1; });
+
+  // Group duplicates together (same product's rows adjacent, oldest
+  // round first within the group) rather than one flat alphabetical
+  // list, so a recounted item's history reads as one block.
+  return rows.sort((a, b) =>
+    a.dupKey === b.dupKey
+      ? a.roundNumber - b.roundNumber
+      : a.name.localeCompare(b.name) || a.dupKey.localeCompare(b.dupKey)
+  );
+}
+
+function exportCombinedVarianceReportXLSX(roundsWithCompiled, meta) {
+  meta = meta || {};
+  const combinedRows = buildCombinedVarianceReportRows(roundsWithCompiled);
+  const rows = [['Combined Variance Report — All Rounds' + (meta.engagementName ? ' — ' + meta.engagementName : '')]];
+  rows.push(['Generated', new Date().toLocaleString('en-PK')]);
+  if (meta.mainAuditorName) rows.push(['Main Auditor', meta.mainAuditorName]);
+  if (meta.branchName) rows.push(['Branch', meta.branchName]);
+  rows.push([]);
+  rows.push(['Product Code', 'Product Name', 'Company', 'Unit Price (Rs)', 'System Quantity', 'Physical Quantity', 'Variance', 'Variance Amount (Rs)', 'Round', 'Duplicate (recounted item)', 'Verified', 'Cross-Round Conflict']);
+  let grandQtyVar = 0, grandValueVar = 0;
+  combinedRows.forEach(r => {
+    rows.push([r.code, r.name, r.company, r.price, r.systemQty, r.countedQty, r.variance, r.valueVariance, r.roundAndAuditor, r.isDuplicate ? 'Yes' : '', r.verified, r.conflictMarker]);
+    grandQtyVar += r.variance;
+    grandValueVar += r.valueVariance;
+  });
+  rows.push([]);
+  rows.push(['GRAND TOTAL', '', '', '', '', '', grandQtyVar, Number(grandValueVar.toFixed(2))]);
+
+  const duplicateCount = new Set(combinedRows.filter(r => r.isDuplicate).map(r => r.dupKey)).size;
+  if (duplicateCount > 0) rows.splice(4, 0, ['Note', duplicateCount + ' product(s) appear in more than one round (recounted) — grouped together below, flagged "Yes" in the Duplicate column.']);
+
+  _downloadWorkbook({ 'Combined Variance — All Rounds': rows }, 'CombinedVarianceReport_' + (meta.engagementName || 'Engagement').replace(/\s+/g, '_') + '.xlsx');
+  logAudit('report:combinedVarianceExported', { roundCount: roundsWithCompiled.length });
+  Bus.emit('toast', { msg: 'Combined Variance Report exported', kind: 'success' });
+}
+
 function exportRoundHistoryXLSX(engagement, rounds) {
   const rows = [['Round #', 'Unit', 'State', 'Created', 'Locked', 'Compiled', 'Finalized']];
   rounds.forEach(r => rows.push([
@@ -158,5 +224,6 @@ function exportAuditTrailXLSX(engagement, auditLog) {
 
 export const ReportActions = {
   exportFinalAuditReportXLSX, exportVarianceReportXLSX, buildVarianceReportRows,
+  buildCombinedVarianceReportRows, exportCombinedVarianceReportXLSX,
   exportRoundHistoryXLSX, exportSubmissionHistoryXLSX, exportAuditTrailXLSX,
 };
