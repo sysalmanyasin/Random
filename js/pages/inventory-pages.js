@@ -192,9 +192,19 @@ function renderSelectionBar() {
   const { inventorySelectedCodes } = Store.getState();
   const count = inventorySelectedCodes.length;
   const bar = $('inv-selection-bar');
-  if (!bar) return;
-  bar.style.display = count > 0 ? 'flex' : 'none';
-  $('inv-selection-count').textContent = `${count} code${count !== 1 ? 's' : ''} selected`;
+  if (bar) {
+    bar.style.display = count > 0 ? 'flex' : 'none';
+    $('inv-selection-count').textContent = `${count} code${count !== 1 ? 's' : ''} selected`;
+  }
+  // Same count, mirrored on the Templates sub-tab (Products and
+  // Templates share one inventorySelectedCodes state — see index.html
+  // #inv-templates-selection-hint) so a selection made via a loaded
+  // Template is visible without switching tabs first.
+  const hint = $('inv-templates-selection-hint');
+  if (hint) {
+    hint.style.display = count > 0 ? 'block' : 'none';
+    $('inv-templates-selection-count').textContent = `${count} code${count !== 1 ? 's' : ''} selected`;
+  }
 }
 
 function renderInventoryTab() {
@@ -207,7 +217,10 @@ Bus.on('inventory:filterChanged', () => { renderLimit = PAGE_SIZE; renderInvento
 Bus.on('inventory:selectionChanged', () => { renderInventoryTable(); renderSelectionBar(); renderTemplatesList(); });
 Bus.on('templates:changed', renderTemplatesList);
 Bus.on('templates:loaded', () => { renderTemplatesList(); renderInventoryTable(); });
-Bus.on('view:activated', (page) => { if (page === 'inventory') { renderLimit = PAGE_SIZE; renderInventoryTab(); } });
+Bus.on('view:activated', (page) => {
+  if (page === 'inventory') { renderLimit = PAGE_SIZE; renderInventoryTab(); }
+  else if (page === 'inventory-templates') { renderTemplatesList(); renderSelectionBar(); }
+});
 
 // ── Report generation — builds a fresh D-26-style report into the
 //    shared #printable-report-canvas (same element/@media-print trick

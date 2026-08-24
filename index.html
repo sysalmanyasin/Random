@@ -218,13 +218,20 @@
   </div>
 
   <!-- ══════════════════════════════════════════════════════════
-       INVENTORY BROWSER — its own top-level home-screen section
-       (Templates, Companies, Random Audit launch)
+       INVENTORY BROWSER — its own top-level home-screen section.
+       PRODUCTS sub-tab: search/group/browse the product table +
+       launch a Random Audit from whatever's selected. Saved
+       Templates live on their own sub-tab — see page-inventory-
+       templates below.
   ══════════════════════════════════════════════════════════ -->
   <div class="page" id="page-inventory">
 
     <div class="section-nav-bar">
       <div class="section-nav-label">Inventory</div>
+      <div class="section-sub-tabs">
+        <button class="section-sub-tab active" data-action="navigate" data-view="inventory">Products</button>
+        <button class="section-sub-tab" data-action="navigate" data-view="inventory-templates">Templates</button>
+      </div>
     </div>
 
     <input type="text" id="inv-search-input" class="search-input" placeholder="🔍 Search code, name, generic, company, supplier…" aria-label="Search inventory by code, name, generic, company, or supplier" data-input-action="inventory-search">
@@ -235,27 +242,9 @@
       <button class="filter-btn inv-group-btn" data-action="set-inventory-group" data-group="supplier">By Supplier</button>
     </div>
 
-    <!-- Templates + Random Audit launch — placed above the (potentially
-         5000+ row) product table so they're reachable without scrolling
-         past the whole inventory list. -->
     <div class="card">
-      <div class="card-title" style="margin-top:0;">Saved Templates</div>
-      <button type="button" class="file-trigger-tile" style="border: 2px dashed var(--border); padding: 16px; text-align: center; border-radius: 12px; cursor: pointer; background: var(--light); margin-bottom:12px; width:100%; font: inherit;" data-action="trigger-file-input" data-target="inv-codes-file-input">
-        <span style="font-size:22px;" aria-hidden="true">📂</span>
-        <div style="font-size:11px; font-weight:700; color:var(--grey); margin-top:6px;">Load a code list from file</div>
-      </button>
-      <input type="file" id="inv-codes-file-input" accept=".csv,.txt" style="display:none" data-change-action="handle-inventory-codes-file" aria-label="Choose a code list file to load">
-      <div style="display:flex; gap:6px; margin-bottom:12px;">
-        <input type="text" id="inv-manual-code-input" class="settings-input" placeholder="Or type code(s), comma-separated" aria-label="Type product code(s), comma-separated" style="margin:0; flex:1;">
-        <button class="btn" style="background:var(--light); color:var(--navy);" data-action="add-manual-inventory-codes">Add</button>
-      </div>
-      <button class="btn btn-block" style="background:var(--navy); color:white; margin-bottom:12px;" data-action="open-template-builder">🔍 Search &amp; Add Products (build a template)</button>
-      <div id="inv-templates-list"></div>
-    </div>
-
-    <div class="card" style="margin-top:12px;">
       <div class="card-title" style="margin-top:0;">🎲 Start Random Audit From This Selection</div>
-      <div style="font-size:11px; color:var(--grey); margin-bottom:10px;">Check items in the list below (or load a Template above), then launch — Individual samples a subset into your own workspace, Team creates an engagement scoped to exactly these codes.</div>
+      <div style="font-size:11px; color:var(--grey); margin-bottom:10px;">Check items in the list below (or load a saved <a href="#" data-action="navigate" data-view="inventory-templates" style="color:var(--navy); font-weight:700;">Template</a>), then launch — Individual samples a subset into your own workspace, Team creates an engagement scoped to exactly these codes.</div>
       <label for="inv-sample-size" style="font-size:11px; font-weight:700; color:var(--grey);">Sample size (Individual)</label>
       <input type="number" id="inv-sample-size" class="settings-input" value="10" min="1" style="margin:6px 0 12px;">
       <div style="display:flex; gap:8px; margin-bottom:8px;">
@@ -303,6 +292,47 @@
         <button class="btn btn-sm" data-action="generate-inventory-report">📄 Report</button>
         <button class="btn btn-sm" data-action="clear-inventory-selection">✕ Clear</button>
       </div>
+    </div>
+
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       INVENTORY — TEMPLATES sub-tab. Split out from Products (see
+       page-inventory above) so the code-list / builder / saved-
+       templates workflow has its own screen instead of sitting on
+       top of a potentially 5000+ row product table.
+  ══════════════════════════════════════════════════════════ -->
+  <div class="page" id="page-inventory-templates">
+
+    <div class="section-nav-bar">
+      <div class="section-nav-label">Inventory</div>
+      <div class="section-sub-tabs">
+        <button class="section-sub-tab" data-action="navigate" data-view="inventory">Products</button>
+        <button class="section-sub-tab active" data-action="navigate" data-view="inventory-templates">Templates</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="margin-top:0;">Saved Templates</div>
+      <button type="button" class="file-trigger-tile" style="border: 2px dashed var(--border); padding: 16px; text-align: center; border-radius: 12px; cursor: pointer; background: var(--light); margin-bottom:12px; width:100%; font: inherit;" data-action="trigger-file-input" data-target="inv-codes-file-input">
+        <span style="font-size:22px;" aria-hidden="true">📂</span>
+        <div style="font-size:11px; font-weight:700; color:var(--grey); margin-top:6px;">Load a code list from file</div>
+      </button>
+      <input type="file" id="inv-codes-file-input" accept=".csv,.txt" style="display:none" data-change-action="handle-inventory-codes-file" aria-label="Choose a code list file to load">
+      <div style="display:flex; gap:6px; margin-bottom:12px;">
+        <input type="text" id="inv-manual-code-input" class="settings-input" placeholder="Or type code(s), comma-separated" aria-label="Type product code(s), comma-separated" style="margin:0; flex:1;">
+        <button class="btn" style="background:var(--light); color:var(--navy);" data-action="add-manual-inventory-codes">Add</button>
+      </div>
+      <button class="btn btn-block" style="background:var(--navy); color:white; margin-bottom:12px;" data-action="open-template-builder">🔍 Search &amp; Add Products (build a template)</button>
+      <div id="inv-templates-list"></div>
+    </div>
+
+    <!-- Selected-codes summary + jump to Products to launch the audit,
+         so someone who arrives here straight from Home isn't stuck
+         with no way back to the launch buttons. -->
+    <div id="inv-templates-selection-hint" style="display:none; font-size:11px; color:var(--grey); text-align:center; margin-bottom:8px;">
+      <span id="inv-templates-selection-count"></span> — 
+      <a href="#" data-action="navigate" data-view="inventory" style="color:var(--navy); font-weight:700;">go to Products to launch a Random Audit</a>
     </div>
 
   </div>
