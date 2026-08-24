@@ -105,6 +105,8 @@ function _assignmentTotalValue(a) {
 let showIndividualPicker = false;
 let individualPickerSource = 'template'; // 'template' | 'companies'
 let individualSelectedCompanies = new Set();
+let individualSearchToken = '';
+let individualSortAscending = true;
 
 function renderIndividualPickerHTML() {
   const { role, myAssignments, templates } = Store.getState();
@@ -145,6 +147,14 @@ function renderIndividualPickerHTML() {
           ${templateOptions}
         </select>` : `<div style="font-size:12px; color:var(--grey); margin-bottom:10px;">No saved templates yet — ask the Main Auditor to save one, or pick companies instead.</div>`}
       ` : `
+        <div style="display:flex; gap:6px; margin-bottom:8px;">
+          <input type="text" id="individual-company-search" class="settings-input" placeholder="🔍 Search company…" style="margin:0; flex:1;" data-input-action="filter-individual-companies">
+          <button class="sort-btn" data-action="toggle-individual-sort">↕️ <span id="individual-sort-label">${individualSortAscending ? 'A-Z' : 'Z-A'}</span></button>
+        </div>
+        <div style="display:flex; gap:6px; margin-bottom:8px;">
+          <button class="btn" style="flex:1; font-size:11px; padding:8px; background:var(--light); color:var(--text);" data-action="individual-select-all">Select All (filtered)</button>
+          <button class="btn" style="flex:1; font-size:11px; padding:8px; background:var(--light); color:var(--text);" data-action="individual-clear-all">Clear All</button>
+        </div>
         <div id="individual-company-picker" style="max-height:200px; overflow:auto; margin-bottom:6px;"></div>
         <div id="individual-selected-count" style="font-size:11px; color:var(--grey); margin-bottom:8px;"></div>
       `}
@@ -160,9 +170,28 @@ function renderIndividualCompanyPicker() {
   const countLabel = $('individual-selected-count');
   if (!holder) return;
   const { products } = Store.getState();
-  const companies = [...new Set(products.map(p => p.company))].sort((a, b) => a.localeCompare(b));
+  // Same per-company SKU count + total value math as the Main Auditor's
+  // scope picker (renderScopeCompanyPicker in engagement-pages.js).
+  const totals = {};
+  products.forEach(p => {
+    const t = totals[p.company] || { skus: 0, value: 0 };
+    t.skus += 1; t.value += (p.qty || 0) * (p.price || 0);
+    totals[p.company] = t;
+  });
+  let companies = Object.keys(totals);
+  const query = individualSearchToken.toLowerCase().trim();
+  if (query) companies = companies.filter(c => c.toLowerCase().includes(query));
+  companies.sort((a, b) => individualSortAscending ? a.localeCompare(b) : b.localeCompare(a));
+
   holder.innerHTML = '';
-  companies.forEach(c => holder.appendChild(Components.scopeCompanyCheckboxRow(c, individualSelectedCompanies.has(c), undefined, undefined, 'toggle-individual-company')));
+  if (companies.length === 0) {
+    holder.innerHTML = '<div style="text-align:center; color:var(--grey); padding:16px; font-size:12px;">No companies match.</div>';
+  } else {
+    companies.forEach(c => {
+      const t = totals[c];
+      holder.appendChild(Components.scopeCompanyCheckboxRow(c, individualSelectedCompanies.has(c), t.skus, t.value, 'toggle-individual-company'));
+    });
+  }
   if (countLabel) countLabel.textContent = individualSelectedCompanies.size + ' compan' + (individualSelectedCompanies.size === 1 ? 'y' : 'ies') + ' selected';
 }
 
@@ -347,6 +376,8 @@ export function initSubPages() {
       showIndividualPicker = !showIndividualPicker;
       individualPickerSource = 'template';
       individualSelectedCompanies = new Set();
+      individualSearchToken = '';
+      individualSortAscending = true;
       renderTeamTabForSubAuditor();
     },
     'set-individual-source': (el) => { individualPickerSource = el.dataset.source; renderTeamTabForSubAuditor(); },
@@ -357,6 +388,21 @@ export function initSubPages() {
       const countLabel = $('individual-selected-count');
       if (countLabel) countLabel.textContent = individualSelectedCompanies.size + ' compan' + (individualSelectedCompanies.size === 1 ? 'y' : 'ies') + ' selected';
     },
+    'toggle-individual-sort': () => {
+      individualSortAscending = !individualSortAscending;
+      const lbl = $('individual-sort-label');
+      if (lbl) lbl.textContent = individualSortAscending ? 'A-Z' : 'Z-A';
+      renderIndividualCompanyPicker();
+    },
+    'individual-select-all': () => {
+      const { products } = Store.getState();
+      let companies = [...new Set(products.map(p => p.company))];
+      const query = individualSearchToken.toLowerCase().trim();
+      if (query) companies = companies.filter(c => c.toLowerCase().includes(query));
+      companies.forEach(c => individualSelectedCompanies.add(c));
+      renderIndividualCompanyPicker();
+    },
+    'individual-clear-all': () => { individualSelectedCompanies.clear(); renderIndividualCompanyPicker(); },
     'confirm-start-individual': async () => {
       let selection;
       if (individualPickerSource === 'template') {
@@ -419,6 +465,7 @@ export function initSubPages() {
     },
     'record-assignment-note': (el) => Actions.recordMyNote(el.dataset.itemKey, el.value),
     'record-assignment-extra-note': (el) => Actions.recordMyExtraNote(el.value),
+    'filter-individual-companies': (el) => { individualSearchToken = el.value; renderIndividualCompanyPicker(); },
   };
 
   const keydownHandlers = {
