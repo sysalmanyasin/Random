@@ -292,6 +292,118 @@
   .sticky-controls { top: 0; }
 }
 
+/* ══════════════════════════════════════════════════════════════
+   COLOR & BACKGROUND POLISH (desktop only)
+   ------------------------------------------------------------
+   Every Home-screen tile already carries its own identity color
+   (.section-tile--inventory/--team/--sync in app.css) but every
+   inner page flattens straight back to navy-on-white-on-#EDF0F5
+   the moment you open it — that's what reads as "no background,
+   no color" on a wide screen where the flatness has room to show.
+   This layer carries each section's own hue past the tile and
+   into its actual pages: a tinted backdrop behind the sidebar,
+   a matching wash at the top of the content column, and a few
+   small accents (card headers, list items, the primary action)
+   inside Team Audit specifically, since that's the section this
+   pass is targeting.
+
+   No new markup, no JS: page identity is read straight off the
+   `.page.active` element the app already toggles, using the same
+   :has() technique the auth-screen centering rule above uses. ──
+   ══════════════════════════════════════════════════════════════ */
+@media (min-width: 1024px) {
+
+  /* ── Section-tinted backdrop behind the sidebar/shell ────
+     Same three hues as the Home tile gradients, just softened
+     into a wash instead of a solid fill, anchored top-left where
+     the eye lands first and fading back to the neutral base. */
+  body:has(#page-team.active),
+  body:has(#page-staff.active),
+  body:has(#page-individual.active) {
+    background:
+      radial-gradient(1000px 620px at -8% -15%, rgba(5,150,105,0.16), transparent 60%),
+      radial-gradient(760px 480px at 108% 8%, rgba(6,95,70,0.10), transparent 55%),
+      #EDF0F5;
+  }
+  body:has(#page-inventory.active) {
+    background:
+      radial-gradient(1000px 620px at -8% -15%, rgba(27,58,107,0.14), transparent 60%),
+      radial-gradient(760px 480px at 108% 8%, rgba(37,99,235,0.09), transparent 55%),
+      #EDF0F5;
+  }
+  body:has(#page-import.active) {
+    background:
+      radial-gradient(1000px 620px at -8% -15%, rgba(217,119,6,0.15), transparent 60%),
+      radial-gradient(760px 480px at 108% 8%, rgba(146,64,14,0.09), transparent 55%),
+      #EDF0F5;
+  }
+
+  /* ── Matching wash at the top of the content column itself —
+     this is the part that was reading as flat white behind the
+     Engagements/New Engagement cards. Fades out by ~260px so it
+     reads as a hero backdrop, not a colored page. */
+  #page-team.active, #page-staff.active, #page-individual.active {
+    background: linear-gradient(180deg, #ECFDF5 0%, var(--light) 260px);
+  }
+  #page-inventory.active {
+    background: linear-gradient(180deg, #EEF3FC 0%, var(--light) 260px);
+  }
+  #page-import.active {
+    background: linear-gradient(180deg, #FFF7ED 0%, var(--light) 260px);
+  }
+
+  /* ── Team Audit: carry the green identity into the section
+     nav strip, card headers, engagement cards, and the primary
+     action — the one place inside Team Audit an accent should
+     show through, since Settings/Staff-login/etc. stay navy. */
+  #page-team .section-nav-bar,
+  #page-staff .section-nav-bar,
+  #page-individual .section-nav-bar {
+    border-top: 3px solid var(--c-team);
+  }
+  #page-team .section-sub-tab.active,
+  #page-staff .section-sub-tab.active,
+  #page-individual .section-sub-tab.active {
+    color: #065F46;
+  }
+  #page-team .section-sub-tab.active::after,
+  #page-staff .section-sub-tab.active::after,
+  #page-individual .section-sub-tab.active::after {
+    background: var(--c-team);
+  }
+  #page-team .card-title,
+  #page-staff .card-title,
+  #page-individual .card-title {
+    position: relative;
+    padding-left: 13px;
+    border-bottom-color: #D1FAE5;
+  }
+  #page-team .card-title::before,
+  #page-staff .card-title::before,
+  #page-individual .card-title::before {
+    content: ''; position: absolute; left: 0; top: 1px; bottom: 9px;
+    width: 3px; border-radius: 2px; background: var(--c-team);
+  }
+
+  /* Engagement cards: a status-tinted left accent (green/navy/
+     grey, matching the badge already printed on each card) so
+     the list reads at a glance instead of every card looking
+     identical until you read the small pill text. */
+  #engagement-cards-holder .company-card { border-left-width: 4px; }
+  #engagement-cards-holder .company-card:has(.val-green) { border-left-color: var(--green); }
+  #engagement-cards-holder .company-card:has(.val-navy)  { border-left-color: var(--navy); }
+  #engagement-cards-holder .company-card:has(.val-grey)  { border-left-color: var(--grey); }
+
+  /* New Engagement form: a top accent stripe + a gradient primary
+     button (same green used on the Home tile) instead of the flat
+     navy button every other form in the app already uses. */
+  .card:has(#new-engagement-name) { border-top: 3px solid var(--c-team); }
+  .card:has(#new-engagement-name) .btn-primary {
+    background: linear-gradient(135deg, #065F46 0%, var(--c-team) 100%);
+    box-shadow: 0 4px 14px rgba(5,150,105,0.30);
+  }
+}
+
 /* Slightly narrower breakpoint: collapse sidebar to icons only,
    still wider than a phone but not full desktop width. Tablet /
    small-laptop-window territory — the sidebar's text labels are the
