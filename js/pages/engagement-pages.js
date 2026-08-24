@@ -428,6 +428,15 @@ async function refreshRoundList() {
   refreshDashboard();
 }
 Bus.on('rounds:changed', () => { if (currentSubView === 'detail') refreshRoundList(); });
+// If the round just deleted was the one open in the workspace below the
+// list, close that workspace out rather than leaving it pointing at a
+// round that no longer exists (renderRoundWorkspace already no-ops
+// gracefully, but explicitly clearing openRoundId also stops its
+// progress-poll timer and the now-stale subround section).
+Bus.on('round:deleted', ({ roundId }) => {
+  if (openRoundId === roundId) { openRoundId = null; _stopProgressPoll(); renderRoundWorkspace(); }
+  if (currentSubView === 'detail') refreshSubRoundSection();
+});
 
 let _progressPollTimer = null;
 function _stopProgressPoll() { clearInterval(_progressPollTimer); _progressPollTimer = null; }
@@ -1249,6 +1258,7 @@ export function initEngagementPages() {
       if (round) { await openRound(round.id); } else { renderTeamTab(); }
     },
     'open-round': (el) => openRound(el.dataset.roundId),
+    'delete-round': async (el) => { await Actions.deleteRound(el.dataset.roundId); },
     'toggle-auditor-select': (el) => {
       const id = el.dataset.auditorId;
       if (selectedStaffIds.includes(id)) selectedStaffIds = selectedStaffIds.filter(x => x !== id);

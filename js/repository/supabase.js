@@ -125,7 +125,24 @@ async function updateRound(client, id, patch) {
   if (patch.lockedAt !== undefined) dbPatch.locked_at = patch.lockedAt ? new Date(patch.lockedAt).toISOString() : null;
   if (patch.compiledAt !== undefined) dbPatch.compiled_at = patch.compiledAt ? new Date(patch.compiledAt).toISOString() : null;
   if (patch.finalizedAt !== undefined) dbPatch.finalized_at = patch.finalizedAt ? new Date(patch.finalizedAt).toISOString() : null;
+  // roundNumber/baseRoundId are only ever touched by round deletion's
+  // renumber step (round-actions.js deleteRound) — everywhere else a
+  // round's number and lineage are set once, at insertRound, and never
+  // change again.
+  if (patch.roundNumber !== undefined) dbPatch.round_number = patch.roundNumber;
+  if (patch.baseRoundId !== undefined) dbPatch.base_round_id = patch.baseRoundId;
   const { error } = await client.from('rounds').update(dbPatch).eq('id', id);
+  if (error) throw error;
+}
+// Deletes the round row outright. assignments/compiled_rounds both have
+// ON DELETE CASCADE on round_id (see schema.sql), so those clean up
+// automatically. base_round_id (a round pointing back at the round it
+// was diffed from) has NO cascade — a lingering reference to a deleted
+// id would either orphan-fail the FK or leave a dangling pointer, so
+// round-actions.js deleteRound must null out any child's base_round_id
+// via updateRound *before* calling this.
+async function deleteRound(client, id) {
+  const { error } = await client.from('rounds').delete().eq('id', id);
   if (error) throw error;
 }
 async function fetchRoundsByEngagement(client, engagementId) {
@@ -411,7 +428,7 @@ export const SupabaseRepo = {
   buildSupabaseClient, signInWithPhonePin, signOut, getSession, onAuthStateChange, callAdminAction,
   fetchMyStaffProfile, fetchAllStaff, setStaffAccessExpiry,
   insertEngagement, updateEngagementStatus, updateEngagementScope, deleteEngagement, fetchEngagements,
-  insertRound, updateRound, fetchRoundsByEngagement, fetchRoundById, fetchOpenRoundsAcrossEngagements,
+  insertRound, updateRound, deleteRound, fetchRoundsByEngagement, fetchRoundById, fetchOpenRoundsAcrossEngagements,
   insertAssignments, updateAssignment, fetchAssignmentsByRound, fetchAssignmentById, fetchMyAssignments,
   upsertSubmission, fetchSubmissionsByRound, fetchMySubmission,
   insertCompiledRound, fetchCompiledRoundsByRound, updateCompiledRoundConflicts, compileIndividualRoundRPC,

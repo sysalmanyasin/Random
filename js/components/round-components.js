@@ -58,6 +58,7 @@ export function roundCard(round, isLatest, individualInfo) {
     </div>
     <div class="company-card-badges">
       <span class="val-badge ${STATE_BADGE[round.state] || 'val-grey'}">${STATE_LABEL[round.state] || round.state}</span>
+      <button type="button" class="round-card-delete-btn" data-action="delete-round" data-round-id="${round.id}" title="Delete Round ${label}" aria-label="Delete Round ${label}" style="border:none; background:none; color:var(--red-ink, #b91c1c); font-size:15px; padding:2px 4px; cursor:pointer; line-height:1;">🗑️</button>
     </div>`;
   return card;
 }

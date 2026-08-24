@@ -340,14 +340,91 @@ async function finalizeRoundDirect(roundId) {
   Bus.emit('round:readyForSnapshot', { roundId });
 }
 
+// Pure — given the surviving rounds (already excludes whatever's being
+// deleted), returns the same rounds with roundNumber reassigned 1..N so
+// the sequence stays gapless. Grouped by CURRENT roundNumber first
+// (ascending) so a lettered family — 4, 4A, 4B — always renumbers
+// together and keeps its suffixes. A round's id, its assignments/
+// submissions/compiled data, and its lettered siblings are all
+// untouched — only the round_number label changes. Nothing here talks
+// to the DB, so it's cheap to unit-test in isolation from Store/Repo/
+// confirm() — see deleteRound below for the side-effecting wrapper.
+function _computeRenumbering(survivors) {
+  const byOldNumber = [...new Set(survivors.map(r => r.roundNumber))].sort((a, b) => a - b);
+  const renumbered = [];
+  byOldNumber.forEach((oldNumber, i) => {
+    const newNumber = i + 1;
+    survivors
+      .filter(r => r.roundNumber === oldNumber)
+      .forEach(r => renumbered.push(Object.assign({}, r, { roundNumber: newNumber })));
+  });
+  renumbered.sort((a, b) => a.roundNumber - b.roundNumber || (a.roundSuffix || '').localeCompare(b.roundSuffix || ''));
+  return renumbered;
+}
+
+// Permanently deletes a round (any state — draft through final) and
+// renumbers whatever's left, via _computeRenumbering above.
+// assignments/compiled_rounds cascade off round_id in the schema, so
+// those clean up on their own; the one thing the DB won't do for us is
+// base_round_id (a later round pointing back at the one being diffed
+// FROM) — that has no cascade, so any child pointing at this round gets
+// its base_round_id nulled first, or the delete would fail on the FK
+// (or worse, silently leave a dangling reference if it didn't).
+async function deleteRound(roundId) {
+  const { rounds, sbClient, currentEngagementId } = Store.getState();
+  const round = rounds.find(r => r.id === roundId);
+  if (!round) return false;
+
+  const label = round.roundNumber + (round.roundSuffix || '');
+  const warn = round.state === 'draft'
+    ? `Delete Round ${label}? This cannot be undone.`
+    : `Delete Round ${label}? This permanently removes its assignments, submissions, and any compiled data. This cannot be undone.`;
+  if (!confirm(warn)) return false;
+
+  try {
+    // 1. Detach any round diffed FROM this one, so the FK doesn't block deletion.
+    const children = rounds.filter(r => r.baseRoundId === roundId);
+    for (const child of children) {
+      await Repo.updateRound(sbClient, child.id, { baseRoundId: null });
+      child.baseRoundId = null;
+    }
+
+    // 2. Delete the round itself (assignments/compiled_rounds cascade in the DB).
+    await Repo.deleteRound(sbClient, roundId);
+
+    // 3. Renumber the survivors so the sequence stays gapless.
+    const survivors = rounds.filter(r => r.id !== roundId);
+    const renumbered = _computeRenumbering(survivors);
+    for (const r of renumbered) {
+      const original = survivors.find(s => s.id === r.id);
+      if (original.roundNumber !== r.roundNumber) {
+        await Repo.updateRound(sbClient, r.id, { roundNumber: r.roundNumber });
+      }
+    }
+
+    Store.setState({ rounds: renumbered });
+    logAudit('round:deleted', { roundId, engagementId: currentEngagementId, roundLabel: label });
+    Bus.emit('rounds:changed', renumbered);
+    Bus.emit('round:deleted', { roundId });
+    Bus.emit('toast', { msg: 'Round ' + label + ' deleted', kind: 'success' });
+    return true;
+  } catch (err) {
+    Bus.emit('toast', { msg: 'Could not delete round: ' + err.message, kind: 'error' });
+    // Best-effort resync — a partial failure (e.g. detach succeeded but
+    // delete didn't) can leave Store's in-memory copy stale.
+    await loadRoundsForCurrentEngagement();
+    return false;
+  }
+}
+
 export function isFamilyFullyCompiled(rounds, roundNumber) { return _isFamilyFullyCompiled(rounds, roundNumber); }
 export function familyLabel(rounds, roundNumber) { return _familyLabel(rounds, roundNumber); }
 export function familyRounds(rounds, roundNumber) { return _familyRounds(rounds, roundNumber); }
 
 export const RoundActions = {
   loadRoundsForCurrentEngagement, createRound, createItemRound, createSubRound, createItemSubRound, updateRoundState,
-  lockRound, beginCounting, finalizeRoundDirect, noteAssignmentActivity,
+  lockRound, beginCounting, finalizeRoundDirect, noteAssignmentActivity, deleteRound,
   isFamilyFullyCompiled, familyLabel, familyRounds,
 };
 
-export const _testables = { findPreCreationOverlaps };
+export const _testables = { findPreCreationOverlaps, computeRenumbering: _computeRenumbering };
