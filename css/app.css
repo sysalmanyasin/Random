@@ -24,6 +24,7 @@
     --red-ink:    #B91C1C;
     --grey:       #64748B;
     --light:      #F8FAFC;
+    --page-bg:    #E7ECF2;
     --white:      #ffffff;
     --border:     #E2E8F0;
     --text:       #0F172A;
@@ -41,7 +42,7 @@
 
   html, body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: var(--light); color: var(--text); min-height: 100vh;
+    background: var(--page-bg); color: var(--text); min-height: 100vh;
     -webkit-tap-highlight-color: transparent;
   }
 

@@ -30,7 +30,7 @@
     --form-w: 480px;
   }
 
-  html, body { background: #EDF0F5; }
+  html, body { background: var(--page-bg); }
   body { font-size: 15px; } /* desktop reading distance is farther than a phone in hand */
 
   #app {
