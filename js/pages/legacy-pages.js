@@ -55,11 +55,17 @@ export function executeViewNavigation(viewIdentifierToken) {
 }
 
 // ── Font scale widget ──
+// Two copies of this widget now exist in the DOM (Sync & Tools, and
+// Team Audit — the latter so a Sub-Auditor, who can never reach
+// Settings, still has a way to change text size). Match on
+// data-scale rather than the clicked element so both copies stay in
+// sync no matter which one was used.
 function applyFontScaleAdjustment(scaleValue, buttonElement) {
   const zoomMap = { '100%': 1, '112%': 1.12, '125%': 1.25 };
   $('app').style.zoom = zoomMap[scaleValue] || 1;
-  document.querySelectorAll('.font-btn').forEach(btn => btn.classList.remove('active'));
-  buttonElement.classList.add('active');
+  document.querySelectorAll('.font-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.scale === scaleValue);
+  });
 }
 
 // Shared row-highlight behavior for the Sub-Auditor counting table

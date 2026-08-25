@@ -133,6 +133,24 @@
       </div>
     </div>
 
+    <!-- Text Scale — duplicated here (not just in Sync & Tools) because
+         Team Audit is the only page a Sub-Auditor's session can ever
+         reach (see SUB_AUDITOR_ALLOWED_VIEWS in legacy-pages.js /
+         executeViewNavigation) — Settings is gated behind the PIN and
+         then bounced back to 'team' for that role, so without a copy
+         here a Sub-Auditor would have no way to adjust text size at
+         all. Same data-action/classes as the Settings widget, so the
+         existing 'font-scale' handler and .font-btn active-state
+         syncing (legacy-pages.js) drive both copies identically. -->
+    <div class="font-widget">
+      <span style="font-size:13px; font-weight:700; color:var(--navy);">Text Scale:</span>
+      <div class="font-btn-group">
+        <button class="font-btn active" id="f-norm-team" data-action="font-scale" data-scale="100%">Normal</button>
+        <button class="font-btn" id="f-med-team" data-action="font-scale" data-scale="112%">Medium</button>
+        <button class="font-btn" id="f-lrg-team" data-action="font-scale" data-scale="125%">Large</button>
+      </div>
+    </div>
+
     <div id="team-tab-root"></div>
   </div>
 
