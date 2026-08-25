@@ -62,7 +62,9 @@
   .tabbar {
     position: fixed;
     top: 132px; left: var(--shell-left);
+    transform: none;
     width: var(--sidebar-w);
+    max-width: none;
     height: calc(100vh - 132px);
     background: linear-gradient(180deg, var(--navy) 0%, #16305A 100%);
     border-top: none;
@@ -113,6 +115,18 @@
 
   /* ── Main content area shifts right of the fixed sidebar ── */
   .page { padding: 32px 40px 48px; max-width: 1080px; }
+
+  /* Settings page: pair short-form cards two-up on desktop instead of
+     stacking them in one narrow column with the rest of the page
+     going unused. Cards that need full-width room (long text, or an
+     inherently single-purpose block) can still span both columns. */
+  .settings-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 28px;
+    align-items: start;
+  }
+  .settings-block { min-width: 0; }
   #auth-root ~ #app-shell-below-auth,
   #app-shell-below-auth { padding-left: var(--sidebar-w); }
 
@@ -420,7 +434,8 @@
   .header-loc { display: none; }
 
   .tabbar {
-    position: fixed; top: 0; left: var(--shell-left); width: var(--sidebar-w);
+    position: fixed; top: 0; left: var(--shell-left); transform: none;
+    width: var(--sidebar-w); max-width: none;
     height: 100vh; background: var(--navy); border-top: none;
     flex-direction: column; justify-content: flex-start; gap: 4px; padding: 96px 8px 20px;
   }

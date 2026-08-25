@@ -321,7 +321,9 @@
     position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
     padding: 10px 22px; border-radius: 24px; font-size: 13px; font-weight: 700;
     color: var(--white); z-index: 250; box-shadow: 0 4px 20px rgba(0,0,0,0.18);
-    white-space: nowrap;
+    white-space: normal; text-align: center; line-height: 1.4;
+    max-width: min(92vw, 420px);
+    width: max-content;
   }
   .toast.success { background: var(--green); }
   .toast.error   { background: var(--red); }
@@ -657,12 +659,14 @@
   /* ── Counting Calculator ─────────────────────────────────── */
   .calc-fab {
     position: fixed; right: 16px; bottom: 84px; z-index: 130;
-    width: 52px; height: 52px; border-radius: 50%; border: none;
+    width: 52px; height: 52px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.85);
     background: var(--navy); color: var(--white); font-size: 22px;
     box-shadow: 0 4px 14px rgba(27,58,107,0.35); cursor: grab;
     display: flex; align-items: center; justify-content: center;
     touch-action: none; user-select: none; -webkit-user-select: none;
+    opacity: 0.88; transition: opacity 0.15s ease, transform 0.1s ease;
   }
+  .calc-fab:hover, .calc-fab:focus-visible { opacity: 1; }
   .calc-fab:active { background: var(--navy2); transform: scale(0.96); }
   .calc-fab.calc-fab-dragging {
     cursor: grabbing; box-shadow: 0 8px 22px rgba(27,58,107,0.5); transform: scale(1.08); opacity: 0.92;
