@@ -143,3 +143,79 @@ html, body {
    forcing prefers-color-scheme:dark here would silently break
    contrast in places this pass didn't touch. Flip this on only
    after a dedicated dark-mode pass across app.css. ─────────── */
+
+/* ══════════════════════════════════════════════════════════════
+   AMBIENT BACKGROUND — a signature texture instead of flat grey
+   ------------------------------------------------------------
+   The plus/cross is the one glyph that reads as "pharmacy" on
+   sight anywhere in the world — a green cross, in this app's own
+   ink, tiled faint enough to sit *behind* every card without ever
+   competing with it. It's a single ~180-byte inline SVG (no
+   network request, no cost on a phone connection), applied at
+   opacity 0.05 so it never touches text contrast.
+
+   It also fixes the specific "boring" complaint: the existing
+   per-page washes below (team=mint, inventory=navy, import=gold)
+   faded to a flat, opaque var(--light) at ~260px, so anything
+   below the fold on a normal-height screen was plain grey no
+   matter which page you were on — and three of the app's eight
+   top-level pages (Home, Settings, Inventory Templates) had no
+   wash at all. This section fixes both: every page now fades to
+   *transparent* instead of flat, so the ambient pattern shows
+   through for the rest of the scroll, and the three previously-
+   bare pages get their own quiet navy wash to match. ────────── */
+:root {
+  --bg-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Cg fill='none' stroke='%23047857' stroke-width='1.5' stroke-linecap='round' opacity='0.055'%3E%3Cpath d='M32 20v24M20 32h24'/%3E%3C/g%3E%3C/svg%3E");
+  --bg-pattern-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Cg fill='none' stroke='%23ffffff' stroke-width='1.5' stroke-linecap='round' opacity='0.05'%3E%3Cpath d='M32 20v24M20 32h24'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+html, body {
+  background-image: var(--bg-pattern);
+  background-attachment: fixed;
+}
+
+@media (min-width: 1024px) {
+  #app { background-image: var(--bg-pattern); }
+
+  /* Same three washes as before, same colors — only the tail end
+     changes: transparent instead of a flat var(--light) fill, so
+     the pattern above keeps showing once the wash itself fades. */
+  #page-team.active, #page-staff.active, #page-individual.active {
+    background: linear-gradient(180deg, rgba(236,253,245,0.9) 0%, rgba(236,253,245,0) 340px);
+  }
+  #page-inventory.active {
+    background: linear-gradient(180deg, rgba(238,243,252,0.9) 0%, rgba(238,243,252,0) 340px);
+  }
+  #page-import.active {
+    background: linear-gradient(180deg, rgba(255,247,237,0.9) 0%, rgba(255,247,237,0) 340px);
+  }
+  /* Previously bare: a quiet navy wash so Home, Settings, and
+     Inventory Templates read as part of the same system instead
+     of the one flat page in an otherwise-tinted app. */
+  #page-home.active, #page-settings.active, #page-inventory-templates.active {
+    background: linear-gradient(180deg, rgba(238,242,248,0.9) 0%, rgba(238,242,248,0) 340px);
+  }
+
+  /* The dark navy sidebar needs the light-ink pattern, not the
+     green one meant for the pale content column — layered as a
+     second background-image alongside each element's own existing
+     gradient (a bare background-image here would replace that
+     gradient outright rather than sit on top of it). */
+  .header {
+    background-image: var(--bg-pattern-dark), linear-gradient(165deg, var(--navy) 0%, #142E56 100%);
+  }
+  .tabbar {
+    background-image: var(--bg-pattern-dark), linear-gradient(180deg, var(--navy) 0%, #16305A 100%);
+  }
+
+  /* Same pattern on the (dark) auth/login screen, in the light-ink
+     variant, layered under its existing radial gradient rather than
+     replacing it. Scoped to this same breakpoint since the radial
+     gradient it extends only applies here (see desktop.css). */
+  #auth-root:has(> .card) {
+    background-image:
+      radial-gradient(circle at 20% 15%, #24417a 0%, var(--navy) 55%, #0F2547 100%),
+      var(--bg-pattern-dark);
+  }
+}
+
