@@ -3,6 +3,7 @@ import { Store } from '../store.js';
 import { Bus } from './bus.js';
 import { logAudit } from './audit-log-actions.js';
 import { computeEffectiveRow } from './counting-actions.js';
+import { AssignmentActions } from './assignment-actions.js';
 
 /* ══════════════════════════════════════════════════════════════
    FLOOR 3 — ACTIONS / compile-actions.js
@@ -175,13 +176,27 @@ function detectCrossRoundConflicts(mergedItems, otherCompiledRounds, currentRoun
 // members' partial submissions patch into the same company correctly.
 async function compileRound(roundId, options) {
   const opts = options || {};
-  const { assignments, submissions, rounds, sbClient, compiledRounds } = Store.getState();
+  const { rounds, compiledRounds } = Store.getState();
   const round = rounds.find(r => r.id === roundId);
   if (!round) { Bus.emit('toast', { msg: 'Round not found', kind: 'error' }); return null; }
-  if (round.state === 'compiled' || round.state === 'final') {
-    Bus.emit('toast', { msg: 'This round is already compiled.', kind: 'error' });
+  if (round.state === 'final') {
+    Bus.emit('toast', { msg: 'This round is finalized and can no longer be recompiled.', kind: 'error' });
     return compiledRounds.find(c => c.roundId === roundId) || null;
   }
+  const isRecompile = round.state === 'compiled';
+
+  // A recompile only makes sense once we've re-read what's actually in
+  // the database — the Main Auditor may have just reopened/reassigned an
+  // assignment and gotten a fresh submission while this round's workspace
+  // sat on the "compiled" screen, which stops the usual live polling (see
+  // engagement-pages.js _startProgressPollIfNeeded). Without this refresh,
+  // recompiling would silently re-merge the SAME stale assignments/
+  // submissions that produced the first compile, and nothing would change.
+  if (isRecompile) {
+    await AssignmentActions.loadAssignmentsForRound(roundId);
+    await loadSubmissionsForRound(roundId);
+  }
+  const { assignments, submissions, sbClient } = Store.getState();
 
   const roundAssignments = assignments.filter(a => a.roundId === roundId && a.status !== 'revoked');
   const missing = roundAssignments.filter(a => !submissions.some(s => s.assignmentId === a.id));
@@ -219,7 +234,12 @@ async function compileRound(roundId, options) {
       missingAssignmentIds: missing.map(a => a.id), compiledWithMissing: missing.length > 0,
       auditorNotes, crossRoundConflicts,
     });
-    const newCompiledRounds = Store.getState().compiledRounds.concat([compiled]);
+    // Replace, don't append — a recompile upserts one row in the DB (see
+    // insertCompiledRound), so the in-memory cache must mirror that or
+    // stale + fresh entries for the same roundId would both live in
+    // Store, and every reader that just does .find()/.pop() on this list
+    // would depend on array order instead of getting the real one.
+    const newCompiledRounds = Store.getState().compiledRounds.filter(c => c.roundId !== roundId).concat([compiled]);
     Store.setState({ compiledRounds: newCompiledRounds });
 
     await Repo.updateRound(sbClient, roundId, { state: 'compiled', compiledAt: Date.now() });
@@ -227,10 +247,10 @@ async function compileRound(roundId, options) {
     const rNew = Store.getState().rounds.map(r => r.id === roundId ? round : r);
     Store.setState({ rounds: rNew });
 
-    logAudit('round:compiled', { roundId, itemCount: mergedItems.length, varianceCount: variances.length, withMissing: missing.length > 0 });
+    logAudit(isRecompile ? 'round:recompiled' : 'round:compiled', { roundId, itemCount: mergedItems.length, varianceCount: variances.length, withMissing: missing.length > 0 });
     Bus.emit('rounds:changed', rNew);
     Bus.emit('round:compiled', compiled);
-    Bus.emit('toast', { msg: 'Round compiled — ' + variances.length + ' variance(s) found' + (missing.length ? ' (' + missing.length + ' assignment(s) missing)' : ''), kind: 'success' });
+    Bus.emit('toast', { msg: (isRecompile ? 'Round recompiled — ' : 'Round compiled — ') + variances.length + ' variance(s) found' + (missing.length ? ' (' + missing.length + ' assignment(s) missing)' : ''), kind: 'success' });
     return compiled;
   } catch (err) {
     Bus.emit('toast', { msg: 'Could not compile round: ' + err.message, kind: 'error' });

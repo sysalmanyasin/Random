@@ -274,12 +274,21 @@ function _rowToCompiled(row) {
     auditorNotes: row.auditor_notes || [], crossRoundConflicts: row.cross_round_conflicts || [],
   };
 }
+// Upsert, not insert: compiled_rounds.round_id is unique (schema.sql),
+// and a round can legitimately be compiled more than once — e.g. Main
+// Auditor reopens/reassigns an assignment after the first compile, gets
+// a fresh submission, and recompiles. A plain insert() would violate the
+// unique constraint on that second attempt; upsert(onConflict: round_id)
+// replaces the prior merged_items/variances/compiled_at in place instead.
+// compiled_at is set explicitly here because the column's `default now()`
+// only fires on INSERT, not on an upsert's UPDATE path.
 async function insertCompiledRound(client, c) {
-  const { data, error } = await client.from('compiled_rounds').insert({
+  const { data, error } = await client.from('compiled_rounds').upsert({
     round_id: c.roundId, engagement_id: c.engagementId, merged_items: c.mergedItems, variances: c.variances,
     missing_assignment_ids: c.missingAssignmentIds, compiled_with_missing: c.compiledWithMissing,
     auditor_notes: c.auditorNotes || [], cross_round_conflicts: c.crossRoundConflicts || [],
-  }).select().single();
+    compiled_at: new Date().toISOString(),
+  }, { onConflict: 'round_id' }).select().single();
   if (error) throw error;
   return _rowToCompiled(data);
 }

@@ -986,6 +986,10 @@ function renderCompiledRoundUI(round) {
     ${Components.compileSummaryCardHTML(compiled)}
     <div class="card-title">Assignments — Reopen, Reassign, or Revoke</div>
     <div id="assignment-cards-holder"></div>
+    <div class="card" style="margin-bottom:10px;">
+      <div style="font-size:11px; color:var(--grey); margin-bottom:8px;">Reopened or reassigned someone above and they've resubmitted? Recompile to pull their new counts into the variance report below — nothing recalculates on its own.</div>
+      <button class="btn btn-primary btn-block" data-action="team-compile-round" data-round-id="${round.id}">🔄 Recompile Round</button>
+    </div>
     <div class="card" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
       <button class="sort-btn" data-action="toggle-variance-sort">${_varianceSortLabel()}</button>
       <input type="number" id="variance-filter-min" class="search-input" placeholder="Min impact (Rs)" aria-label="Minimum variance impact in Rupees" style="flex:1; min-width:100px;" value="${varianceFilterMin ?? ''}">
