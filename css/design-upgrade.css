@@ -148,52 +148,69 @@ html, body {
    AMBIENT BACKGROUND — a signature texture instead of flat grey
    ------------------------------------------------------------
    The plus/cross is the one glyph that reads as "pharmacy" on
-   sight anywhere in the world — a green cross, in this app's own
-   ink, tiled faint enough to sit *behind* every card without ever
-   competing with it. It's a single ~180-byte inline SVG (no
-   network request, no cost on a phone connection), applied at
-   opacity 0.05 so it never touches text contrast.
+   sight anywhere in the world, tiled behind every screen so pages
+   read as belonging to a pharmacy tool instead of a generic
+   dashboard, and so scrolling past the short color washes below
+   doesn't hit a flat wall. One small inline SVG per hue, no
+   network request.
 
-   It also fixes the specific "boring" complaint: the existing
-   per-page washes below (team=mint, inventory=navy, import=gold)
-   faded to a flat, opaque var(--light) at ~260px, so anything
-   below the fold on a normal-height screen was plain grey no
-   matter which page you were on — and three of the app's eight
-   top-level pages (Home, Settings, Inventory Templates) had no
-   wash at all. This section fixes both: every page now fades to
-   *transparent* instead of flat, so the ambient pattern shows
-   through for the rest of the scroll, and the three previously-
-   bare pages get their own quiet navy wash to match. ────────── */
+   First pass used a single ~5% opacity pattern layered on #app,
+   underneath each page's own wash — invisible in practice: a
+   faint line reads fine against the dark sidebar (low background
+   luminance, plenty of headroom) but the same opacity against a
+   near-white content background has almost no contrast to read,
+   and the wash's own near-opaque top fade compounded on top of it
+   through a separate element made it fainter still. Fixed here by
+   embedding a bolder pattern directly INTO each page's own
+   background (same element, same layer stack, not dependent on
+   what's showing through from #app underneath) and toning the
+   wash down so it accents the top instead of nearly sealing over
+   the pattern near it. ────────────────────────────────────────── */
 :root {
-  --bg-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Cg fill='none' stroke='%23047857' stroke-width='1.5' stroke-linecap='round' opacity='0.055'%3E%3Cpath d='M32 20v24M20 32h24'/%3E%3C/g%3E%3C/svg%3E");
-  --bg-pattern-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Cg fill='none' stroke='%23ffffff' stroke-width='1.5' stroke-linecap='round' opacity='0.05'%3E%3Cpath d='M32 20v24M20 32h24'/%3E%3C/g%3E%3C/svg%3E");
+  --pat-mint: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56'%3E%3Cg fill='none' stroke='%23047857' stroke-width='2' stroke-linecap='round' opacity='0.14'%3E%3Cpath d='M28 16v24M16 28h24'/%3E%3C/g%3E%3C/svg%3E");
+  --pat-navy: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56'%3E%3Cg fill='none' stroke='%231B3A6B' stroke-width='2' stroke-linecap='round' opacity='0.13'%3E%3Cpath d='M28 16v24M16 28h24'/%3E%3C/g%3E%3C/svg%3E");
+  --pat-gold: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56'%3E%3Cg fill='none' stroke='%23B45309' stroke-width='2' stroke-linecap='round' opacity='0.14'%3E%3Cpath d='M28 16v24M16 28h24'/%3E%3C/g%3E%3C/svg%3E");
+  --pat-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56'%3E%3Cg fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' opacity='0.09'%3E%3Cpath d='M28 16v24M16 28h24'/%3E%3C/g%3E%3C/svg%3E");
 }
 
+/* Mobile + fallback base (no per-page ID override exists below
+   1024px, so this is the only pattern mobile ever sees — needs to
+   carry the whole job on its own there). */
 html, body {
-  background-image: var(--bg-pattern);
+  background-image: var(--pat-navy);
   background-attachment: fixed;
 }
 
 @media (min-width: 1024px) {
-  #app { background-image: var(--bg-pattern); }
+  #app { background-image: var(--pat-navy); }
 
-  /* Same three washes as before, same colors — only the tail end
-     changes: transparent instead of a flat var(--light) fill, so
-     the pattern above keeps showing once the wash itself fades. */
+  /* Wash gradient FIRST (topmost layer) so it still accents the
+     top of the page, pattern SECOND (same element, tiled the full
+     height) so it's never dependent on a separate element showing
+     through underneath. Wash peak opacity dropped from 0.9 → 0.55
+     so it tints rather than nearly hides the pattern near the top. */
   #page-team.active, #page-staff.active, #page-individual.active {
-    background: linear-gradient(180deg, rgba(236,253,245,0.9) 0%, rgba(236,253,245,0) 340px);
+    background-image:
+      linear-gradient(180deg, rgba(236,253,245,0.55) 0%, rgba(236,253,245,0) 300px),
+      var(--pat-mint);
   }
   #page-inventory.active {
-    background: linear-gradient(180deg, rgba(238,243,252,0.9) 0%, rgba(238,243,252,0) 340px);
+    background-image:
+      linear-gradient(180deg, rgba(238,243,252,0.55) 0%, rgba(238,243,252,0) 300px),
+      var(--pat-navy);
   }
   #page-import.active {
-    background: linear-gradient(180deg, rgba(255,247,237,0.9) 0%, rgba(255,247,237,0) 340px);
+    background-image:
+      linear-gradient(180deg, rgba(255,247,237,0.55) 0%, rgba(255,247,237,0) 300px),
+      var(--pat-gold);
   }
-  /* Previously bare: a quiet navy wash so Home, Settings, and
-     Inventory Templates read as part of the same system instead
-     of the one flat page in an otherwise-tinted app. */
+  /* Previously bare: a matching navy wash + pattern so Home,
+     Settings, and Inventory Templates read as part of the same
+     system instead of the flat pages in an otherwise-tinted app. */
   #page-home.active, #page-settings.active, #page-inventory-templates.active {
-    background: linear-gradient(180deg, rgba(238,242,248,0.9) 0%, rgba(238,242,248,0) 340px);
+    background-image:
+      linear-gradient(180deg, rgba(238,242,248,0.55) 0%, rgba(238,242,248,0) 300px),
+      var(--pat-navy);
   }
 
   /* The dark navy sidebar needs the light-ink pattern, not the
@@ -202,10 +219,10 @@ html, body {
      gradient (a bare background-image here would replace that
      gradient outright rather than sit on top of it). */
   .header {
-    background-image: var(--bg-pattern-dark), linear-gradient(165deg, var(--navy) 0%, #142E56 100%);
+    background-image: var(--pat-dark), linear-gradient(165deg, var(--navy) 0%, #142E56 100%);
   }
   .tabbar {
-    background-image: var(--bg-pattern-dark), linear-gradient(180deg, var(--navy) 0%, #16305A 100%);
+    background-image: var(--pat-dark), linear-gradient(180deg, var(--navy) 0%, #16305A 100%);
   }
 
   /* Same pattern on the (dark) auth/login screen, in the light-ink
@@ -215,7 +232,7 @@ html, body {
   #auth-root:has(> .card) {
     background-image:
       radial-gradient(circle at 20% 15%, #24417a 0%, var(--navy) 55%, #0F2547 100%),
-      var(--bg-pattern-dark);
+      var(--pat-dark);
   }
 }
 
