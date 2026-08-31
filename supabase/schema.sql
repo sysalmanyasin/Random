@@ -286,6 +286,21 @@ create policy "sub create individual rounds" on rounds for insert
 create unique index if not exists uq_engagements_individual_month
   on engagements(scope_month) where scope_type = 'individual';
 
+-- Same shape of problem, one level down: individual-actions.js's
+-- startIndividualAssignment() checks "does this auditor already have
+-- an open self-pick" before inserting a new round+assignment, but
+-- that check-then-insert isn't atomic — two calls close together
+-- (e.g. a double-tap on "Start Counting" on a slow connection, with
+-- no button-disable in between) can both pass the check before either
+-- write lands, leaving the same auditor with two live "assigned"
+-- rounds. This partial unique index makes the second insert fail
+-- outright instead of silently succeeding, exactly like the
+-- engagement-pool index above; individual-actions.js catches the
+-- 23505 and hands back whichever one actually won.
+create unique index if not exists uq_assignments_one_open_individual_pick
+  on assignments(auditor_id)
+  where method = 'individual-self-pick' and status in ('assigned', 'counting');
+
 -- assignments: Main Auditor full access. A Sub-Auditor may ONLY read
 -- the assignment(s) that belong to them, and only while their access
 -- hasn't expired — this is the real, database-enforced isolation

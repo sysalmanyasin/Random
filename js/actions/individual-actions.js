@@ -170,6 +170,28 @@ async function startIndividualAssignment(selection) {
     Bus.emit('toast', { msg: 'Started — ' + itemSnapshot.length + ' item(s)', kind: 'success' });
     return assignment;
   } catch (err) {
+    // The findMyOpenIndividualAssignment check above is a courtesy,
+    // not a lock — it's a plain read-then-write with no atomicity
+    // guarantee, so two calls landing close together (a double-tap on
+    // a slow connection is the common real-world trigger, since
+    // nothing here disables the button while the request is
+    // in-flight — see 'confirm-start-individual' in sub-pages.js)
+    // could both pass the check before either had inserted its row,
+    // producing two live "assigned" rounds for the same person. A
+    // partial unique index (uq_assignments_one_open_individual_pick,
+    // schema.sql) is the actual backstop: it lets exactly one such
+    // insert succeed and fails the other with a 23505. Treat that
+    // specific failure as "you already have one open" rather than a
+    // generic error, and hand back whichever assignment actually won —
+    // the round row from this losing attempt is left behind empty
+    // (no assignment ever attached to it, so nothing renders it
+    // anywhere), same tradeoff already made in
+    // getOrCreateCurrentIndividualEngagement just above.
+    if (String(err.code) === '23505' || String(err.message || '').toLowerCase().includes('duplicate')) {
+      const existing = await findMyOpenIndividualAssignment(engagement.id, currentAuditorId);
+      Bus.emit('toast', { msg: 'You already have an open random audit — finish and submit that one first.', kind: 'error' });
+      return existing;
+    }
     Bus.emit('toast', { msg: 'Could not start this audit: ' + err.message, kind: 'error' });
     return null;
   }

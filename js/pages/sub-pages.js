@@ -403,18 +403,29 @@ export function initSubPages() {
       renderIndividualCompanyPicker();
     },
     'individual-clear-all': () => { individualSelectedCompanies.clear(); renderIndividualCompanyPicker(); },
-    'confirm-start-individual': async () => {
+    'confirm-start-individual': async (el) => {
+      // Guards against the double-tap this button had no protection
+      // against before: on a slow connection a person taps once, sees
+      // no immediate feedback, taps again — and without this, both
+      // taps would fire their own startIndividualAssignment() call
+      // before the first one's DB round-trip finished, each passing
+      // the "do I already have one open" check and creating its own
+      // round+assignment (see individual-actions.js for the DB-level
+      // backstop for the same race). This is the cheap first line of
+      // defense: block re-entry for the duration of this one call.
+      if (el.disabled) return;
+      el.disabled = true;
       let selection;
       if (individualPickerSource === 'template') {
         const select = $('individual-template-select');
         const templateId = select && select.value;
-        if (!templateId) { Bus.emit('toast', { msg: 'Choose a template first', kind: 'error' }); return; }
+        if (!templateId) { Bus.emit('toast', { msg: 'Choose a template first', kind: 'error' }); el.disabled = false; return; }
         const { templates } = Store.getState();
         const template = templates.find(t => t.id === templateId);
-        if (!template) return;
+        if (!template) { el.disabled = false; return; }
         selection = { source: 'template', codes: template.codes, name: template.name };
       } else {
-        if (individualSelectedCompanies.size === 0) { Bus.emit('toast', { msg: 'Pick at least one company first', kind: 'error' }); return; }
+        if (individualSelectedCompanies.size === 0) { Bus.emit('toast', { msg: 'Pick at least one company first', kind: 'error' }); el.disabled = false; return; }
         selection = { source: 'companies', companies: Array.from(individualSelectedCompanies) };
       }
       const assignment = await Actions.startIndividualAssignment(selection);
@@ -423,7 +434,9 @@ export function initSubPages() {
         individualSelectedCompanies = new Set();
         await Actions.loadMyAssignments();
         await Actions.openMyAssignment(assignment.id);
-        renderTeamTabForSubAuditor();
+        renderTeamTabForSubAuditor(); // rebuilds the button fresh, so no need to re-enable `el` here
+      } else {
+        el.disabled = false; // failed/blocked — let them retry (e.g. after the "finish your open one first" toast)
       }
     },
     'toggle-extra-note': () => { extraNoteOpen = !extraNoteOpen; renderTeamTabForSubAuditor(); },
