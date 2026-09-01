@@ -442,7 +442,7 @@ function refreshSubRoundSection() {
 async function refreshRoundList() {
   const holder = $('round-list-holder');
   if (!holder) return;
-  const { rounds, engagements, currentEngagementId, compiledRounds } = Store.getState();
+  const { rounds, engagements, currentEngagementId } = Store.getState();
   const sorted = rounds.slice().sort((a, b) => a.roundNumber - b.roundNumber);
   holder.innerHTML = '';
   if (sorted.length === 0) { holder.appendChild(Components.noRoundsEmptyState()); return; }
@@ -462,7 +462,21 @@ async function refreshRoundList() {
     // workspace) as a side effect — this is a display-only summary.
     const { assignments } = await Actions.loadIndividualDashboardData(engagement);
     individualSummary = Actions.summarizeIndividualRounds(sorted, assignments);
+  } else if (currentEngagementId) {
+    // Regular (non-individual) engagements only get compiledRounds
+    // populated in Store when a round's workspace is opened (see
+    // openRound → loadCompiledRoundsForEngagement below). Without this,
+    // round cards on the plain engagement-detail screen would show no
+    // net variance until someone drilled into a round this session.
+    await Actions.loadCompiledRoundsForEngagement(currentEngagementId);
   }
+
+  // Read compiledRounds AFTER the branches above, not before — both
+  // paths fetch and merge compiled records into Store as a side
+  // effect, so grabbing compiledRounds any earlier (e.g. in the same
+  // destructure as `rounds` at the top) would hand every round card a
+  // stale/empty list and net variance would silently never render.
+  const { compiledRounds } = Store.getState();
 
   sorted.forEach(r => holder.appendChild(Components.roundCard(
     r,
