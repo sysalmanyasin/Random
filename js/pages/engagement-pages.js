@@ -454,6 +454,7 @@ async function refreshRoundList() {
   // IndividualActions.summarizeIndividualRounds.
   const engagement = engagements.find(e => e.id === currentEngagementId);
   let individualSummary = null;
+  let auditorProgressMap = new Map();
   if (engagement && engagement.scope && engagement.scope.type === 'individual') {
     // Uses the same read-only loader as the grouped-by-staff view
     // (Actions.loadIndividualDashboardData) rather than
@@ -462,6 +463,9 @@ async function refreshRoundList() {
     // workspace) as a side effect — this is a display-only summary.
     const { assignments } = await Actions.loadIndividualDashboardData(engagement);
     individualSummary = Actions.summarizeIndividualRounds(sorted, assignments);
+    // Reuse that same per-engagement assignments fetch for the Auditor
+    // Progress lens instead of a second round-by-round fetch below.
+    auditorProgressMap = Actions.roundAuditorProgressFromAssignments(sorted, assignments);
   } else if (currentEngagementId) {
     // Regular (non-individual) engagements only get compiledRounds
     // populated in Store when a round's workspace is opened (see
@@ -469,6 +473,10 @@ async function refreshRoundList() {
     // round cards on the plain engagement-detail screen would show no
     // net variance until someone drilled into a round this session.
     await Actions.loadCompiledRoundsForEngagement(currentEngagementId);
+    // Same gap applies to per-round assignment submission counts —
+    // fetch each round's assignments (read-only, doesn't touch
+    // Store's shared `assignments` key) for the Auditor Progress lens.
+    auditorProgressMap = await Actions.loadRoundAuditorProgress(sorted);
   }
 
   // Read compiledRounds AFTER the branches above, not before — both
@@ -482,7 +490,8 @@ async function refreshRoundList() {
     r,
     r.id === latest.id,
     individualSummary ? individualSummary.get(r.id) : null,
-    _roundNetVariance(r, compiledRounds)
+    _roundNetVariance(r, compiledRounds),
+    auditorProgressMap.get(r.id) || null
   )));
   refreshDashboard();
 }

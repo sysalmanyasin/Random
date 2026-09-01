@@ -189,9 +189,48 @@ function formatDuration(totalSeconds) {
   return sec + 's';
 }
 
+// Read-only, non-mutating per-round submission counts — powers the
+// "Auditor Progress" lens on each round card in the Rounds list.
+// Deliberately does NOT touch Store's shared `assignments` key: that
+// key holds ONLY the currently-open round's assignments
+// (loadAssignmentsForRound overwrites it wholesale on every open), and
+// the counting/compile/reassign flows all assume it means "this
+// round" — merging every round's assignments into it here to build a
+// list-wide lens would corrupt those flows. A submitted count is just
+// `status === 'submitted'` on the assignment row itself (set
+// atomically alongside the submissions-table insert — see
+// assignment-actions.js submitAssignment / counting-actions.js
+// submitMyCount), so no separate submissions fetch is needed.
+async function loadRoundAuditorProgress(rounds) {
+  const { sbClient } = Store.getState();
+  const entries = await Promise.all(rounds.map(async (round) => {
+    const raw = await Repo.fetchAssignmentsByRound(sbClient, round.id);
+    const active = raw.filter(a => a.status !== 'revoked');
+    const submitted = active.filter(a => a.status === 'submitted').length;
+    return [round.id, { submitted, total: active.length }];
+  }));
+  return new Map(entries);
+}
+
+// Same shape, but built from an already-fetched assignments list
+// (e.g. Individual Assignments' per-engagement fetch, which already
+// pulls every round's assignments in one go) — avoids a second
+// redundant fetch when the caller already has the data.
+function roundAuditorProgressFromAssignments(rounds, assignments) {
+  const map = new Map();
+  rounds.forEach((round) => {
+    const active = assignments.filter(a => a.roundId === round.id && a.status !== 'revoked');
+    const submitted = active.filter(a => a.status === 'submitted').length;
+    map.set(round.id, { submitted, total: active.length });
+  });
+  return map;
+}
+
+
 export const DashboardActions = {
   mainAuditorDashboard, subAuditorDashboard, fetchLiveAssignmentSnapshot,
   buildLiveSnapshotRows, filterLiveSnapshotRows, sortLiveSnapshotRows, formatDuration,
+  loadRoundAuditorProgress, roundAuditorProgressFromAssignments,
 };
 
 export const _testables = { buildLiveSnapshotRows, filterLiveSnapshotRows, sortLiveSnapshotRows, formatDuration };

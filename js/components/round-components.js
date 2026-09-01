@@ -29,7 +29,12 @@ const STATE_BADGE = {
 // means counted stock nets out ABOVE system, negative means BELOW.
 // Only meaningful once the round has been compiled at least once, so
 // callers pass `null`/`undefined` for draft/locked/counting rounds.
-export function roundCard(round, isLatest, individualInfo, netVariance) {
+// `auditorProgress` (optional): { submitted, total } across the
+// round's non-revoked assignments — the same "Auditor Progress" count
+// the Dashboard tab shows, surfaced here so the Main Auditor doesn't
+// have to leave the Rounds list to see who's submitted. Callers pass
+// `null`/`undefined` for a round with no assignments yet (draft).
+export function roundCard(round, isLatest, individualInfo, netVariance, auditorProgress) {
   const card = document.createElement('div');
   card.className = 'company-card';
   card.dataset.action = 'open-round';
@@ -43,6 +48,15 @@ export function roundCard(round, isLatest, individualInfo, netVariance) {
       📉 Net value variance:
       <span class="${netVariance > 0 ? 'diff-pos' : (netVariance < 0 ? 'diff-neg' : 'diff-zero')}" style="font-weight:700;">
         ${netVariance > 0 ? '+' : ''}Rs ${Math.round(netVariance).toLocaleString()}
+      </span>
+    </div>` : '';
+  const hasAuditorProgress = auditorProgress && auditorProgress.total > 0;
+  const allSubmitted = hasAuditorProgress && auditorProgress.submitted === auditorProgress.total;
+  const auditorProgressHTML = hasAuditorProgress ? `
+    <div class="company-card-meta" style="margin-top:2px;">
+      👥 Auditor Progress:
+      <span style="font-weight:700; color:${allSubmitted ? 'var(--green-ink, #15803d)' : 'var(--navy)'};">
+        ${auditorProgress.submitted}/${auditorProgress.total} submitted
       </span>
     </div>` : '';
   const individualStrip = individualInfo ? `
@@ -68,6 +82,7 @@ export function roundCard(round, isLatest, individualInfo, netVariance) {
       <div class="company-card-name">Round ${label} ${isLatest ? '(current)' : ''}</div>
       <div class="company-card-meta">Unit: ${round.unit === 'company' ? 'Company-level' : 'Company + Item'} · Created ${new Date(round.createdAt).toLocaleDateString('en-PK')}</div>
       ${netVarianceHTML}
+      ${auditorProgressHTML}
       ${individualStrip}
     </div>
     <div class="company-card-badges">
