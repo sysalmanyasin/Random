@@ -231,7 +231,47 @@ function refreshEngagementCards() {
   if (!holder) return;
   const { engagements } = Store.getState();
   holder.innerHTML = '';
-  engagements.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).forEach(e => holder.appendChild(Components.engagementCard(e)));
+
+  const sorted = engagements
+    .slice()
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  const active = sorted.filter(e => e.status !== 'closed');
+  const closed = sorted.filter(e => e.status === 'closed');
+
+  // Keep open/archived engagements visible normally.
+  active.forEach(e => holder.appendChild(Components.engagementCard(e)));
+
+  // Keep all closed engagements together in one collapsed section.
+  if (closed.length > 0) {
+    const details = document.createElement('details');
+    details.className = 'closed-engagements-section';
+    details.style.cssText = 'margin-top:10px;';
+
+    const summary = document.createElement('summary');
+    summary.style.cssText = `
+      cursor:pointer;
+      padding:10px 12px;
+      border-radius:8px;
+      background:var(--light);
+      color:var(--navy);
+      font-size:12px;
+      font-weight:700;
+      user-select:none;
+    `;
+    summary.textContent = `Closed engagements (${closed.length})`;
+
+    const closedHolder = document.createElement('div');
+    closedHolder.style.cssText = 'margin-top:8px;';
+
+    closed.forEach(e => {
+      closedHolder.appendChild(Components.engagementCard(e));
+    });
+
+    details.appendChild(summary);
+    details.appendChild(closedHolder);
+    holder.appendChild(details);
+  }
 }
 Bus.on('engagements:changed', () => { if (currentSubView === 'list') refreshEngagementCards(); });
 Bus.on('view:activated', (page) => { if (page === 'individual') renderIndividualDashboard(); });
