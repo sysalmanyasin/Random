@@ -442,7 +442,7 @@ function refreshSubRoundSection() {
 async function refreshRoundList() {
   const holder = $('round-list-holder');
   if (!holder) return;
-  const { rounds, engagements, currentEngagementId } = Store.getState();
+  const { rounds, engagements, currentEngagementId, compiledRounds } = Store.getState();
   const sorted = rounds.slice().sort((a, b) => a.roundNumber - b.roundNumber);
   holder.innerHTML = '';
   if (sorted.length === 0) { holder.appendChild(Components.noRoundsEmptyState()); return; }
@@ -464,8 +464,22 @@ async function refreshRoundList() {
     individualSummary = Actions.summarizeIndividualRounds(sorted, assignments);
   }
 
-  sorted.forEach(r => holder.appendChild(Components.roundCard(r, r.id === latest.id, individualSummary ? individualSummary.get(r.id) : null)));
+  sorted.forEach(r => holder.appendChild(Components.roundCard(
+    r,
+    r.id === latest.id,
+    individualSummary ? individualSummary.get(r.id) : null,
+    _roundNetVariance(r, compiledRounds)
+  )));
   refreshDashboard();
+}
+
+// Σ (countedQty - systemQty) × price across the round's most recent
+// compiled record — null for rounds that haven't been compiled yet
+// (draft/locked/counting), since there's nothing to sum.
+function _roundNetVariance(round, compiledRounds) {
+  const compiled = compiledRounds.filter(c => c.roundId === round.id).pop();
+  if (!compiled) return null;
+  return compiled.variances.reduce((sum, row) => sum + (row.countedQty - row.systemQty) * (row.price || 0), 0);
 }
 Bus.on('rounds:changed', () => { if (currentSubView === 'detail') refreshRoundList(); });
 // If the round just deleted was the one open in the workspace below the
@@ -666,7 +680,7 @@ Bus.on('compile:missingAssignments', ({ missing }) => {
 // which is a much more useful default ordering for a Main Auditor triaging
 // results than "whatever order compileRound happened to produce."
 let varianceSortDesc = true;   // true = biggest impact first
-let varianceSortMode = 'impact'; // 'impact' | 'alpha' — cycled via toggle-variance-sort
+let varianceSortMode = 'alpha'; // 'impact' | 'alpha' — cycled via toggle-variance-sort; defaults to A-Z
 let varianceFilterMin = null;  // absolute rupee impact, inclusive
 let varianceFilterMax = null;
 
@@ -691,7 +705,7 @@ function _varianceSortLabel() {
 
 function resetVarianceControls() {
   varianceSortDesc = true;
-  varianceSortMode = 'impact';
+  varianceSortMode = 'alpha';
   varianceFilterMin = null;
   varianceFilterMax = null;
 }
@@ -1024,8 +1038,10 @@ function renderCompiledRoundUI(round) {
 
   return `
     ${Components.compileSummaryCardHTML(compiled)}
-    <div class="card-title">Assignments — Reopen, Reassign, or Revoke</div>
-    <div id="assignment-cards-holder"></div>
+    <details class="assignments-section">
+      <summary class="card-title" style="cursor:pointer; user-select:none;">Assignments — Reopen, Reassign, or Revoke</summary>
+      <div id="assignment-cards-holder"></div>
+    </details>
     <div class="card" style="margin-bottom:10px;">
       <div style="font-size:11px; color:var(--grey); margin-bottom:8px;">Reopened or reassigned someone above and they've resubmitted? Recompile to pull their new counts into the variance report below — nothing recalculates on its own.</div>
       <button class="btn btn-primary btn-block" data-action="team-compile-round" data-round-id="${round.id}">🔄 Recompile Round</button>
@@ -1343,7 +1359,7 @@ export function initEngagementPages() {
     },
     'cancel-split-preview': () => clearSplitPreview(),
     'toggle-variance-sort': () => {
-      // Cycle: Impact ↓ (biggest first) → Impact ↑ (smallest first) → A-Z → back to Impact ↓
+      // Cycle: A-Z (default) → Impact ↓ (biggest first) → Impact ↑ (smallest first) → back to A-Z
       if (varianceSortMode === 'impact' && varianceSortDesc) { varianceSortDesc = false; }
       else if (varianceSortMode === 'impact' && !varianceSortDesc) { varianceSortMode = 'alpha'; }
       else { varianceSortMode = 'impact'; varianceSortDesc = true; }

@@ -24,7 +24,12 @@ const STATE_BADGE = {
 //   name is meant to replace, so it's deliberately omitted here), or
 // — the company(ies) picked + top 3 by counted value (qty × price),
 //   for a direct company pick with no template to summarize it.
-export function roundCard(round, isLatest, individualInfo) {
+// `netVariance` (optional): signed rupee total across the round's
+// compiled variances (Σ (countedQty - systemQty) × price) — positive
+// means counted stock nets out ABOVE system, negative means BELOW.
+// Only meaningful once the round has been compiled at least once, so
+// callers pass `null`/`undefined` for draft/locked/counting rounds.
+export function roundCard(round, isLatest, individualInfo, netVariance) {
   const card = document.createElement('div');
   card.className = 'company-card';
   card.dataset.action = 'open-round';
@@ -32,6 +37,14 @@ export function roundCard(round, isLatest, individualInfo) {
   card.tabIndex = 0;
   card.setAttribute('role', 'button');
   const label = round.roundNumber + (round.roundSuffix || '');
+  const hasNetVariance = netVariance !== null && netVariance !== undefined;
+  const netVarianceHTML = hasNetVariance ? `
+    <div class="company-card-meta" style="margin-top:2px;">
+      📉 Net value variance:
+      <span class="${netVariance > 0 ? 'diff-pos' : (netVariance < 0 ? 'diff-neg' : 'diff-zero')}" style="font-weight:700;">
+        ${netVariance > 0 ? '+' : ''}Rs ${Math.round(netVariance).toLocaleString()}
+      </span>
+    </div>` : '';
   const individualStrip = individualInfo ? `
     <div class="round-card-individual-strip" style="margin-top:6px; padding-top:6px; border-top:1px dashed var(--border, #e2e2e2);">
       <div style="font-size:11px; color:var(--navy); font-weight:700;">👤 ${esc(individualInfo.auditorName || 'Unknown auditor')}</div>
@@ -54,6 +67,7 @@ export function roundCard(round, isLatest, individualInfo) {
     <div style="flex:1; min-width:0;">
       <div class="company-card-name">Round ${label} ${isLatest ? '(current)' : ''}</div>
       <div class="company-card-meta">Unit: ${round.unit === 'company' ? 'Company-level' : 'Company + Item'} · Created ${new Date(round.createdAt).toLocaleDateString('en-PK')}</div>
+      ${netVarianceHTML}
       ${individualStrip}
     </div>
     <div class="company-card-badges">
