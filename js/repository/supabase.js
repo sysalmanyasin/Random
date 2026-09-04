@@ -212,6 +212,20 @@ async function fetchAssignmentsByRound(client, roundId) {
   if (error) throw error;
   return (data || []).map(_rowToAssignment);
 }
+// Poll-only variant for the Main Auditor's live progress view (see
+// engagement-pages.js _startProgressPollIfNeeded). items/companies are
+// set once at assignment time and never change afterward, so re-fetching
+// them every 15s the way fetchAssignmentsByRound does was pure waste —
+// only status/progress_count/live_snapshot are actually volatile.
+// (2026-09 egress cleanup.)
+async function fetchAssignmentProgressByRound(client, roundId) {
+  const { data, error } = await client
+    .from('assignments')
+    .select('id, status, progress_count, live_snapshot')
+    .eq('round_id', roundId);
+  if (error) throw error;
+  return data || [];
+}
 // Single fresh row, bypassing the Store's cache — used for the Main
 // Auditor's "tap the progress bar" live-snapshot popup, which is
 // explicitly a manual refresh/re-fetch rather than a live subscription.
@@ -390,8 +404,10 @@ function _rowToInventoryProduct(row) {
     supplier: row.supplier || 'Unassigned Supplier', conversionFactor: row.conversion_factor || 1,
   };
 }
-// Cheap, read-only — safe to call often (e.g. right after login) since
-// it never touches Dropbox, just the already-synced shared table.
+// Read-only, right after login. Not "free" (still a real network call
+// over 5,000+ rows) but cheap relative to the alternative — and now
+// only pulls the 8 columns _rowToInventoryProduct actually reads,
+// instead of every column on the table (2026-09 egress cleanup).
 // Supabase/PostgREST caps a single select() at ~1000 rows by default
 // (project-configurable, but not guaranteed) — paginate with .range()
 // so this always returns every row regardless of that setting, rather
@@ -403,7 +419,7 @@ async function fetchInventoryProducts(client) {
   while (true) {
     const { data, error } = await client
       .from('inventory_products')
-      .select('*')
+      .select('code,name,qty,price,company,generic,supplier,conversion_factor')
       .order('name', { ascending: true })
       .range(from, from + PAGE_SIZE - 1);
     if (error) throw error;
@@ -438,7 +454,7 @@ export const SupabaseRepo = {
   fetchMyStaffProfile, fetchAllStaff, setStaffAccessExpiry,
   insertEngagement, updateEngagementStatus, updateEngagementScope, deleteEngagement, fetchEngagements,
   insertRound, updateRound, deleteRound, fetchRoundsByEngagement, fetchRoundById, fetchOpenRoundsAcrossEngagements,
-  insertAssignments, updateAssignment, fetchAssignmentsByRound, fetchAssignmentById, fetchMyAssignments,
+  insertAssignments, updateAssignment, fetchAssignmentsByRound, fetchAssignmentProgressByRound, fetchAssignmentById, fetchMyAssignments,
   upsertSubmission, fetchSubmissionsByRound, fetchMySubmission,
   insertCompiledRound, fetchCompiledRoundsByRound, updateCompiledRoundConflicts, compileIndividualRoundRPC,
   insertFinalSnapshot, fetchFinalSnapshotsByEngagement,

@@ -22,6 +22,26 @@ async function loadAssignmentsForRound(roundId) {
   return assignments;
 }
 
+// Patches status/progressCount/liveSnapshot onto assignments already in
+// Store without re-fetching (and re-sending over the wire) their static
+// items/companies payload. Used only by engagement-pages.js's 15s
+// progress poll — the full row is still loaded once, with items, via
+// loadAssignmentsForRound() when the round is first opened.
+// (2026-09 egress cleanup.)
+async function refreshAssignmentProgressForRound(roundId) {
+  const { sbClient, assignments } = Store.getState();
+  const progressRows = await Repo.fetchAssignmentProgressByRound(sbClient, roundId);
+  const byId = new Map(progressRows.map(r => [r.id, r]));
+  const updated = assignments.map(a => {
+    const p = byId.get(a.id);
+    if (!p) return a;
+    return { ...a, status: p.status, progressCount: p.progress_count || 0, liveSnapshot: p.live_snapshot || {} };
+  });
+  Store.setState({ assignments: updated });
+  Bus.emit('assignments:changed', updated);
+  return updated;
+}
+
 async function _persistNewAssignments(list) {
   const { sbClient } = Store.getState();
   const created = await Repo.insertAssignments(sbClient, list);
@@ -544,7 +564,7 @@ async function forceSubmitAssignment(assignmentId, leftoverMode, mainAuditorName
 }
 
 export const AssignmentActions = {
-  loadAssignmentsForRound, previewSplitByCompanyCount, previewSplitByItemVolume, commitSplitPreview,
+  loadAssignmentsForRound, refreshAssignmentProgressForRound, previewSplitByCompanyCount, previewSplitByItemVolume, commitSplitPreview,
   assignMainAuditorToSelf, previewSplitItems, commitItemSplitPreview,
   manualMoveCompany, manualMoveItem, revokeAssignment, reopenAssignment, reassignAssignment,
   forceSubmitAssignment,

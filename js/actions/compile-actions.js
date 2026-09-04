@@ -296,11 +296,32 @@ function compileRoundWithMissingOverride(roundId) {
   return compileRound(roundId, { allowMissing: true });
 }
 
-async function loadCompiledRoundsForEngagement(engagementId) {
-  const { rounds, sbClient } = Store.getState();
+// Only (re)fetches compiled rounds this engagement doesn't already have
+// cached in Store — previously this re-downloaded EVERY compiled round
+// in the engagement (each one can run tens of KB, growing with item
+// count) on every single openRound() call, even for rounds already
+// sitting in memory unchanged. Safe to cache because every write path
+// that changes a compiled round — compileRound() (incl. recompile) and
+// resolveCrossRoundConflict() — already patches Store directly with the
+// fresh row, so a cached entry here is never silently stale *on this
+// device*. Pass { force: true } for an explicit manual refresh (e.g. if
+// another device/login may have compiled something in this engagement
+// concurrently). (2026-09 egress cleanup.)
+async function loadCompiledRoundsForEngagement(engagementId, options) {
+  const opts = options || {};
+  const { rounds, sbClient, compiledRounds: existing } = Store.getState();
   const roundIds = rounds.filter(r => r.engagementId === engagementId).map(r => r.id);
-  const lists = await Promise.all(roundIds.map(id => Repo.fetchCompiledRoundsByRound(sbClient, id)));
-  const compiledRounds = lists.flat();
+  const haveIds = new Set((existing || []).map(c => c.roundId));
+  const idsToFetch = opts.force ? roundIds : roundIds.filter(id => !haveIds.has(id));
+
+  let fetched = [];
+  if (idsToFetch.length > 0) {
+    const lists = await Promise.all(idsToFetch.map(id => Repo.fetchCompiledRoundsByRound(sbClient, id)));
+    fetched = lists.flat();
+  }
+
+  const kept = (existing || []).filter(c => roundIds.includes(c.roundId) && !idsToFetch.includes(c.roundId));
+  const compiledRounds = kept.concat(fetched);
   Store.setState({ compiledRounds });
   Bus.emit('compiledRounds:changed', compiledRounds);
   return compiledRounds;

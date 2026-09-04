@@ -520,12 +520,16 @@ function _stopProgressPoll() { clearInterval(_progressPollTimer); _progressPollT
 function _startProgressPollIfNeeded(round) {
   _stopProgressPoll();
   if (!round || (round.state !== 'locked' && round.state !== 'counting')) return;
-  // Lightweight — just re-fetches assignment rows (progress_count/status),
-  // not the whole round. Only runs while this exact round's workspace is
-  // on screen, and stops the moment the Main Auditor navigates away.
+  // Genuinely lightweight now (2026-09): refreshAssignmentProgressForRound
+  // only pulls id/status/progress_count/live_snapshot and patches those
+  // onto the assignments already in Store, instead of re-fetching each
+  // assignment's full (static, unchanging) items/companies payload every
+  // 15s the way loadAssignmentsForRound did. Only runs while this exact
+  // round's workspace is on screen, and stops the moment the Main
+  // Auditor navigates away.
   _progressPollTimer = setInterval(async () => {
     if (!openRoundId || openRoundId !== round.id) { _stopProgressPoll(); return; }
-    await Actions.loadAssignmentsForRound(round.id);
+    await Actions.refreshAssignmentProgressForRound(round.id);
     refreshAssignmentCards();
   }, 15000);
 }
