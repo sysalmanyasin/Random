@@ -160,9 +160,14 @@ export const LegacyActions = (() => {
   // The actual "Load Latest Inventory" action — triggers the Edge
   // Function's real Dropbox pull + full-table replace, then re-reads
   // the result so this device's view reflects it immediately.
+  // Returns a result object ({ok:true,count,fetchedAt} | {ok:false,error})
+  // rather than throwing, so callers (e.g. ensureFreshInventoryForAudit
+  // below) can branch on success/failure without needing try/catch —
+  // every failure path here is already handled (toast + Bus event),
+  // this is just handing the same outcome back to the caller too.
   async function triggerInventorySync(silent) {
     const { sbClient } = Store.getState();
-    if (!sbClient) { if (!silent) Bus.emit('toast', { msg: 'Not signed in', kind: 'error' }); return; }
+    if (!sbClient) { if (!silent) Bus.emit('toast', { msg: 'Not signed in', kind: 'error' }); return { ok: false, error: 'Not signed in' }; }
     Bus.emit('dbxInventoryFetch:start', {});
     Bus.emit('cloud:state', { state: 'syncing', text: '⟳ Syncing…' });
     try {
@@ -177,17 +182,49 @@ export const LegacyActions = (() => {
       Bus.emit('dbxInventoryFetch:success', { count, fetchedAt });
       Bus.emit('cloud:state', { state: 'synced', text: '✓ Synced' });
       if (!silent) Bus.emit('toast', { msg: 'Inventory synced — ' + count.toLocaleString() + ' products', kind: 'success' });
+      return { ok: true, count, fetchedAt };
     } catch (err) {
       const msg = String(err.message || err);
       Bus.emit('dbxInventoryFetch:error', { msg });
       Bus.emit('cloud:state', { state: 'error', text: '✕ Sync failed' });
       if (!silent) Bus.emit('toast', { msg: 'Sync failed: ' + msg, kind: 'error' });
+      return { ok: false, error: msg };
     }
   }
 
   // Tapping the top status bar re-triggers a sync — same action as
   // the "Load Latest Inventory" button on the Sync tab.
   function cloudBarTapped() { triggerInventorySync(false); }
+
+  // ── Fresh-inventory gate for Random Audit launches ──────────────
+  // Both the self-service picker (sub-pages.js "Start a Random Audit")
+  // and the Main Auditor's Team-engagement launch (inventory-pages.js)
+  // freeze whatever is in Store.products the instant their round is
+  // created (see individual-actions.js startIndividualAssignment /
+  // round-actions.js createRound) — and Store.products only refreshes
+  // at login or on a manual sync tap, never continuously in the
+  // background. A session left open for a while can silently launch
+  // an audit against inventory that's already behind Supabase's own
+  // inventory_products table, with nothing telling the person it
+  // happened.
+  //
+  // This forces one real sync immediately before a Random Audit is
+  // allowed to start, so the snapshot that gets frozen is provably
+  // current at launch time — not merely current as of whenever the
+  // device last happened to sync. `skipIfSyncedWithinMs` lets a
+  // second call right before the actual snapshot-taking step (e.g. a
+  // slow picker session) skip a redundant round-trip if the gate that
+  // opened the picker already synced recently enough.
+  const AUDIT_SYNC_STALE_MS = 2 * 60 * 1000; // 2 minutes
+  async function ensureFreshInventoryForAudit(opts) {
+    const skipIfSyncedWithinMs = (opts && opts.skipIfSyncedWithinMs) || 0;
+    if (skipIfSyncedWithinMs) {
+      const { inventoryLastSyncedAt } = Store.getState();
+      const age = inventoryLastSyncedAt ? Date.now() - inventoryLastSyncedAt : Infinity;
+      if (age < skipIfSyncedWithinMs) return { ok: true, skipped: true };
+    }
+    return triggerInventorySync(true); // silent — callers show their own gate UI, not a toast
+  }
 
   // ── Settings ────────────────────────────────────────────
   function saveBranchName(name) {
@@ -265,7 +302,7 @@ export const LegacyActions = (() => {
     getBranchName, getSettingsPin,
     isPwaInstallDismissed, dismissPwaInstall,
     bootstrapLegacy, importCSVFile,
-    loadInventoryFromSupabase, triggerInventorySync, cloudBarTapped,
+    loadInventoryFromSupabase, triggerInventorySync, cloudBarTapped, ensureFreshInventoryForAudit, AUDIT_SYNC_STALE_MS,
     saveBranchName, exportFullBackup, restoreFullBackup,
     verifyPin, saveSettingsPin,
   };

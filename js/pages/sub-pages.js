@@ -108,6 +108,56 @@ let individualSelectedCompanies = new Set();
 let individualSearchToken = '';
 let individualSortAscending = true;
 
+// ── Fresh-inventory gate ──────────────────────────────────────────
+// Sits between the "Start a Random Audit" button and the actual
+// template/company picker. A Random Audit freezes whatever's in
+// Store.products the instant it's created (individual-actions.js
+// startIndividualAssignment) — and Store.products only refreshes at
+// login or a manual sync tap, never continuously in the background —
+// so this forces one real sync right at launch, and shows the person
+// it happened, instead of silently launching against however old the
+// device's copy happens to be. See LegacyActions.ensureFreshInventoryForAudit.
+let individualSyncGateOpen = false;
+let individualSyncGateStatus = 'idle'; // 'idle' | 'syncing' | 'error'
+let individualSyncGateError = '';
+
+function _formatSyncedAt(ts) {
+  if (!ts) return 'never';
+  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function renderSyncGateHTML() {
+  const { inventoryLastSyncedAt } = Store.getState();
+  const lastSyncedLabel = _formatSyncedAt(inventoryLastSyncedAt);
+
+  if (individualSyncGateStatus === 'syncing') {
+    return `<div class="card" style="margin-bottom:14px; text-align:center; padding:20px;">
+      <div style="font-weight:800; color:var(--navy); font-size:13px;">⟳ Syncing latest inventory…</div>
+      <div style="font-size:11px; color:var(--grey); margin-top:6px;">Checking Supabase for anything newer before you start counting.</div>
+    </div>`;
+  }
+
+  if (individualSyncGateStatus === 'error') {
+    return `<div class="card" style="margin-bottom:14px; padding:16px; background:var(--gold-bg); border:1px solid var(--gold);">
+      <div style="font-weight:800; color:var(--navy); font-size:13px;">⚠️ Could not confirm the latest inventory</div>
+      <div style="font-size:11px; color:var(--grey); margin-top:4px;">${Components.esc(individualSyncGateError)}. Last known sync: ${lastSyncedLabel}.</div>
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button class="btn btn-primary" style="flex:1;" data-action="retry-individual-sync-gate">Retry Sync</button>
+        <button class="btn" style="flex:1; background:var(--light); color:var(--text);" data-action="skip-individual-sync-gate">Continue with cached data</button>
+      </div>
+    </div>`;
+  }
+
+  return `<div class="card" style="margin-bottom:14px; padding:16px;">
+    <div style="font-weight:800; color:var(--navy); font-size:13px;">🔄 Confirm latest inventory first</div>
+    <div style="font-size:11px; color:var(--grey); margin-top:4px;">Last synced: ${lastSyncedLabel}. A Random Audit freezes whatever inventory is current the moment it starts — sync now so you're not counting against an old number.</div>
+    <div style="display:flex; gap:8px; margin-top:10px;">
+      <button class="btn btn-primary" style="flex:1;" data-action="run-individual-sync-gate">🔄 Sync Now</button>
+      <button class="btn" style="flex:1; background:var(--light); color:var(--text);" data-action="cancel-individual-sync-gate">Cancel</button>
+    </div>
+  </div>`;
+}
+
 function renderIndividualPickerHTML() {
   const { role, myAssignments, templates } = Store.getState();
   if (role !== 'sub') return ''; // self-service is for staff picking their own work — the Main Auditor already has the full Team Audit picker
@@ -128,8 +178,12 @@ function renderIndividualPickerHTML() {
     </div>`;
   }
 
+  if (individualSyncGateOpen) {
+    return renderSyncGateHTML();
+  }
+
   if (!showIndividualPicker) {
-    return `<button class="sort-btn" style="width:100%; margin-bottom:14px;" data-action="toggle-individual-picker">🎲 Start a Random Audit</button>`;
+    return `<button class="sort-btn" style="width:100%; margin-bottom:14px;" data-action="open-individual-sync-gate">🎲 Start a Random Audit</button>`;
   }
 
   const templateOptions = (templates || []).map(t => `<option value="${t.id}">${Components.esc(t.name)} (${t.codes.length} codes)</option>`).join('');
@@ -160,7 +214,7 @@ function renderIndividualPickerHTML() {
       `}
       <div style="display:flex; gap:8px;">
         <button class="btn btn-primary" style="flex:1;" data-action="confirm-start-individual">Start Counting</button>
-        <button class="btn" style="flex:1; background:var(--light); color:var(--text);" data-action="toggle-individual-picker">Cancel</button>
+        <button class="btn" style="flex:1; background:var(--light); color:var(--text);" data-action="close-individual-picker">Cancel</button>
       </div>
     </div>`;
 }
@@ -372,8 +426,61 @@ export function initSubPages() {
       renderTeamTabForSubAuditor();
     },
     'toggle-picker-submitted': () => { pickerSubmittedOpen = !pickerSubmittedOpen; renderTeamTabForSubAuditor(); },
-    'toggle-individual-picker': () => {
-      showIndividualPicker = !showIndividualPicker;
+    // Tapping "Start a Random Audit" opens the fresh-inventory gate
+    // first, not the picker itself — see the block comment above
+    // individualSyncGateOpen for why.
+    'open-individual-sync-gate': () => {
+      individualSyncGateOpen = true;
+      individualSyncGateStatus = 'idle';
+      individualSyncGateError = '';
+      renderTeamTabForSubAuditor();
+    },
+    'run-individual-sync-gate': async () => {
+      individualSyncGateStatus = 'syncing';
+      renderTeamTabForSubAuditor();
+      const result = await Actions.ensureFreshInventoryForAudit();
+      if (result.ok) {
+        // Sync landed — close the gate and open straight into the
+        // real picker, exactly as if the person had tapped the old
+        // button directly.
+        individualSyncGateOpen = false;
+        individualSyncGateStatus = 'idle';
+        showIndividualPicker = true;
+        individualPickerSource = 'template';
+        individualSelectedCompanies = new Set();
+        individualSearchToken = '';
+        individualSortAscending = true;
+      } else {
+        individualSyncGateStatus = 'error';
+        individualSyncGateError = result.error || 'Sync failed';
+      }
+      renderTeamTabForSubAuditor();
+    },
+    'retry-individual-sync-gate': async () => {
+      await clickHandlers['run-individual-sync-gate']();
+    },
+    // Offline/edge-case escape hatch — proceeds with whatever's
+    // already cached locally rather than blocking someone who
+    // genuinely has no connection right now. Logged so a variance
+    // that traces back to this is explainable after the fact.
+    'skip-individual-sync-gate': () => {
+      individualSyncGateOpen = false;
+      individualSyncGateStatus = 'idle';
+      showIndividualPicker = true;
+      individualPickerSource = 'template';
+      individualSelectedCompanies = new Set();
+      individualSearchToken = '';
+      individualSortAscending = true;
+      Actions.logAudit('individual:startedWithoutFreshSync', { reason: individualSyncGateError });
+      renderTeamTabForSubAuditor();
+    },
+    'cancel-individual-sync-gate': () => {
+      individualSyncGateOpen = false;
+      individualSyncGateStatus = 'idle';
+      renderTeamTabForSubAuditor();
+    },
+    'close-individual-picker': () => {
+      showIndividualPicker = false;
       individualPickerSource = 'template';
       individualSelectedCompanies = new Set();
       individualSearchToken = '';
@@ -428,6 +535,15 @@ export function initSubPages() {
         if (individualSelectedCompanies.size === 0) { Bus.emit('toast', { msg: 'Pick at least one company first', kind: 'error' }); el.disabled = false; return; }
         selection = { source: 'companies', companies: Array.from(individualSelectedCompanies) };
       }
+      // Gate 3: a slow picker session (deliberating over template/
+      // company choices) can let the gate's sync go stale again
+      // before the snapshot is actually taken. Silent, best-effort —
+      // skips the round-trip entirely if the sync that opened this
+      // picker is still recent enough (see AUDIT_SYNC_STALE_MS), and
+      // never blocks Start Counting even if it fails (the snapshot
+      // still proceeds with whatever's cached, same as before this
+      // gate existed) — this is a safety net, not a second hard stop.
+      await Actions.ensureFreshInventoryForAudit({ skipIfSyncedWithinMs: Actions.AUDIT_SYNC_STALE_MS });
       const assignment = await Actions.startIndividualAssignment(selection);
       if (assignment) {
         showIndividualPicker = false;
