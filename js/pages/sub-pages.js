@@ -133,7 +133,6 @@ function renderSyncGateHTML() {
   if (individualSyncGateStatus === 'syncing') {
     return `<div class="card" style="margin-bottom:14px; text-align:center; padding:20px;">
       <div style="font-weight:800; color:var(--navy); font-size:13px;">⟳ Syncing latest inventory…</div>
-      <div style="font-size:11px; color:var(--grey); margin-top:6px;">Checking Supabase for anything newer before you start counting.</div>
     </div>`;
   }
 
@@ -150,7 +149,7 @@ function renderSyncGateHTML() {
 
   return `<div class="card" style="margin-bottom:14px; padding:16px;">
     <div style="font-weight:800; color:var(--navy); font-size:13px;">🔄 Confirm latest inventory first</div>
-    <div style="font-size:11px; color:var(--grey); margin-top:4px;">Last synced: ${lastSyncedLabel}. A Random Audit freezes whatever inventory is current the moment it starts — sync now so you're not counting against an old number.</div>
+    <div style="font-size:11px; color:var(--grey); margin-top:4px;">Last synced: ${lastSyncedLabel}.</div>
     <div style="display:flex; gap:8px; margin-top:10px;">
       <button class="btn btn-primary" style="flex:1;" data-action="run-individual-sync-gate">🔄 Sync Now</button>
       <button class="btn" style="flex:1; background:var(--light); color:var(--text);" data-action="cancel-individual-sync-gate">Cancel</button>
