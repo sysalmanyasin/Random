@@ -4,6 +4,7 @@ import { Bus } from './bus.js';
 import { logAudit } from './audit-log-actions.js';
 import { EngagementActions } from './engagement-actions.js';
 import { RoundActions } from './round-actions.js';
+import { LegacyActions } from './legacy-actions.js';
 
 /* ══════════════════════════════════════════════════════════════
    FLOOR 3 — ACTIONS / inventory-actions.js
@@ -219,6 +220,16 @@ async function startTeamRandomAudit(name) {
   }
   const engagement = await EngagementActions.createEngagement(name, { type: 'template', codes: inventorySelectedCodes.slice() });
   if (!engagement) return;
+  // Gate 3 (see inventory-pages.js _gateThenLaunch): the caller already
+  // forced a sync before showing the prompt() for this engagement's
+  // name, but that prompt can sit open for a while — re-check silently
+  // right here, immediately before createRound() actually takes the
+  // item snapshot, so what gets frozen is provably current at THIS
+  // instant. Best-effort: never blocks creation even if it fails, since
+  // that would strand a Main Auditor who just answered the prompt with
+  // no way forward — same tradeoff as the Sub-Auditor's equivalent
+  // check in sub-pages.js confirm-start-individual.
+  await LegacyActions.ensureFreshInventoryForAudit({ skipIfSyncedWithinMs: LegacyActions.AUDIT_SYNC_STALE_MS });
   const round = await RoundActions.createRound();
   if (!round) return;
   logAudit('inventory:teamRandomAudit', { engagementId: engagement.id, itemCount: round.itemSnapshot.length });

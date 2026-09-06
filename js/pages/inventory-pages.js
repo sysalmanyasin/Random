@@ -274,6 +274,77 @@ function generateInventoryReport() {
   setTimeout(() => { canvas.innerHTML = _originalCanvasHTML; }, 500);
 }
 
+// ── Fresh-inventory gate — Random Audit launch (Main Auditor) ──────
+// Mirrors the Sub-Auditor gate in sub-pages.js (see the block comment
+// there): both buttons below freeze whatever's in Store.products the
+// instant their round is created — start-individual-random-audit via
+// individual-actions.js startIndividualAssignment, start-team-random-
+// audit via round-actions.js createRound (called from
+// inventory-actions.js startTeamRandomAudit) — and Store.products
+// only ever refreshes at login or a manual sync tap, never
+// continuously in the background. This forces one real sync
+// immediately before either button's actual launch logic runs, and
+// shows the Main Auditor that it happened, instead of silently
+// launching against however old this session's copy is.
+function _setRandomAuditGateHTML(html) {
+  const el = $('random-audit-sync-gate');
+  if (!el) return;
+  el.style.display = html ? 'block' : 'none';
+  el.innerHTML = html || '';
+}
+
+function _randomAuditSyncingHTML() {
+  return `<div style="font-size:12px; font-weight:700; color:var(--navy); text-align:center; padding:8px 0;">⟳ Syncing latest inventory…</div>`;
+}
+
+function _randomAuditSyncErrorHTML(message, retryAction, skipAction) {
+  return `<div style="padding:10px; background:var(--gold-bg); border:1px solid var(--gold); border-radius:8px;">
+    <div style="font-size:12px; font-weight:700; color:var(--navy);">⚠️ Could not confirm the latest inventory</div>
+    <div style="font-size:11px; color:var(--grey); margin-top:2px;">${Components.esc(message)}</div>
+    <div style="display:flex; gap:8px; margin-top:8px;">
+      <button class="btn btn-primary" style="flex:1; font-size:11px; padding:8px;" data-action="${retryAction}">Retry Sync</button>
+      <button class="btn" style="flex:1; font-size:11px; padding:8px; background:var(--light); color:var(--text);" data-action="${skipAction}">Continue with cached data</button>
+    </div>
+  </div>`;
+}
+
+// Runs a forced sync, shows its status inline right under the two
+// buttons, then only calls `runFn` (the button's real launch logic)
+// once that sync has actually succeeded. On failure, swaps in a
+// Retry / Continue-with-cached-data card instead of just failing
+// silently — `retryAction`/`skipAction` are the data-action names the
+// caller registers for those two buttons.
+async function _gateThenLaunch(runFn, retryAction, skipAction) {
+  _setRandomAuditGateHTML(_randomAuditSyncingHTML());
+  const result = await Actions.ensureFreshInventoryForAudit();
+  if (!result.ok) {
+    _setRandomAuditGateHTML(_randomAuditSyncErrorHTML(result.error || 'Sync failed', retryAction, skipAction));
+    return;
+  }
+  _setRandomAuditGateHTML('');
+  await runFn();
+}
+
+async function _launchIndividualRandomAudit() {
+  const sampleSize = parseInt($('inv-sample-size').value) || 10;
+  const { templates, activeTemplateId } = Store.getState();
+  const active = templates.find(t => t.id === activeTemplateId);
+  const sample = Actions.sampleRandomCodesForIndividualAudit(sampleSize);
+  if (!sample) return;
+  const assignment = await Actions.startIndividualAssignment({ source: 'template', codes: sample.codes, name: active ? active.name : 'Random Audit' });
+  if (!assignment) return;
+  await Actions.loadMyAssignments();
+  await Actions.openMyAssignment(assignment.id);
+  Bus.emit('nav:goto', 'team');
+}
+
+async function _launchTeamRandomAudit() {
+  const { templates, activeTemplateId } = Store.getState();
+  const active = templates.find(t => t.id === activeTemplateId);
+  const name = prompt('Name this Team Audit engagement:', active ? active.name : '');
+  if (name) await Actions.startTeamRandomAudit(name);
+}
+
 // ── Handlers ──────────────────────────────────────────────
 export function initInventoryPages() {
   // One-time: dismiss the "swipe sideways" hint the first time the
@@ -295,22 +366,26 @@ export function initInventoryPages() {
     'rename-template': (el) => { const name = prompt('Rename template:'); if (name) Actions.renameTemplate(el.dataset.templateId, name); },
     'delete-template': (el) => Actions.deleteTemplate(el.dataset.templateId),
     'start-individual-random-audit': async () => {
-      const sampleSize = parseInt($('inv-sample-size').value) || 10;
-      const { templates, activeTemplateId } = Store.getState();
-      const active = templates.find(t => t.id === activeTemplateId);
-      const sample = Actions.sampleRandomCodesForIndividualAudit(sampleSize);
-      if (!sample) return;
-      const assignment = await Actions.startIndividualAssignment({ source: 'template', codes: sample.codes, name: active ? active.name : 'Random Audit' });
-      if (!assignment) return;
-      await Actions.loadMyAssignments();
-      await Actions.openMyAssignment(assignment.id);
-      Bus.emit('nav:goto', 'team');
+      await _gateThenLaunch(_launchIndividualRandomAudit, 'retry-individual-audit-sync', 'skip-individual-audit-sync');
     },
-    'start-team-random-audit': () => {
-      const { templates, activeTemplateId } = Store.getState();
-      const active = templates.find(t => t.id === activeTemplateId);
-      const name = prompt('Name this Team Audit engagement:', active ? active.name : '');
-      if (name) Actions.startTeamRandomAudit(name);
+    'retry-individual-audit-sync': async () => {
+      await _gateThenLaunch(_launchIndividualRandomAudit, 'retry-individual-audit-sync', 'skip-individual-audit-sync');
+    },
+    'skip-individual-audit-sync': async () => {
+      _setRandomAuditGateHTML('');
+      Actions.logAudit('individual:startedWithoutFreshSync', { source: 'inventory-tab' });
+      await _launchIndividualRandomAudit();
+    },
+    'start-team-random-audit': async () => {
+      await _gateThenLaunch(_launchTeamRandomAudit, 'retry-team-audit-sync', 'skip-team-audit-sync');
+    },
+    'retry-team-audit-sync': async () => {
+      await _gateThenLaunch(_launchTeamRandomAudit, 'retry-team-audit-sync', 'skip-team-audit-sync');
+    },
+    'skip-team-audit-sync': async () => {
+      _setRandomAuditGateHTML('');
+      Actions.logAudit('engagement:startedWithoutFreshSync', { source: 'inventory-tab' });
+      await _launchTeamRandomAudit();
     },
     'generate-inventory-report': generateInventoryReport,
     'inventory-load-more': () => { renderLimit += PAGE_SIZE; renderInventoryTable(); },
