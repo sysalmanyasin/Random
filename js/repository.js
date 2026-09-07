@@ -14,6 +14,7 @@ import { LegacyRepo } from './repository/legacy.js';
 import { TemplatesRepo } from './repository/templates.js';
 import { LS, SS } from './repository/storage.js';
 import { SupabaseRepo } from './repository/supabase.js';
+import { ExpiryRepo } from './repository/expiry.js';
 
 export const Repo = {
   // db lifecycle
@@ -34,4 +35,7 @@ export const Repo = {
   // supabase/functions/sync-inventory-from-dropbox — so there is no
   // more client-side Dropbox networking module here).
   ...SupabaseRepo,
+
+  // Expiry Tracking module (racks, monthly rack assignments, expiry log)
+  ...ExpiryRepo,
 };

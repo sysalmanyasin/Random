@@ -130,6 +130,7 @@
         <button class="section-sub-tab active" data-action="navigate" data-view="team">Engagements</button>
         <button class="section-sub-tab" data-action="navigate" data-view="staff">Staff</button>
         <button class="section-sub-tab" data-action="navigate" data-view="individual">Individual</button>
+        <button class="section-sub-tab" data-action="navigate" data-view="expiry">Expiry</button>
       </div>
     </div>
 
@@ -166,6 +167,7 @@
         <button class="section-sub-tab" data-action="navigate" data-view="team">Engagements</button>
         <button class="section-sub-tab active" data-action="navigate" data-view="staff">Staff</button>
         <button class="section-sub-tab" data-action="navigate" data-view="individual">Individual</button>
+        <button class="section-sub-tab" data-action="navigate" data-view="expiry">Expiry</button>
       </div>
     </div>
 
@@ -185,10 +187,41 @@
         <button class="section-sub-tab" data-action="navigate" data-view="team">Engagements</button>
         <button class="section-sub-tab" data-action="navigate" data-view="staff">Staff</button>
         <button class="section-sub-tab active" data-action="navigate" data-view="individual">Individual</button>
+        <button class="section-sub-tab" data-action="navigate" data-view="expiry">Expiry</button>
       </div>
     </div>
 
     <div id="individual-tab-root"></div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       EXPIRY TRACKING — near-expiry log, staff-wise & month-wise,
+       plus the monthly rack assignment. See js/actions/expiry-actions.js.
+  ══════════════════════════════════════════════════════════ -->
+  <div class="page" id="page-expiry">
+
+    <!-- Section nav -->
+    <div class="section-nav-bar">
+      <div class="section-nav-label">Team Audit</div>
+      <div class="section-sub-tabs">
+        <button class="section-sub-tab" data-action="navigate" data-view="team">Engagements</button>
+        <button class="section-sub-tab" data-action="navigate" data-view="staff">Staff</button>
+        <button class="section-sub-tab" data-action="navigate" data-view="individual">Individual</button>
+        <button class="section-sub-tab active" data-action="navigate" data-view="expiry">Expiry</button>
+      </div>
+    </div>
+
+    <!-- Internal Log Entry / Search / Racks switcher (not a router view —
+         same idea as the Inventory page's Products/Templates sub-tabs,
+         but kept local to this page since a Sub-Auditor also needs both
+         Log Entry and Search, just never Racks). -->
+    <div style="display:flex; gap:8px; margin:10px 0;">
+      <button class="filter-btn expiry-subview-btn filter-btn-active" data-action="expiry-set-subview" data-subview="log">📝 Log Entry</button>
+      <button class="filter-btn expiry-subview-btn" data-action="expiry-set-subview" data-subview="search">🔍 Search</button>
+      <button class="filter-btn expiry-subview-btn" id="expiry-racks-subview-btn" data-action="expiry-set-subview" data-subview="racks" style="display:none;">🗂 Racks</button>
+    </div>
+
+    <div id="expiry-tab-root"></div>
   </div>
 
 

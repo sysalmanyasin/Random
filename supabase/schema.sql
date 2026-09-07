@@ -620,3 +620,122 @@ alter table submissions add constraint submissions_assignment_id_key unique (ass
 -- directly; the Edge Function creates the matching auth.users row
 -- too, which a raw SQL insert here cannot do.
 -- ══════════════════════════════════════════════════════════════
+
+-- ══════════════════════════════════════════════════════════════
+-- EXPIRY TRACKING MODULE
+-- Racks (master list, Main Auditor-managed in Settings) + monthly
+-- rack→staff assignments (who checks which rack this month) +
+-- expiry_entries (the actual near-expiry log, staff-wise & month-
+-- wise, universally searchable by everyone). Safe to re-run, same
+-- "if not exists / or replace" convention as the rest of this file.
+-- ══════════════════════════════════════════════════════════════
+
+-- ── racks (master list) ──────────────────────────────────────────
+-- A small, Main-Auditor-curated list of physical rack names/numbers
+-- ("Rack A2", "Cold Chain Rack 1", ...) — kept as a real table (not
+-- free text everywhere) so the dropdown stays typo-free and can be
+-- reused both by the expiry-entry form and by the monthly assignment
+-- screen. "active" (not a hard delete) so a retired rack name doesn't
+-- silently break the history of entries that already reference it.
+create table if not exists racks (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  active boolean not null default true,
+  created_by uuid references staff(id),
+  created_at timestamptz not null default now()
+);
+
+alter table racks enable row level security;
+drop policy if exists "racks read all staff" on racks;
+create policy "racks read all staff" on racks for select using (is_access_valid());
+drop policy if exists "racks main manage" on racks;
+create policy "racks main manage" on racks for all using (is_main_auditor());
+
+-- ── rack_assignments (monthly: who checks which rack) ────────────
+-- One row per (rack, calendar month). Re-assigning the same rack in
+-- the same month is an upsert (onConflict rack_id,month in
+-- repository/expiry.js), so re-running the assignment screen for a
+-- month just overwrites who currently owns that rack rather than
+-- piling up duplicate rows. rack_name/staff_name are denormalized at
+-- assignment time so a later rack rename or staff rename doesn't
+-- silently rewrite past months' history.
+create table if not exists rack_assignments (
+  id uuid primary key default gen_random_uuid(),
+  rack_id uuid not null references racks(id) on delete cascade,
+  rack_name text not null,
+  staff_id uuid not null references staff(id),
+  staff_name text not null,
+  month text not null,              -- 'YYYY-MM' — the calendar month this assignment covers
+  assigned_by uuid references staff(id),
+  assigned_at timestamptz not null default now(),
+  unique (rack_id, month)
+);
+
+alter table rack_assignments enable row level security;
+-- Read access is open to every valid staff member (not just Main
+-- Auditor) because a Sub-Auditor's own device needs to know which
+-- rack(s) are theirs this month, to filter the expiry-entry form's
+-- rack dropdown down to just their own assignment.
+drop policy if exists "rack assignments read all staff" on rack_assignments;
+create policy "rack assignments read all staff" on rack_assignments for select using (is_access_valid());
+drop policy if exists "rack assignments main manage" on rack_assignments;
+create policy "rack assignments main manage" on rack_assignments for all using (is_main_auditor());
+
+create index if not exists idx_rack_assignments_month on rack_assignments(month);
+create index if not exists idx_rack_assignments_staff on rack_assignments(staff_id);
+
+-- ── expiry_entries (the actual near-expiry log) ──────────────────
+-- product_code/product_name are picked from the same shared
+-- inventory_products table the rest of the app already uses (no
+-- second product list). "locked" plus the RLS policies below are
+-- what actually enforce "once saved, can't be edited — only the
+-- Main Auditor can reopen it": a Sub-Auditor's client has an INSERT
+-- grant on this table and nothing else — no UPDATE policy exists for
+-- them at all, so there is no RLS path for them to change a row after
+-- it's inserted, regardless of what the UI shows. Only the Main
+-- Auditor can UPDATE (reopen, edit, then re-lock) or DELETE a row.
+create table if not exists expiry_entries (
+  id uuid primary key default gen_random_uuid(),
+  staff_id uuid not null references staff(id),
+  staff_name text not null,
+  product_code text not null default '',
+  product_name text not null,
+  quantity numeric not null,
+  expiry_month text not null,        -- 'YYYY-MM' — the month/year the stock actually expires
+  rack_location text not null,       -- a name from `racks`, or free text if "Other" was typed
+  status text not null default 'Near Expiry'
+    check (status in ('Near Expiry','Sold','Returned to Warehouse','Discarded')),
+  locked boolean not null default true,
+  logged_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  reopened_by uuid references staff(id),
+  reopened_by_name text,
+  reopened_at timestamptz
+);
+
+alter table expiry_entries enable row level security;
+
+-- Shared visibility: any logged-in, non-expired staff member can read
+-- every entry — this is the "universal search for any product,
+-- anytime" requirement. Unlike Team Audit's per-person isolation,
+-- expiry records are meant to be visible to the whole team.
+drop policy if exists "expiry read all staff" on expiry_entries;
+create policy "expiry read all staff" on expiry_entries for select using (is_access_valid());
+
+-- A Sub-Auditor may insert a new entry under their own staff_id, once,
+-- while their access is valid. That's the only write grant they get —
+-- see the comment above the table for why that's what actually locks
+-- an entry after save.
+drop policy if exists "expiry insert own" on expiry_entries;
+create policy "expiry insert own" on expiry_entries for insert
+  with check (staff_id = auth.uid() and is_access_valid());
+
+drop policy if exists "expiry main update" on expiry_entries;
+create policy "expiry main update" on expiry_entries for update using (is_main_auditor());
+drop policy if exists "expiry main delete" on expiry_entries;
+create policy "expiry main delete" on expiry_entries for delete using (is_main_auditor());
+
+create index if not exists idx_expiry_product_name on expiry_entries(product_name);
+create index if not exists idx_expiry_month on expiry_entries(expiry_month);
+create index if not exists idx_expiry_staff on expiry_entries(staff_id);
+create index if not exists idx_expiry_status on expiry_entries(status);
