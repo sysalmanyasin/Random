@@ -1,6 +1,7 @@
 import { Bus } from './bus.js';
 import { logAudit } from './audit-log-actions.js';
 import { DashboardActions } from './dashboard-actions.js';
+import { Store } from '../store.js';
 const _fmtDuration = DashboardActions.formatDuration;
 
 /* ══════════════════════════════════════════════════════════════
@@ -191,6 +192,60 @@ function exportCombinedVarianceReportXLSX(roundsWithCompiled, meta) {
   Bus.emit('toast', { msg: 'Combined Variance Report exported', kind: 'success' });
 }
 
+// ── Product Search — "where did we ever count this?" ──────────
+// Every compiled round already carries its FULL item list (not just
+// variances) in compiled.mergedItems — see compile-actions.js
+// buildMergedItems — so a cross-round product lookup needs no new
+// data, just a scan over what's already sitting in Store once an
+// engagement's Rounds tab has been opened (loadCompiledRoundsForEngagement
+// pulls every round in the engagement, not only the latest — see
+// compile-actions.js). Matches on product code (starts-with) or name
+// (contains), case-insensitive. Pure function — takes rounds/compiledRounds
+// as arguments rather than reaching into Store itself — so it stays
+// unit-testable the same way buildMergedItems/buildVarianceReportRows
+// are; searchProductAcrossRounds below is the thin Store-reading wrapper
+// actually called from the page.
+function searchProductInCompiledRounds(rounds, compiledRounds, term) {
+  const q = (term || '').trim().toLowerCase();
+  if (!q) return [];
+  const results = [];
+  compiledRounds.forEach(compiled => {
+    const round = rounds.find(r => r.id === compiled.roundId);
+    if (!round) return; // round since deleted, or belongs to a different engagement's stale cache entry
+    (compiled.mergedItems || []).forEach(item => {
+      const codeHit = item.code && item.code.toLowerCase().startsWith(q);
+      const nameHit = item.name && item.name.toLowerCase().includes(q);
+      if (!codeHit && !nameHit) return;
+      const variance = item.countedQty - item.systemQty;
+      results.push({
+        roundId: round.id, roundNumber: round.roundNumber,
+        roundLabel: 'Round ' + round.roundNumber + (round.roundSuffix || ''),
+        compiledAt: compiled.compiledAt,
+        itemKey: item.itemKey, code: item.code || '', name: item.name, company: item.company,
+        price: item.price, systemQty: item.systemQty, countedQty: item.countedQty,
+        variance, valueVariance: Number((variance * (item.price || 0)).toFixed(2)),
+        auditorName: item.auditorName || '', missing: !!item.missing, autoMatched: !!item.autoMatched,
+      });
+    });
+  });
+  // Most recent round first (the count someone's most likely asking
+  // about right now), then alphabetical within a round for a stable,
+  // scannable order when a search term matches several products.
+  return results.sort((a, b) => b.roundNumber - a.roundNumber || a.name.localeCompare(b.name));
+}
+
+// Store-reading wrapper the page module actually calls — scoped to
+// whichever engagement is currently open, same "currently loaded"
+// boundary the rest of the Team tab already works within (Phase 1;
+// searching closed/other engagements needs a server-side RPC over
+// compiled_rounds — a natural Phase 2, not needed for the common
+// "did we already count this in an earlier round of THIS engagement"
+// question).
+function searchProductAcrossRounds(term) {
+  const { rounds, compiledRounds } = Store.getState();
+  return searchProductInCompiledRounds(rounds, compiledRounds, term);
+}
+
 function exportRoundHistoryXLSX(engagement, rounds) {
   const rows = [['Round #', 'Unit', 'State', 'Created', 'Locked', 'Compiled', 'Finalized']];
   rounds.forEach(r => rows.push([
@@ -226,4 +281,7 @@ export const ReportActions = {
   exportFinalAuditReportXLSX, exportVarianceReportXLSX, buildVarianceReportRows,
   buildCombinedVarianceReportRows, exportCombinedVarianceReportXLSX,
   exportRoundHistoryXLSX, exportSubmissionHistoryXLSX, exportAuditTrailXLSX,
+  searchProductAcrossRounds,
 };
+
+export const _testables = { searchProductInCompiledRounds };

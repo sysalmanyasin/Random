@@ -304,6 +304,12 @@
   .variance-sev-high td:first-child { border-left: 4px solid var(--red); }
   .variance-sev-med  td:first-child { border-left: 4px solid var(--gold); }
   .variance-sev-low  td:first-child { border-left: 4px solid var(--border); }
+  /* Same three severity bands, applied directly (not via td:first-child)
+     for row layouts that aren't a <table> — e.g. the Product Search
+     result rows (.movable-row), which use flexbox divs instead. */
+  .movable-row.variance-sev-high { border-left: 4px solid var(--red); padding-left: 8px; }
+  .movable-row.variance-sev-med  { border-left: 4px solid var(--gold); padding-left: 8px; }
+  .movable-row.variance-sev-low  { border-left: 4px solid var(--border); padding-left: 8px; }
   .audit-table input[type=number] {
     width: 75px; padding: 8px; border: 1.5px solid var(--border); border-radius: 8px;
     font-size: 14px; font-weight: 700; text-align: right; color: var(--navy);

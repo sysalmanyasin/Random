@@ -54,6 +54,31 @@ export function varianceRowHTML(row) {
     </tr>`;
 }
 
+// Product Search result row — one product's count in one specific
+// round, tappable to jump straight into that round's workspace (see
+// engagement-pages.js data-action="open-round-from-search"). Reuses
+// the same severity-band border as the live Variance Report table
+// (varianceRowHTML above) so a big-impact historical count still
+// stands out at a glance, plus a "not verified" marker since a
+// product-history lookup is exactly the place someone might mistake
+// an uncounted/auto-matched row for a real physical count.
+export function productSearchResultRowHTML(row) {
+  const cls = row.variance > 0 ? 'diff-pos' : (row.variance < 0 ? 'diff-neg' : 'diff-zero');
+  const sevCls = _varianceSeverityClass(row.valueVariance);
+  const verifiedNote = !row.missing ? '' : (row.autoMatched ? ' · not counted (auto-matched)' : ' · not counted');
+  return `
+    <div class="movable-row ${sevCls}" style="cursor:pointer; align-items:flex-start;" data-action="open-round-from-search" data-round-id="${esc(row.roundId)}" role="button" tabindex="0">
+      <div style="flex:1; min-width:0;">
+        <div style="font-weight:800; color:var(--navy); font-size:12px;">${esc(row.name)}</div>
+        <div style="font-size:10px; color:var(--grey); margin-top:2px;">${esc(row.company)}${row.code ? ' · ' + esc(row.code) : ''} · ${esc(row.roundLabel)}${row.auditorName ? ' · ' + esc(row.auditorName) : ''}${verifiedNote}</div>
+      </div>
+      <div style="text-align:right; white-space:nowrap; margin-left:10px;">
+        <div style="font-size:12px;"><span style="color:var(--grey);">${row.systemQty} → </span><strong>${row.countedQty}</strong></div>
+        <div class="${cls}" style="font-size:11px; font-weight:800;">${row.variance > 0 ? '+' : ''}${row.variance}${row.valueVariance ? ' · Rs ' + Math.abs(row.valueVariance).toLocaleString() : ''}</div>
+      </div>
+    </div>`;
+}
+
 export function compileSummaryCardHTML(compiled) {
   return `
     <div class="card">

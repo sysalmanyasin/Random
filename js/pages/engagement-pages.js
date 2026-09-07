@@ -343,6 +343,11 @@ function renderSubRoundCompanyPicker(engagement) {
 // for the Engagements/Staff/Individual tabs, so it stays visually
 // consistent while acting as tap-to-jump shortcuts for the swipe.
 let engagementSwipeTab = 'rounds';
+// Product Search tab's free-text term — reset whenever a different
+// engagement is opened (same lifetime as engagementSwipeTab above) so
+// a leftover search term from one engagement never silently carries
+// into the next one's results.
+let productSearchQuery = '';
 // Closed by default: the two irreversible actions (Close Permanently,
 // Delete Forever) used to sit — full-width, high-contrast red — as the
 // very first tappable elements on an engagement screen a Main Auditor
@@ -368,6 +373,7 @@ function renderEngagementDetailHTML(engagement) {
         <button class="${tab('rounds')}" data-action="team-swipe-tab" data-swipe="rounds">Rounds</button>
         <button class="${tab('dashboard')}" data-action="team-swipe-tab" data-swipe="dashboard">Dashboard</button>
         <button class="${tab('reports')}" data-action="team-swipe-tab" data-swipe="reports">Reports</button>
+        <button class="${tab('search')}" data-action="team-swipe-tab" data-swipe="search">🔍 Search</button>
       </div>
     </div>
 
@@ -390,6 +396,12 @@ function renderEngagementDetailHTML(engagement) {
         <div style="font-size:11px; color:var(--grey); margin:-4px 0 8px;">Tap a report to see what it includes, or tap Export to download it right away.</div>
         ${Components.reportButtonsHTML()}
         <div id="final-snapshot-holder"></div>
+      </div>
+      <div class="swipe-panel" id="swipe-panel-search">
+        <div class="card-title" style="margin-top:0;">Search Products</div>
+        <div style="font-size:11px; color:var(--grey); margin:-4px 0 10px;">Find every round in this engagement where a product code or name was counted — open or already compiled, most recent round first.</div>
+        <input type="text" id="product-search-input" class="settings-input" placeholder="🔍 Product code or name…" style="margin-bottom:10px;" value="${Components.esc(productSearchQuery)}" data-input-action="filter-product-search">
+        <div id="product-search-results-holder">${renderProductSearchResultsHTML()}</div>
       </div>
     </div>
 
@@ -423,7 +435,7 @@ function setEngagementSwipeTab(key, { scroll = true } = {}) {
 // Called on scroll of #engagement-swipe-track (delegated once in
 // event-delegation.js) to keep the pill row in sync during a manual swipe.
 export function syncEngagementSwipeFromScroll(track) {
-  const panels = ['rounds', 'dashboard', 'reports'];
+  const panels = ['rounds', 'dashboard', 'reports', 'search'];
   const idx = Math.round(track.scrollLeft / track.clientWidth);
   const key = panels[Math.max(0, Math.min(panels.length - 1, idx))];
   if (key !== engagementSwipeTab) setEngagementSwipeTab(key, { scroll: false });
@@ -735,6 +747,29 @@ function resetVarianceControls() {
   varianceSortMode = 'alpha';
   varianceFilterMin = null;
   varianceFilterMax = null;
+}
+
+// ── Product Search — cross-round lookup within the open engagement ──
+// See report-actions.js searchProductAcrossRounds for the actual scan
+// (over compiled.mergedItems, every round already loaded in Store).
+// This just renders whatever it returns; typing is the only trigger,
+// no separate "Search" button, since the result set is small and the
+// scan is a plain in-memory .filter() — cheap enough to run on every
+// keystroke like the Inventory tab's product search already does.
+function renderProductSearchResultsHTML() {
+  const q = productSearchQuery.trim();
+  if (!q) return '<div style="font-size:12px; color:var(--grey); text-align:center; padding:20px 0;">Type a product code or name to search every round in this engagement.</div>';
+  const results = Actions.searchProductAcrossRounds(q);
+  if (results.length === 0) return '<div style="font-size:12px; color:var(--grey); text-align:center; padding:20px 0;">No product matched "' + Components.esc(q) + '" in any round of this engagement.</div>';
+  const roundCount = new Set(results.map(r => r.roundId)).size;
+  return `
+    <div style="font-size:11px; color:var(--grey); margin-bottom:8px;">${results.length} match${results.length === 1 ? '' : 'es'} across ${roundCount} round${roundCount === 1 ? '' : 's'} — tap a row to open that round.</div>
+    ${results.map(Components.productSearchResultRowHTML).join('')}`;
+}
+
+function refreshProductSearchResults() {
+  const holder = $('product-search-results-holder');
+  if (holder) holder.innerHTML = renderProductSearchResultsHTML();
 }
 
 // ── §Reporting — shared meta + printable/previewable reports ──
@@ -1148,7 +1183,7 @@ Bus.on('snapshot:generated', (snapshot) => {
 // currentSubView on 'list'.
 export async function openEngagementDetailView(engagementId) {
   await Actions.openEngagement(engagementId);
-  currentSubView = 'detail'; openRoundId = null;
+  currentSubView = 'detail'; openRoundId = null; engagementSwipeTab = 'rounds'; productSearchQuery = '';
 }
 
 /* ── Handler maps, consumed by pages/event-delegation.js ── */
@@ -1156,10 +1191,10 @@ export function initEngagementPages() {
   const clickHandlers = {
     'open-engagement': async (el) => {
       await Actions.openEngagement(el.dataset.engagementId);
-      currentSubView = 'detail'; openRoundId = null; engagementSwipeTab = 'rounds';
+      currentSubView = 'detail'; openRoundId = null; engagementSwipeTab = 'rounds'; productSearchQuery = '';
       renderTeamTab();
     },
-    'team-back-to-list': () => { Actions.closeEngagementView(); currentSubView = 'list'; openRoundId = null; dashboardOpenSections = new Set(); engagementSwipeTab = 'rounds'; engagementDangerZoneOpen = false; renderTeamTab(); },
+    'team-back-to-list': () => { Actions.closeEngagementView(); currentSubView = 'list'; openRoundId = null; dashboardOpenSections = new Set(); engagementSwipeTab = 'rounds'; productSearchQuery = ''; engagementDangerZoneOpen = false; renderTeamTab(); },
     'toggle-engagement-danger-zone': () => { engagementDangerZoneOpen = !engagementDangerZoneOpen; renderTeamTab(); },
     'team-swipe-tab': (el) => setEngagementSwipeTab(el.dataset.swipe),
     'toggle-dashboard-section': (el) => {
@@ -1345,6 +1380,15 @@ export function initEngagementPages() {
       if (round) { await openRound(round.id); } else { renderTeamTab(); }
     },
     'open-round': (el) => openRound(el.dataset.roundId),
+    // Product Search result row tap — jump to the Rounds panel (a
+    // result can point at any round in the engagement, including one
+    // several rounds back, not necessarily whichever panel happens to
+    // be open right now) and open that round's workspace directly,
+    // same as tapping its card would.
+    'open-round-from-search': async (el) => {
+      setEngagementSwipeTab('rounds');
+      await openRound(el.dataset.roundId);
+    },
     'delete-round': async (el) => { await Actions.deleteRound(el.dataset.roundId); },
     'toggle-auditor-select': (el) => {
       const id = el.dataset.auditorId;
@@ -1548,6 +1592,7 @@ export function initEngagementPages() {
 
   const inputHandlers = {
     'filter-scope-companies': (el) => { scopeSearchToken = el.value; renderScopeCompanyPicker(); },
+    'filter-product-search': (el) => { productSearchQuery = el.value; refreshProductSearchResults(); },
     'filter-subround-companies': (el) => {
       subRoundSearchToken = el.value;
       const { engagements, currentEngagementId } = Store.getState();
