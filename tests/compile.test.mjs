@@ -24,6 +24,24 @@ test('buildMergedItems: a submitted count fills in countedQty and clears missing
   assert.equal(mergedItems[0].countedQty, 12);
 });
 
+test('buildMergedItems: after reassignment, the newer submission wins even if the stale one from the old auditor is still in the array (and comes first)', () => {
+  // Regression test: reassigning an assignment to a different auditor
+  // used to leave the ORIGINAL auditor's submissions row in place
+  // (see the schema.sql migration + upsertSubmission fix), because the
+  // old unique key was (assignment_id, auditor_id) — a different
+  // auditor_id meant a second row got inserted instead of the first
+  // being overwritten. buildMergedItems must not just .find() the
+  // first matching row; it must prefer whichever was submitted last.
+  const assignments = [{ id: 'asg1', auditorName: 'Sara', items: [item('A::0', 'Acme', 'C1', 'Widget', 10)] }];
+  const submissions = [
+    { assignmentId: 'asg1', auditorId: 'ali', counts: { 'A::0': 9 }, notes: {}, confirms: {}, submittedAt: '2026-09-05T10:00:00Z' },
+    { assignmentId: 'asg1', auditorId: 'sara', counts: { 'A::0': 10 }, notes: {}, confirms: {}, submittedAt: '2026-09-06T10:00:00Z' },
+  ];
+  const { mergedItems } = buildMergedItems(assignments, submissions);
+  assert.equal(mergedItems[0].countedQty, 10);
+  assert.equal(mergedItems[0].variance, 0);
+});
+
 test('buildMergedItems: same itemKey assigned twice is flagged as an overlap', () => {
   const assignments = [
     { id: 'asg1', auditorName: 'Ali', items: [item('A::0', 'Acme', 'C1', 'Widget', 10)] },
