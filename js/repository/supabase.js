@@ -31,7 +31,26 @@ function onAuthStateChange(client, cb) { return client.auth.onAuthStateChange((_
 //    a service-role key in the browser) ──
 async function callAdminAction(client, action, payload) {
   const { data, error } = await client.functions.invoke('admin-actions', { body: { action, ...payload } });
-  if (error) throw error;
+  if (error) {
+    // supabase-js only ever sets error.message to a generic string like
+    // "Edge Function returned a non-2xx status code" for ANY non-2xx
+    // response (400 validation, 403 not-authorized, 500 exception —
+    // doesn't matter). The real reason is admin-actions/index.ts's own
+    // JSON body ({ error: "..." }), which invoke() does NOT parse for
+    // us — it's only reachable via error.context, the raw Response
+    // object. Without unwrapping it here, every admin-actions failure
+    // (wrong PIN format, duplicate phone, not a Main Auditor, a real
+    // server error) surfaces to the user as the exact same unhelpful
+    // generic string, no matter what actually went wrong.
+    let message = error.message;
+    if (error.context && typeof error.context.json === 'function') {
+      try {
+        const body = await error.context.clone().json();
+        if (body && body.error) message = body.error;
+      } catch (_) { /* response body wasn't JSON (e.g. network-level failure) — fall back to the generic message */ }
+    }
+    throw new Error(message);
+  }
   if (data && data.error) throw new Error(data.error);
   return data;
 }
