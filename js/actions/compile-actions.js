@@ -88,7 +88,18 @@ function buildMergedItems(roundAssignments, submissions) {
     });
   });
   roundAssignments.forEach(assignment => {
-    const sub = submissions.find(s => s.assignmentId === assignment.id);
+    // An assignment can briefly have more than one submissions row when
+    // it's been reassigned to a different auditor: the old auditor's row
+    // (assignment_id, auditor_id) and the new auditor's row are DIFFERENT
+    // rows under the DB's composite unique key, so both can exist at once
+    // until cleaned up. Plain .find() would silently pick whichever the
+    // DB happened to return first — often the stale one — and a recompile
+    // after reassignment would then merge the OLD auditor's counts instead
+    // of the new submission. Always take the most recently submitted row
+    // for this assignment so a fresh resubmission always wins.
+    const matches = submissions.filter(s => s.assignmentId === assignment.id);
+    const sub = matches.length <= 1 ? matches[0] : matches.reduce((latest, s) =>
+      (!latest || new Date(s.submittedAt || 0) > new Date(latest.submittedAt || 0)) ? s : latest, null);
     if (!sub) return; // no submission at all for this assignment — every item in it stays untouched, and the uncounted=0 rule below still applies to it same as any other unverified item
     Object.keys(sub.counts || {}).forEach(itemKey => {
       const row = merged.get(itemKey);

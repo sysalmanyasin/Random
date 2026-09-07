@@ -253,9 +253,18 @@ function _rowToSubmission(row) {
     autoMatched: row.auto_matched || {},
   };
 }
-// One live row per assignment — upsert on (assignment_id, auditor_id),
-// so a resubmission updates the same row (with a fresh submitted_at)
-// instead of needing separate conflict-detection bookkeeping.
+// One live row per assignment — upsert on assignment_id alone, so a
+// resubmission (by the SAME auditor, or by whoever the assignment was
+// just reassigned to) always updates that one row with a fresh
+// submitted_at and the new auditor_id, instead of leaving the prior
+// auditor's row behind as an orphaned duplicate. Previously this
+// upserted on (assignment_id, auditor_id): reassigning to a different
+// auditor changes auditor_id, so that composite key didn't match the
+// old row and a second row got inserted instead — compileRound's
+// buildMergedItems would then have two candidate submissions for one
+// assignment and could pick the stale one on recompile. See the
+// schema.sql migration that replaced the (assignment_id, auditor_id)
+// unique constraint with one on assignment_id alone.
 async function upsertSubmission(client, s) {
   const { data, error } = await client.from('submissions').upsert({
     assignment_id: s.assignmentId, round_id: s.roundId, engagement_id: s.engagementId,
@@ -264,7 +273,7 @@ async function upsertSubmission(client, s) {
     force_submit_leftover_mode: s.forceSubmitLeftoverMode || null, row_times: s.rowTimes || {},
     auto_matched: s.autoMatched || {},
     submitted_at: new Date().toISOString(),
-  }, { onConflict: 'assignment_id,auditor_id' }).select().single();
+  }, { onConflict: 'assignment_id' }).select().single();
   if (error) throw error;
   return _rowToSubmission(data);
 }

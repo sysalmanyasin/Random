@@ -565,6 +565,54 @@ create policy "inventory sync log read all staff" on inventory_sync_log for sele
 create index if not exists idx_inventory_sync_log_synced_at on inventory_sync_log(synced_at desc);
 
 -- ══════════════════════════════════════════════════════════════
+-- FIX: submissions must be unique per ASSIGNMENT, not per
+-- (assignment, auditor). The original `unique (assignment_id,
+-- auditor_id)` meant Reassign-to-a-different-auditor didn't upsert
+-- the existing row — it inserted a SECOND submissions row for the
+-- same assignment (old auditor's row untouched, new auditor's row
+-- added alongside it). compile-actions.js buildMergedItems then had
+-- two candidate rows per assignment and no way to know which was
+-- current, so a recompile after reassigning to someone new could
+-- keep merging the stale, pre-reassignment counts. One live
+-- submission per assignment (whoever most recently submitted it) is
+-- the actual invariant this table is supposed to hold — see the
+-- upsertSubmission comment in js/repository/supabase.js.
+--
+-- Step 1: collapse any duplicate rows that already exist per
+-- assignment_id, keeping only the most recently submitted one.
+delete from submissions s
+  using submissions newer
+  where s.assignment_id = newer.assignment_id
+    and (newer.submitted_at, newer.id) > (s.submitted_at, s.id);
+
+-- Step 2: drop the old composite unique constraint, whatever
+-- Postgres auto-named it, and replace it with one on assignment_id
+-- alone so every future upsert (see upsertSubmission's onConflict)
+-- correctly updates the single existing row for that assignment
+-- regardless of which auditor currently owns it.
+do $$
+declare
+  c record;
+begin
+  for c in
+    select con.conname
+    from pg_constraint con
+    join pg_class rel on rel.oid = con.conrelid
+    where rel.relname = 'submissions'
+      and con.contype = 'u'
+      and (
+        select array_agg(attname order by attname)
+        from pg_attribute
+        where attrelid = rel.oid and attnum = any(con.conkey)
+      ) = array['assignment_id', 'auditor_id']
+  loop
+    execute format('alter table submissions drop constraint %I', c.conname);
+  end loop;
+end $$;
+
+alter table submissions add constraint submissions_assignment_id_key unique (assignment_id);
+
+-- ══════════════════════════════════════════════════════════════
 -- ONE-TIME: create your own Main Auditor login.
 -- Do this AFTER deploying the create-staff Edge Function (see
 -- supabase/admin-actions/index.ts) — call it once with your own
