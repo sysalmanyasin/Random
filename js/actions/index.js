@@ -17,6 +17,7 @@ import { DashboardActions } from './dashboard-actions.js';
 import { InventoryActions } from './inventory-actions.js';
 import { IndividualActions } from './individual-actions.js';
 import { CalculatorActions } from './calculator-actions.js';
+import { ExpiryActions } from './expiry-actions.js';
 
 /* ══════════════════════════════════════════════════════════════
    FLOOR 3 — ACTIONS (barrel)
@@ -47,6 +48,12 @@ Bus.on('auth:loggedIn', async (profile) => {
   } else {
     await CountingActions.loadMyAssignments();
   }
+  // Expiry Tracking: every role needs the rack master list + the
+  // current month's assignments (so a Sub-Auditor's entry form can
+  // filter to their own rack, and a Main Auditor sees the same data
+  // everyone else does). Cheap reads, same spirit as inventory below.
+  await ExpiryActions.loadRacks();
+  await ExpiryActions.loadRackAssignments(ExpiryActions.currentMonthKey());
   // Shared inventory (server-synced from Dropbox) — every role needs
   // the same live product data, so this isn't role-gated. Cheap read
   // of the already-synced table; never triggers a Dropbox pull itself
@@ -72,6 +79,7 @@ export const Actions = {
   ...InventoryActions,
   ...IndividualActions,
   ...CalculatorActions,
+  ...ExpiryActions,
   bootstrap,
   logAudit,
 };

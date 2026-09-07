@@ -8,6 +8,7 @@ import { initStaffPages, renderStaffTab, handleStaffPointerDown, handleStaffPoin
 import { initInventoryPages } from './inventory-pages.js';
 import { initHomeStatsPage } from './home-stats-page.js';
 import { initCalculatorPage, setLastCountInput } from './calculator-pages.js';
+import { initExpiryPages, renderExpiryTab } from './expiry-pages.js';
 import { Components } from '../components.js';
 
 /* ══════════════════════════════════════════════════════════════
@@ -61,7 +62,7 @@ Bus.on('engagement:closed', renderTeamRoot);
 
 // Auth state changes always re-render the root gate, and once logged in
 // as Main Auditor, also refresh the Team/Staff tabs with whatever just loaded.
-Bus.on('auth:loggedIn', () => { renderAuthRoot(); renderTeamRoot(); renderStaffTab(); });
+Bus.on('auth:loggedIn', () => { renderAuthRoot(); renderTeamRoot(); renderStaffTab(); renderExpiryTab(); });
 Bus.on('auth:loggedOut', renderAuthRoot);
 Bus.on('auth:needsLogin', renderAuthRoot);
 Bus.on('auth:needsConfig', renderAuthRoot);
@@ -144,11 +145,12 @@ export function initPages() {
   const inventory = initInventoryPages();
   initHomeStatsPage();
   const calculator = initCalculatorPage();
+  const expiry = initExpiryPages();
 
-  const clickHandlers = { ...legacy.clickHandlers, ...engagement.clickHandlers, ...sub.clickHandlers, ...auth.clickHandlers, ...staff.clickHandlers, ...inventory.clickHandlers, ...calculator.clickHandlers };
-  const inputHandlers = { ...legacy.inputHandlers, ...engagement.inputHandlers, ...sub.inputHandlers, ...auth.inputHandlers, ...staff.inputHandlers, ...inventory.inputHandlers, ...calculator.inputHandlers };
-  const changeHandlers = { ...legacy.changeHandlers, ...engagement.changeHandlers, ...sub.changeHandlers, ...auth.changeHandlers, ...staff.changeHandlers, ...inventory.changeHandlers, ...calculator.changeHandlers };
-  const keydownHandlers = { ...legacy.keydownHandlers, ...engagement.keydownHandlers, ...sub.keydownHandlers, ...auth.keydownHandlers, ...staff.keydownHandlers, ...inventory.keydownHandlers, ...calculator.keydownHandlers };
+  const clickHandlers = { ...legacy.clickHandlers, ...engagement.clickHandlers, ...sub.clickHandlers, ...auth.clickHandlers, ...staff.clickHandlers, ...inventory.clickHandlers, ...calculator.clickHandlers, ...expiry.clickHandlers };
+  const inputHandlers = { ...legacy.inputHandlers, ...engagement.inputHandlers, ...sub.inputHandlers, ...auth.inputHandlers, ...staff.inputHandlers, ...inventory.inputHandlers, ...calculator.inputHandlers, ...expiry.inputHandlers };
+  const changeHandlers = { ...legacy.changeHandlers, ...engagement.changeHandlers, ...sub.changeHandlers, ...auth.changeHandlers, ...staff.changeHandlers, ...inventory.changeHandlers, ...calculator.changeHandlers, ...expiry.changeHandlers };
+  const keydownHandlers = { ...legacy.keydownHandlers, ...engagement.keydownHandlers, ...sub.keydownHandlers, ...auth.keydownHandlers, ...staff.keydownHandlers, ...inventory.keydownHandlers, ...calculator.keydownHandlers, ...expiry.keydownHandlers };
 
   _setUpDialogFocusManagement(clickHandlers);
 

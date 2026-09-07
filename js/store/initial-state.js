@@ -63,5 +63,16 @@ export function createInitialState() {
     templates: [],                   // saved {id, name, codes, createdAt, updatedAt}
     activeTemplateId: null,          // which saved template is currently loaded, if any
     resolvedTemplateMatch: null,     // { matched, total } for the loaded template/selection
+
+    // ── Expiry Tracking module ──
+    racks: [],                       // master rack list [{id, name, active}] — Settings, Main Auditor only
+    rackAssignments: [],             // rack→staff assignments for `expiryAssignMonth`
+    expiryAssignMonth: null,         // 'YYYY-MM' currently shown in the Racks admin screen
+    expiryEntries: [],               // current search/browse results
+    expirySearchQuery: '',
+    expiryFilterMonth: '',           // '' = all months, else 'YYYY-MM'
+    expiryFilterStatus: '',          // '' = all statuses, else one of the four status values
+    expiryPickedProduct: null,       // product chosen in the Log Entry form's search-and-pick widget
+    expiryProductSearchQuery: '',    // the Log Entry form's own product search box
   };
 }
