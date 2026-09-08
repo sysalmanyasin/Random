@@ -565,6 +565,7 @@ async function openRound(roundId) {
   await Actions.noteAssignmentActivity(roundId);
   await Actions.loadSubmissionsForRound(roundId);
   await Actions.loadCompiledRoundsForEngagement(Store.getState().currentEngagementId);
+  await Actions.loadSuggestionsForRound(roundId);
   renderRoundWorkspace();
 }
 
@@ -722,6 +723,7 @@ function refreshCompileStatus() {
   holder.appendChild(card);
 }
 Bus.on('submissions:changed', () => { if (openRoundId) refreshCompileStatus(); });
+Bus.on('suggestions:changed', () => { if (openRoundId) renderRoundWorkspace(); });
 Bus.on('compile:missingAssignments', ({ missing }) => {
   const holder = $('compile-status-holder');
   if (!holder) return;
@@ -1090,8 +1092,14 @@ function renderReportOverview() {
 
 // ── §Compilation Engine + §Difference Engine (compiled round) ──
 function renderCompiledRoundUI(round) {
-  const { compiledRounds, rounds, role } = Store.getState();
+  const { compiledRounds, rounds, role, suggestions } = Store.getState();
   const canManage = role === 'main';
+  // Deputy Auditor is the only role that reaches this render path with
+  // a compiled-round view — a plain Sub-Auditor only ever sees their
+  // own assignment via sub-pages.js (never renderTeamTab), so this
+  // stays 'dep'-only even though the DB's insert policy also allows
+  // 'sub' as future-proofing for if that ever changes.
+  const canSuggest = role === 'dep';
   const compiled = compiledRounds.filter(c => c.roundId === round.id).pop();
   if (!compiled) {
     return canManage
@@ -1100,8 +1108,11 @@ function renderCompiledRoundUI(round) {
   }
   const familyReady = Actions.isFamilyFullyCompiled(rounds, round.roundNumber);
   const visible = _visibleVariances(compiled.variances);
-  const varianceRows = visible.map(Components.varianceRowHTML).join('') || '<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--grey);">No variances match this filter.</td></tr>';
+  const varianceRows = visible.map(row => Components.varianceRowHTML(row, { canSuggest })).join('') || '<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--grey);">No variances match this filter.</td></tr>';
   const filtered = visible.length !== compiled.variances.length;
+  const roundSuggestions = (suggestions || []).filter(s => s.roundId === round.id);
+  const pendingCount = roundSuggestions.filter(s => s.status === 'pending').length;
+  const approvedNotYetAppliedCount = roundSuggestions.filter(s => s.status === 'approved').length;
 
   // The Difference Engine has to generate the next round from EVERY
   // compiled sub-round in this family combined (Round 1 + 1A + 1B...),
@@ -1119,6 +1130,14 @@ function renderCompiledRoundUI(round) {
 
   return `
     ${Components.compileSummaryCardHTML(compiled)}
+    ${canManage && (pendingCount > 0 || approvedNotYetAppliedCount > 0) ? `
+    <details class="assignments-section" open>
+      <summary class="card-title" style="cursor:pointer; user-select:none;">🛠️ Pending Corrections ${pendingCount > 0 ? '(' + pendingCount + ')' : ''}</summary>
+      <div class="card" style="padding:8px;">
+        ${Components.suggestionQueueHTML(roundSuggestions)}
+      </div>
+      ${approvedNotYetAppliedCount > 0 ? `<div style="font-size:11px; color:var(--grey); margin-bottom:10px;">${approvedNotYetAppliedCount} correction(s) approved but not yet in the report below — tap Recompile Round to apply ${approvedNotYetAppliedCount === 1 ? 'it' : 'them'}.</div>` : ''}
+    </details>` : ''}
     ${canManage ? `
     <details class="assignments-section">
       <summary class="card-title" style="cursor:pointer; user-select:none;">Assignments — Reopen, Reassign, or Revoke</summary>
@@ -1498,6 +1517,54 @@ export function initEngagementPages() {
       await Actions.reassignAssignment(el.dataset.assignmentId, el.dataset.newAuditorId, el.dataset.newAuditorName);
       const overlay = $('reassign-overlay');
       if (overlay) overlay.style.display = 'none';
+      renderRoundWorkspace();
+    },
+    'open-suggest-correction': (el) => {
+      const overlay = $('suggest-overlay');
+      const content = $('suggest-content');
+      if (!overlay || !content || !openRoundId) return;
+      const { compiledRounds } = Store.getState();
+      const compiled = compiledRounds.filter(c => c.roundId === openRoundId).pop();
+      const row = compiled && compiled.variances.find(v => v.itemKey === el.dataset.itemKey);
+      if (!compiled || !row) return;
+      // Kept on the button's own dataset (not a module-level variable)
+      // so re-opening the same modal for a different row can't leak
+      // stale compiledRoundId/roundId from whichever row was open last.
+      content.innerHTML = Components.suggestCorrectionModalHTML(row);
+      content.dataset.compiledRoundId = compiled.id;
+      content.dataset.roundId = compiled.roundId;
+      content.dataset.engagementId = compiled.engagementId;
+      overlay.style.display = 'flex';
+      const input = $('suggest-qty-input');
+      if (input) { input.focus(); input.select(); }
+    },
+    'close-suggest-correction': () => {
+      const overlay = $('suggest-overlay');
+      if (overlay) overlay.style.display = 'none';
+    },
+    'submit-suggest-correction': async (el) => {
+      const content = $('suggest-content');
+      const qtyInput = $('suggest-qty-input');
+      const reasonInput = $('suggest-reason-input');
+      if (!content || !qtyInput) return;
+      const suggestedQty = parseFloat(qtyInput.value);
+      if (Number.isNaN(suggestedQty)) { Bus.emit('toast', { msg: 'Enter a valid quantity', kind: 'error' }); return; }
+      const { compiledRounds } = Store.getState();
+      const compiled = compiledRounds.find(c => c.id === content.dataset.compiledRoundId);
+      const row = compiled && compiled.variances.find(v => v.itemKey === el.dataset.itemKey);
+      if (!compiled || !row) return;
+      const result = await Actions.suggestVarianceEdit(compiled, row, suggestedQty, reasonInput ? reasonInput.value.trim() : '');
+      if (result) {
+        const overlay = $('suggest-overlay');
+        if (overlay) overlay.style.display = 'none';
+      }
+    },
+    'approve-suggestion': async (el) => {
+      await Actions.approveSuggestion(el.dataset.suggestionId);
+      renderRoundWorkspace();
+    },
+    'reject-suggestion': async (el) => {
+      await Actions.rejectSuggestion(el.dataset.suggestionId);
       renderRoundWorkspace();
     },
     'team-lock-round': async (el) => { await Actions.lockRound(el.dataset.roundId); renderRoundWorkspace(); },

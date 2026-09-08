@@ -40,18 +40,87 @@ function _varianceSeverityClass(impactRs) {
   return 'variance-sev-low';
 }
 
-export function varianceRowHTML(row) {
+// `opts` (optional): { canSuggest } — canSuggest shows a pencil icon
+// that opens the Suggest Correction modal (see engagement-pages.js
+// data-action="open-suggest-correction"). Deliberately NOT restricted
+// to items the caller was personally assigned — a Deputy/Sub may
+// suggest an edit on any item in the compiled round (see schema.sql,
+// variance_edit_suggestions RLS).
+export function varianceRowHTML(row, opts) {
+  const canSuggest = !!(opts && opts.canSuggest);
   const delta = row.countedQty - row.systemQty;
   const cls = delta > 0 ? 'diff-pos' : (delta < 0 ? 'diff-neg' : 'diff-zero');
   const impactRs = delta * (row.price || 0);
   const sevCls = _varianceSeverityClass(impactRs);
+  // correctedBy/correctedAt are set on a merged row once an approved
+  // suggestion has actually been folded in by a recompile (see
+  // compile-actions.js buildMergedItems) — this tag only ever appears
+  // post-recompile, never the moment a suggestion is merely approved.
+  const correctedTag = row.correctedBy ? `<br><span style="font-size:10px; color:var(--green-ink, #15803d); font-weight:700;">✓ corrected by ${esc(row.correctedBy)}</span>` : '';
+  const suggestBtn = canSuggest
+    ? `<button type="button" class="variance-suggest-btn" data-action="open-suggest-correction" data-item-key="${esc(row.itemKey)}" title="Suggest a correction" aria-label="Suggest a correction for ${esc(row.name)}">✏️</button>`
+    : '';
   return `
     <tr class="${sevCls}">
-      <td style="padding-left:10px;"><strong>${esc(row.name)}</strong><br><span style="font-size:10px; color:var(--grey);">${esc(row.company)} · Rs ${Math.abs(impactRs).toLocaleString()} impact</span></td>
+      <td style="padding-left:10px;"><strong>${esc(row.name)}</strong><br><span style="font-size:10px; color:var(--grey);">${esc(row.company)} · Rs ${Math.abs(impactRs).toLocaleString()} impact</span>${correctedTag}</td>
       <td style="text-align:right;">${row.systemQty}</td>
       <td style="text-align:right;">${row.countedQty}</td>
-      <td style="text-align:right; padding-right:10px;" class="${cls}">${delta > 0 ? '+' : ''}${delta}</td>
+      <td style="text-align:right; padding-right:10px;" class="${cls}">${delta > 0 ? '+' : ''}${delta}${suggestBtn}</td>
     </tr>`;
+}
+
+// ── Suggest Correction modal (Deputy/Sub) ──────────────────────
+export function suggestCorrectionModalHTML(row) {
+  if (!row) return '';
+  return `
+    <h3 class="modal-title" style="margin-bottom:4px;">Suggest a correction</h3>
+    <div style="font-size:12.5px; color:var(--grey); margin-bottom:12px;">${esc(row.name)} — ${esc(row.company)}</div>
+    <div style="display:flex; gap:16px; margin-bottom:12px;">
+      <div><div style="font-size:10px; color:var(--grey);">System</div><div style="font-weight:800; color:var(--navy);">${row.systemQty}</div></div>
+      <div><div style="font-size:10px; color:var(--grey);">Current counted</div><div style="font-weight:800; color:var(--navy);">${row.countedQty}</div></div>
+    </div>
+    <label style="display:block; font-size:11px; font-weight:700; color:var(--navy); margin-bottom:4px;">Your recount</label>
+    <input type="number" id="suggest-qty-input" class="search-input" style="width:100%; margin-bottom:10px;" value="${row.countedQty}" inputmode="decimal">
+    <label style="display:block; font-size:11px; font-weight:700; color:var(--navy); margin-bottom:4px;">Reason (recommended)</label>
+    <textarea id="suggest-reason-input" class="search-input" style="width:100%; min-height:60px; margin-bottom:12px; resize:vertical;" placeholder="e.g. recounted, found 2 more on shelf B4"></textarea>
+    <div style="display:flex; gap:8px;">
+      <button class="btn btn-primary" style="flex:1;" data-action="submit-suggest-correction" data-item-key="${esc(row.itemKey)}">Send to Main Auditor</button>
+      <button class="sort-btn" style="flex:1;" data-action="close-suggest-correction">Cancel</button>
+    </div>`;
+}
+
+// ── Pending Corrections queue (Main Auditor's approve/reject list) ──
+// Pure render — takes the already-loaded `suggestions` array (Store.suggestions,
+// filtered to this round by the caller) plus lookup data the row itself
+// doesn't carry (nothing extra needed today, kept for symmetry with the
+// rest of this file's pure-render functions).
+export function suggestionQueueHTML(suggestions) {
+  const pending = (suggestions || []).filter(s => s.status === 'pending');
+  if (pending.length === 0) {
+    return `<div style="font-size:12px; color:var(--grey); text-align:center; padding:10px;">No pending corrections.</div>`;
+  }
+  const rows = pending.map(s => {
+    const delta = s.suggestedQty - s.previousCountedQty;
+    return `
+    <div class="movable-row" style="align-items:flex-start; flex-direction:column; gap:6px;">
+      <div style="width:100%; display:flex; justify-content:space-between; gap:8px;">
+        <div>
+          <strong>${esc(s.name)}</strong><br>
+          <span style="font-size:10px; color:var(--grey);">${esc(s.company)} · suggested by ${esc(s.suggestedByName)}</span>
+        </div>
+        <div style="text-align:right; white-space:nowrap;">
+          <span style="font-size:11px; color:var(--grey);">${s.previousCountedQty} → </span><strong>${s.suggestedQty}</strong>
+          <div style="font-size:10px; font-weight:700;" class="${delta > 0 ? 'diff-pos' : (delta < 0 ? 'diff-neg' : 'diff-zero')}">${delta > 0 ? '+' : ''}${delta}</div>
+        </div>
+      </div>
+      ${s.reason ? `<div style="font-size:11px; color:var(--text); background:var(--light); padding:6px 8px; border-radius:8px; width:100%;">"${esc(s.reason)}"</div>` : ''}
+      <div style="display:flex; gap:8px; width:100%;">
+        <button class="btn btn-primary" style="flex:1; font-size:11px; padding:8px;" data-action="approve-suggestion" data-suggestion-id="${esc(s.id)}">✅ Approve</button>
+        <button class="btn btn-danger" style="flex:1; font-size:11px; padding:8px;" data-action="reject-suggestion" data-suggestion-id="${esc(s.id)}">✕ Reject</button>
+      </div>
+    </div>`;
+  }).join('');
+  return rows;
 }
 
 // Product Search result row — one product's count in one specific
