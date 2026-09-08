@@ -33,6 +33,7 @@ export function createInitialState() {
     staffOrder: [],           // display order for Staff cards — device-local preference (see repository/storage.js), not synced server-side
     submissions: [],         // submissions for the currently open round
     compiledRounds: [],      // compiled rounds for the currently open engagement
+    suggestions: [],         // variance edit suggestions for the currently open round
     finalSnapshots: [],
     auditLog: [],
 

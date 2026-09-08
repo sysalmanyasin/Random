@@ -411,6 +411,70 @@ create trigger trg_restrict_subauditor_assignment_updates
   before update on assignments
   for each row execute function restrict_subauditor_assignment_updates();
 
+-- ── Variance Edit Suggestions (Deputy → Main approval workflow) ──
+-- A Deputy/Sub-Auditor may propose a corrected count against any item
+-- in a compiled round; the Main Auditor approves or rejects. Approval
+-- writes to rounds.corrections (folded in by compile-actions.js on the
+-- NEXT recompile) — the original submission row is never touched, so
+-- the raw count stays intact as evidence even after a correction is
+-- approved. Same additive, safe-to-re-run style as the rest of this file.
+alter table rounds add column if not exists corrections jsonb not null default '{}';
+
+create table if not exists variance_edit_suggestions (
+  id uuid primary key default gen_random_uuid(),
+  round_id uuid not null references rounds(id) on delete cascade,
+  compiled_round_id uuid not null references compiled_rounds(id) on delete cascade,
+  engagement_id uuid not null references engagements(id) on delete cascade,
+  item_key text not null,
+  company text not null,
+  code text,
+  name text not null,
+  system_qty numeric not null,
+  previous_counted_qty numeric not null, -- snapshot at suggestion time, for staleness checks
+  suggested_qty numeric not null,
+  reason text not null default '',
+  suggested_by uuid not null references staff(id),
+  suggested_by_name text not null,
+  status text not null default 'pending' check (status in ('pending','approved','rejected')),
+  reviewed_by uuid references staff(id),
+  reviewed_by_name text,
+  reviewed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+alter table variance_edit_suggestions enable row level security;
+
+-- Main: full access.
+drop policy if exists "suggestions main all" on variance_edit_suggestions;
+create policy "suggestions main all" on variance_edit_suggestions for all
+  using (is_main_auditor());
+
+-- Deputy: read all in engagement. Deliberately NO item-scope
+-- restriction — a Deputy may suggest an edit on any item in the round,
+-- not just their own assignment (they already have Main-level read
+-- visibility over the whole compiled round).
+drop policy if exists "suggestions dep read" on variance_edit_suggestions;
+create policy "suggestions dep read" on variance_edit_suggestions for select
+  using (is_dep_or_main());
+
+-- Deputy/Sub: insert only their own suggestion, only while access is
+-- valid, and only as 'pending' — this also blocks a client from
+-- inserting a row that's already 'approved', i.e. no self-approval.
+drop policy if exists "suggestions dep sub insert own" on variance_edit_suggestions;
+create policy "suggestions dep sub insert own" on variance_edit_suggestions for insert
+  with check (suggested_by = auth.uid() and is_access_valid() and status = 'pending');
+
+drop policy if exists "suggestions sub read own" on variance_edit_suggestions;
+create policy "suggestions sub read own" on variance_edit_suggestions for select
+  using (suggested_by = auth.uid());
+
+-- No update/delete policy for dep/sub: once submitted, a suggestion is
+-- frozen for its author — only Main can move its status (via "main
+-- all" above), same "frozen once submitted" shape as assignments.
+
+create index if not exists idx_suggestions_round on variance_edit_suggestions(round_id);
+create index if not exists idx_suggestions_status on variance_edit_suggestions(round_id, status);
+
 -- ── helpful indexes ──────────────────────────────────────────────
 create index if not exists idx_rounds_engagement on rounds(engagement_id);
 create index if not exists idx_assignments_round on assignments(round_id);

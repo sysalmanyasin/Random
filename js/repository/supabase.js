@@ -128,6 +128,7 @@ function _rowToRound(row) {
     id: row.id, engagementId: row.engagement_id, roundNumber: row.round_number, roundSuffix: row.round_suffix || null, unit: row.unit,
     state: row.state, baseRoundId: row.base_round_id, itemSnapshot: row.item_snapshot || [], createdAt: row.created_at,
     lockedAt: row.locked_at, compiledAt: row.compiled_at, finalizedAt: row.finalized_at,
+    corrections: row.corrections || {}, // approved variance-edit-suggestion overrides, keyed by itemKey — see compile-actions.js buildMergedItems
   };
 }
 async function insertRound(client, r) {
@@ -477,6 +478,63 @@ async function triggerInventorySyncRemote(client) {
   return data; // { ok, count, syncedAt }
 }
 
+// ── Variance Edit Suggestions (Deputy → Main approval workflow) ──
+function _rowToSuggestion(row) {
+  return {
+    id: row.id, roundId: row.round_id, compiledRoundId: row.compiled_round_id,
+    engagementId: row.engagement_id, itemKey: row.item_key, company: row.company,
+    code: row.code, name: row.name, systemQty: row.system_qty,
+    previousCountedQty: row.previous_counted_qty, suggestedQty: row.suggested_qty,
+    reason: row.reason, suggestedBy: row.suggested_by, suggestedByName: row.suggested_by_name,
+    status: row.status, reviewedBy: row.reviewed_by, reviewedByName: row.reviewed_by_name,
+    reviewedAt: row.reviewed_at, createdAt: row.created_at,
+  };
+}
+// A Deputy/Sub may suggest an edit on ANY item in the round — no
+// assignment-scope filter here, matching the "insert own row, any
+// item" RLS policy (see schema.sql).
+async function insertVarianceSuggestion(client, s) {
+  const { data, error } = await client.from('variance_edit_suggestions').insert({
+    round_id: s.roundId, compiled_round_id: s.compiledRoundId, engagement_id: s.engagementId,
+    item_key: s.itemKey, company: s.company, code: s.code, name: s.name,
+    system_qty: s.systemQty, previous_counted_qty: s.previousCountedQty,
+    suggested_qty: s.suggestedQty, reason: s.reason,
+    suggested_by: s.suggestedBy, suggested_by_name: s.suggestedByName,
+  }).select().single();
+  if (error) throw error;
+  return _rowToSuggestion(data);
+}
+async function fetchSuggestionsByRound(client, roundId) {
+  const { data, error } = await client.from('variance_edit_suggestions').select('*')
+    .eq('round_id', roundId).order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(_rowToSuggestion);
+}
+// RLS has no update policy for dep/sub on this table, so this call
+// only ever succeeds for a Main Auditor session — enforced server-side,
+// not just gated in the calling action.
+async function updateSuggestionStatus(client, id, status, reviewedBy, reviewedByName) {
+  const { data, error } = await client.from('variance_edit_suggestions').update({
+    status, reviewed_by: reviewedBy, reviewed_by_name: reviewedByName, reviewed_at: new Date().toISOString(),
+  }).eq('id', id).select().single();
+  if (error) throw error;
+  return _rowToSuggestion(data);
+}
+// Merges one entry into rounds.corrections rather than overwriting the
+// whole column — two suggestions approved back-to-back (or from two
+// different Main sessions) must both stick, not clobber each other.
+// Not fully race-proof (read-then-write, same shape as the existing
+// staleness tradeoffs elsewhere in this file) — acceptable here since
+// approvals are a low-frequency, single-Main-Auditor action.
+async function applyRoundCorrection(client, roundId, itemKey, correction) {
+  const { data: current, error: e1 } = await client.from('rounds').select('corrections').eq('id', roundId).single();
+  if (e1) throw e1;
+  const merged = Object.assign({}, current.corrections || {}, { [itemKey]: correction });
+  const { error: e2 } = await client.from('rounds').update({ corrections: merged }).eq('id', roundId);
+  if (e2) throw e2;
+  return merged;
+}
+
 export const SupabaseRepo = {
   buildSupabaseClient, signInWithPhonePin, signOut, getSession, onAuthStateChange, callAdminAction,
   fetchMyStaffProfile, fetchAllStaff, setStaffAccessExpiry,
@@ -485,6 +543,7 @@ export const SupabaseRepo = {
   insertAssignments, updateAssignment, fetchAssignmentsByRound, fetchAssignmentProgressByRound, fetchAssignmentById, fetchMyAssignments,
   upsertSubmission, fetchSubmissionsByRound, fetchMySubmission,
   insertCompiledRound, fetchCompiledRoundsByRound, updateCompiledRoundConflicts, compileIndividualRoundRPC,
+  insertVarianceSuggestion, fetchSuggestionsByRound, updateSuggestionStatus, applyRoundCorrection,
   insertFinalSnapshot, fetchFinalSnapshotsByEngagement,
   insertAuditLogEntry, fetchAuditLog,
   fetchTemplates, insertTemplate, updateTemplate, deleteTemplateRemote,

@@ -71,7 +71,7 @@ function mergeFamilyCompiled(familyRoundIds, compiledRounds) {
   };
 }
 
-function buildMergedItems(roundAssignments, submissions) {
+function buildMergedItems(roundAssignments, submissions, corrections) {
   const merged = new Map();
   const overlapWarnings = [];
   roundAssignments.forEach(assignment => {
@@ -122,12 +122,22 @@ function buildMergedItems(roundAssignments, submissions) {
   // Remaining as Match" (autoMatched) or a real typed count can change
   // that — either way, `missing` stays the honest marker of "not a
   // verified physical count," even when the number itself matches.
+  // Approved variance-edit-suggestion overrides (see variance-edit-actions.js
+  // + rounds.corrections in schema.sql) are applied last, on top of
+  // whatever the raw submissions produced — a corrected qty is a real
+  // verified number from a Deputy/Sub recheck, so it always wins over
+  // both an uncounted-defaults-to-0 row and a plain typed count, and it
+  // is never treated as an auto-match (missing stays accurate).
   const mergedItems = Array.from(merged.values()).map(row => {
-    const { effectiveQty, missing, variance } = computeEffectiveRow(row.systemQty, row.rawCounted, row.autoMatched);
+    const corr = (corrections || {})[row.itemKey];
+    const rawCounted = corr ? corr.countedQty : row.rawCounted;
+    const autoMatched = corr ? false : row.autoMatched;
+    const { effectiveQty, missing, variance } = computeEffectiveRow(row.systemQty, rawCounted, autoMatched);
     return {
       itemKey: row.itemKey, company: row.company, code: row.code, name: row.name,
       systemQty: row.systemQty, price: row.price, countedQty: effectiveQty, variance,
-      auditorName: row.auditorName, note: row.note, missing, autoMatched: row.autoMatched, confirmedSame: row.confirmedSame,
+      auditorName: row.auditorName, note: row.note, missing, autoMatched, confirmedSame: row.confirmedSame,
+      correctedBy: corr ? corr.approvedByName : null, correctedAt: corr ? corr.approvedAt : null,
     };
   });
   return { mergedItems, overlapWarnings };
@@ -216,7 +226,7 @@ async function compileRound(roundId, options) {
     return null;
   }
 
-  const { mergedItems, overlapWarnings } = buildMergedItems(roundAssignments, submissions);
+  const { mergedItems, overlapWarnings } = buildMergedItems(roundAssignments, submissions, round.corrections);
 
   if (overlapWarnings.length > 0) {
     logAudit('round:compileOverlapDetected', { roundId, overlapCount: overlapWarnings.length, sample: overlapWarnings.slice(0, 10) });

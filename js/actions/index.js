@@ -10,6 +10,7 @@ import { RoundActions } from './round-actions.js';
 import { AssignmentActions } from './assignment-actions.js';
 import { CountingActions } from './counting-actions.js';
 import { CompileActions } from './compile-actions.js';
+import { VarianceEditActions } from './variance-edit-actions.js';
 import { DifferenceActions } from './difference-actions.js';
 import { SnapshotActions } from './snapshot-actions.js';
 import { ReportActions } from './report-actions.js';
@@ -79,6 +80,7 @@ export const Actions = {
   ...AssignmentActions,
   ...CountingActions,
   ...CompileActions,
+  ...VarianceEditActions,
   ...DifferenceActions,
   ...SnapshotActions,
   ...ReportActions,
