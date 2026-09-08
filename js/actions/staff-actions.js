@@ -121,6 +121,39 @@ async function promoteStaffToMain(staffId, staffName) {
   }
 }
 
+// Moves a staff login between Deputy Auditor and Sub-Auditor. Unlike
+// promoteStaffToMain this is reversible either direction, and never
+// touches an existing Main Auditor (the Edge Function rejects that).
+async function promoteStaffToDep(staffId, staffName) {
+  const { sbClient } = Store.getState();
+  if (!confirm(`Make "${staffName}" a Deputy Auditor?\n\nThey'll be able to view all engagements, rounds/sub-rounds, and the Dashboard — but can't manage staff, assign work, compile, or export reports.`)) return false;
+  try {
+    await Repo.callAdminAction(sbClient, 'setRole', { staffId, role: 'dep' });
+    logAudit('staff:promotedToDep', { staffId });
+    Bus.emit('toast', { msg: staffName + ' is now a Deputy Auditor', kind: 'success' });
+    await loadStaffRoster();
+    return true;
+  } catch (err) {
+    Bus.emit('toast', { msg: 'Could not promote: ' + err.message, kind: 'error' });
+    return false;
+  }
+}
+
+async function demoteStaffToSub(staffId, staffName) {
+  const { sbClient } = Store.getState();
+  if (!confirm(`Move "${staffName}" back to Sub-Auditor?`)) return false;
+  try {
+    await Repo.callAdminAction(sbClient, 'setRole', { staffId, role: 'sub' });
+    logAudit('staff:demotedToSub', { staffId });
+    Bus.emit('toast', { msg: staffName + ' is now a Sub-Auditor', kind: 'success' });
+    await loadStaffRoster();
+    return true;
+  } catch (err) {
+    Bus.emit('toast', { msg: 'Could not update: ' + err.message, kind: 'error' });
+    return false;
+  }
+}
+
 // ── WhatsApp dispatch (Blueprint: 100% free, human-validated —
 //    nothing sends automatically, you tap each card yourself). ──
 function buildWhatsAppDispatchUrl(staffMember, appUrl, pin) {
@@ -137,5 +170,6 @@ function buildWhatsAppDispatchUrl(staffMember, appUrl, pin) {
 export const StaffActions = {
   loadStaffRoster, createStaffMember, resetStaffPin, setStaffBlocked,
   setStaffAccessExpiry, deleteStaffMember, promoteStaffToMain, buildWhatsAppDispatchUrl,
+  promoteStaffToDep, demoteStaffToSub,
   reorderStaff,
 };

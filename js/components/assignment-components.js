@@ -27,7 +27,7 @@ export function auditorChip(staffMember, selected) {
 // roundState: the current state of the round this assignment belongs to.
 // Move to… selects are only shown while the round is still in 'draft' —
 // once locked/counting, companies are committed and cannot be redistributed.
-export function assignmentCard(assignment, allAssignments, roundState, groupByCompany) {
+export function assignmentCard(assignment, allAssignments, roundState, groupByCompany, readOnly) {
   const card = document.createElement('div');
   card.className = 'card assignment-card';
   const unitLabel = assignment.unit === 'company'
@@ -41,7 +41,7 @@ export function assignmentCard(assignment, allAssignments, roundState, groupByCo
   // untouched assignment showing "0 / N" reads as a stall, not useful info.
   const showProgress = assignment.status === 'counting' || assignment.status === 'submitted';
 
-  const canMove = !roundState || roundState === 'draft';
+  const canMove = !readOnly && (!roundState || roundState === 'draft');
 
   const moveOptions = canMove
     ? allAssignments
@@ -93,12 +93,13 @@ export function assignmentCard(assignment, allAssignments, roundState, groupByCo
     ${showProgress ? countingProgressBarHTML({ counted, total: totalItems, pct }) : ''}
     <div style="font-size:11px; color:var(--grey); margin-bottom:6px;">Visible the moment they log in — no link to send for this.</div>
     <div class="movable-rows-wrap">${movableRows}</div>
+    ${readOnly ? '' : `
     <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;">
       ${assignment.status === 'submitted' ? `<button class="btn" style="flex:1; background:var(--light); color:var(--text);" data-action="reopen-assignment" data-assignment-id="${esc(assignment.id)}">↺ Reopen for editing</button>` : ''}
       ${assignment.status === 'counting' || assignment.status === 'assigned' ? `<button class="btn" style="flex:1; background:var(--red); color:#fff;" data-action="open-force-submit" data-assignment-id="${esc(assignment.id)}">⚠️ Force Submit</button>` : ''}
       ${assignment.status !== 'revoked' ? `<button class="btn" style="flex:1; background:var(--light); color:var(--text);" data-action="open-reassign" data-assignment-id="${esc(assignment.id)}">↪ Reassign</button>` : ''}
       <button class="btn btn-danger" style="flex:1;" data-action="revoke-assignment" data-assignment-id="${esc(assignment.id)}">Revoke</button>
-    </div>
+    </div>`}
   `;
   return card;
 }

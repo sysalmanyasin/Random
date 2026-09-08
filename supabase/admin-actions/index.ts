@@ -134,6 +134,24 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
+    // Moves a staff login between Deputy Auditor and Sub-Auditor. Kept
+    // separate from promoteToMain (which is one-way and irreversible from
+    // the app) — a Main Auditor can freely promote/demote Dep <-> Sub.
+    // Never allowed to touch an existing Main Auditor's role this way.
+    if (action === "setRole") {
+      const { staffId, role } = body;
+      if (!staffId || !["dep", "sub"].includes(role)) {
+        return json({ error: "role must be 'dep' or 'sub'" }, 400);
+      }
+      const { data: targetRow } = await admin.from("staff").select("role").eq("id", staffId).single();
+      if (targetRow?.role === "main") {
+        return json({ error: "A Main Auditor's role can't be changed this way" }, 403);
+      }
+      const { error } = await admin.from("staff").update({ role }).eq("id", staffId);
+      if (error) return json({ error: error.message }, 400);
+      return json({ ok: true });
+    }
+
     return json({ error: "Unknown action: " + action }, 400);
   } catch (err) {
     return json({ error: String(err) }, 500);

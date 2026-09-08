@@ -25,25 +25,26 @@ export function renderAuthRoot() {
   authRoot.innerHTML = Components.loggedInHeaderHTML(currentAuditorName, role, accessExpiresAt);
   if (appShell) appShell.style.display = 'block';
   document.querySelectorAll('.tab-btn').forEach(btn => {
-    // A Sub-Auditor only ever needs the Team Audit tab — no inventory,
-    // history, or settings screens are meaningful (or reachable) for
-    // them, since Postgres RLS wouldn't return that data anyway.
-    if (role === 'sub' && btn.id !== 'tab-team') btn.style.display = 'none';
+    // A Sub-Auditor (and a Deputy Auditor, who gets a read-only Team
+    // Audit view instead of Sub's own-work view) only ever needs the
+    // Team Audit tab — no inventory, history, or settings screens are
+    // meaningful (or reachable — see legacy-pages.js) for them.
+    if ((role === 'sub' || role === 'dep') && btn.id !== 'tab-team') btn.style.display = 'none';
   });
   // Same restriction for the home-screen tiles (Inventory / Team
   // Audit / Sync & Tools) — these are a separate set of elements from
   // .tab-btn, so hiding the bottom nav alone left them fully visible
   // and tappable. The real enforcement is the role check inside
   // executeViewNavigation (legacy-pages.js) — this is just to stop a
-  // Sub-Auditor from seeing, and tapping into, an option that would
-  // only bounce them back anyway.
+  // Sub-Auditor or Deputy Auditor from seeing, and tapping into, an
+  // option that would only bounce them back anyway.
   document.querySelectorAll('.section-tile').forEach(tile => {
-    if (role === 'sub' && tile.dataset.view !== 'team') tile.style.display = 'none';
+    if ((role === 'sub' || role === 'dep') && tile.dataset.view !== 'team') tile.style.display = 'none';
   });
-  // Once logged in as Sub-Auditor, land directly on Team Audit instead
-  // of the generic home screen — removes the window where the wrong
-  // tiles could even be tapped before any redirect happens.
-  if (role === 'sub') Bus.emit('nav:goto', 'team');
+  // Once logged in as Sub-Auditor or Deputy Auditor, land directly on
+  // Team Audit instead of the generic home screen — removes the window
+  // where the wrong tiles could even be tapped before any redirect happens.
+  if (role === 'sub' || role === 'dep') Bus.emit('nav:goto', 'team');
 }
 
 Bus.on('auth:needsConfig', renderAuthRoot);
