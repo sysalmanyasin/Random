@@ -268,6 +268,8 @@ drop policy if exists "dep read rounds" on rounds;
 create policy "dep read rounds" on rounds for select using (is_dep_or_main());
 drop policy if exists "main only" on compiled_rounds;
 create policy "main only" on compiled_rounds for all using (is_main_auditor());
+drop policy if exists "dep read compiled_rounds" on compiled_rounds;
+create policy "dep read compiled_rounds" on compiled_rounds for select using (is_dep_or_main());
 drop policy if exists "main only" on final_snapshots;
 create policy "main only" on final_snapshots for all using (is_main_auditor());
 drop policy if exists "main only" on audit_log;

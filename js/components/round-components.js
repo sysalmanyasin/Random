@@ -34,7 +34,7 @@ const STATE_BADGE = {
 // the Dashboard tab shows, surfaced here so the Main Auditor doesn't
 // have to leave the Rounds list to see who's submitted. Callers pass
 // `null`/`undefined` for a round with no assignments yet (draft).
-export function roundCard(round, isLatest, individualInfo, netVariance, auditorProgress) {
+export function roundCard(round, isLatest, individualInfo, netVariance, auditorProgress, canManage) {
   const card = document.createElement('div');
   card.className = 'company-card';
   card.dataset.action = 'open-round';
@@ -87,7 +87,7 @@ export function roundCard(round, isLatest, individualInfo, netVariance, auditorP
     </div>
     <div class="company-card-badges">
       <span class="val-badge ${STATE_BADGE[round.state] || 'val-grey'}">${STATE_LABEL[round.state] || round.state}</span>
-      <button type="button" class="round-card-delete-btn" data-action="delete-round" data-round-id="${round.id}" title="Delete Round ${label}" aria-label="Delete Round ${label}" style="border:none; background:none; color:var(--red-ink, #b91c1c); font-size:15px; padding:2px 4px; cursor:pointer; line-height:1;">🗑️</button>
+      ${canManage ? `<button type="button" class="round-card-delete-btn" data-action="delete-round" data-round-id="${round.id}" title="Delete Round ${label}" aria-label="Delete Round ${label}" style="border:none; background:none; color:var(--red-ink, #b91c1c); font-size:15px; padding:2px 4px; cursor:pointer; line-height:1;">🗑️</button>` : ''}
     </div>`;
   return card;
 }

@@ -505,12 +505,14 @@ async function refreshRoundList() {
   // stale/empty list and net variance would silently never render.
   const { compiledRounds } = Store.getState();
 
+  const { role: currentRole } = Store.getState();
   sorted.forEach(r => holder.appendChild(Components.roundCard(
     r,
     r.id === latest.id,
     individualSummary ? individualSummary.get(r.id) : null,
     _roundNetVariance(r, compiledRounds),
-    auditorProgressMap.get(r.id) || null
+    auditorProgressMap.get(r.id) || null,
+    currentRole === 'main'
   )));
   refreshDashboard();
 }
@@ -1089,11 +1091,13 @@ function renderReportOverview() {
 // ── §Compilation Engine + §Difference Engine (compiled round) ──
 function renderCompiledRoundUI(round) {
   const { compiledRounds, rounds, role } = Store.getState();
-  if (role !== 'main') {
-    return `<div class="card" style="text-align:center; color:var(--grey); font-size:12px; padding:16px;">This round has been compiled. Variance details and reports are only visible to the Main Auditor.</div>`;
-  }
+  const canManage = role === 'main';
   const compiled = compiledRounds.filter(c => c.roundId === round.id).pop();
-  if (!compiled) return '<div class="card">Compiling…</div>';
+  if (!compiled) {
+    return canManage
+      ? '<div class="card">Compiling…</div>'
+      : `<div class="card" style="text-align:center; color:var(--grey); font-size:12px; padding:16px;">This round has been compiled. Loading the variance report…</div>`;
+  }
   const familyReady = Actions.isFamilyFullyCompiled(rounds, round.roundNumber);
   const visible = _visibleVariances(compiled.variances);
   const varianceRows = visible.map(Components.varianceRowHTML).join('') || '<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--grey);">No variances match this filter.</td></tr>';
@@ -1115,6 +1119,7 @@ function renderCompiledRoundUI(round) {
 
   return `
     ${Components.compileSummaryCardHTML(compiled)}
+    ${canManage ? `
     <details class="assignments-section">
       <summary class="card-title" style="cursor:pointer; user-select:none;">Assignments — Reopen, Reassign, or Revoke</summary>
       <div id="assignment-cards-holder"></div>
@@ -1122,7 +1127,7 @@ function renderCompiledRoundUI(round) {
     <div class="card" style="margin-bottom:10px;">
       <div style="font-size:11px; color:var(--grey); margin-bottom:8px;">Reopened or reassigned someone above and they've resubmitted? Recompile to pull their new counts into the variance report below — nothing recalculates on its own.</div>
       <button class="btn btn-primary btn-block" data-action="team-compile-round" data-round-id="${round.id}">🔄 Recompile Round</button>
-    </div>
+    </div>` : ''}
     <div class="card" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
       <button class="sort-btn" data-action="toggle-variance-sort">${_varianceSortLabel()}</button>
       <input type="number" id="variance-filter-min" class="search-input" placeholder="Min impact (Rs)" aria-label="Minimum variance impact in Rupees" style="flex:1; min-width:100px;" value="${varianceFilterMin ?? ''}">
@@ -1134,8 +1139,9 @@ function renderCompiledRoundUI(round) {
     <div class="card" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
       <div style="font-size:11px; font-weight:700; color:var(--navy);">Variance Report — Round ${round.roundNumber}${round.roundSuffix || ''}</div>
       <div style="flex:1;"></div>
+      ${canManage ? `
       <button class="btn btn-primary" style="font-size:11px; padding:8px 12px;" data-action="print-variance-report-round" data-round-id="${round.id}">🖨️ Print PDF</button>
-      <button class="btn" style="font-size:11px; padding:8px 12px; background:var(--green-ink); color:white;" data-action="export-variance-report-round" data-round-id="${round.id}">📊 Export xlsx</button>
+      <button class="btn" style="font-size:11px; padding:8px 12px; background:var(--green-ink); color:white;" data-action="export-variance-report-round" data-round-id="${round.id}">📊 Export xlsx</button>` : ''}
     </div>
     <div style="background:white; border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; margin-bottom:14px;">
       <table class="audit-table">
@@ -1143,6 +1149,7 @@ function renderCompiledRoundUI(round) {
         <tbody>${varianceRows}</tbody>
       </table>
     </div>
+    ${canManage ? `
     <div class="card-title">Difference Engine — send the next round out</div>
     <div class="card">
       ${familyNote}
@@ -1159,7 +1166,7 @@ function renderCompiledRoundUI(round) {
       ${!familyReady ? `<div style="font-size:11px; color:var(--red); margin-bottom:8px;">⚠️ Compile every Round ${Actions.familyLabel(rounds, round.roundNumber)} sub-round (including any lettered ones) before starting the next round.</div>` : ''}
       <button class="btn btn-gold btn-block" data-action="team-generate-diff-round" data-round-number="${round.roundNumber}" data-source-round-id="${compiled.roundId}" ${!familyReady ? 'disabled' : ''}>Generate Next Round</button>
     </div>
-    <button class="btn btn-block" style="background:var(--green-ink); color:white; padding:12px; font-weight:700;" data-action="team-finalize-engagement">✅ Generate Final Snapshot (stop here)</button>
+    <button class="btn btn-block" style="background:var(--green-ink); color:white; padding:12px; font-weight:700;" data-action="team-finalize-engagement">✅ Generate Final Snapshot (stop here)</button>` : ''}
   `;
 }
 
