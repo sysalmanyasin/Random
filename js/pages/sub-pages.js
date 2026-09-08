@@ -159,7 +159,7 @@ function renderSyncGateHTML() {
 
 function renderIndividualPickerHTML() {
   const { role, myAssignments, templates } = Store.getState();
-  if (role !== 'sub') return ''; // self-service is for staff picking their own work — the Main Auditor already has the full Team Audit picker
+  if (role !== 'sub' && role !== 'dep') return ''; // self-service is for staff picking their own work — the Main Auditor already has the full Team Audit picker
   // Rule #1: one open self-pick at a time, submit-first. Checked
   // against whatever's already loaded (myAssignments spans every
   // engagement this auditor has work in, individual or Team-assigned —
@@ -250,12 +250,12 @@ function renderIndividualCompanyPicker() {
 
 function renderAssignmentPickerHTML(myAssignments) {
   const { role } = Store.getState();
-  const backLink = role === 'main'
+  const backLink = (role === 'main' || role === 'dep')
     ? '<button class="sort-btn" data-action="team-back-to-manage" style="margin-bottom:10px;">← Back to Team Audit</button>'
     : '';
   const individualSection = renderIndividualPickerHTML();
   if (myAssignments.length === 0) {
-    return backLink + individualSection + `<div class="card" style="text-align:center; padding:32px 20px;"><span style="font-size:40px;">📋</span><div style="font-weight:800; color:var(--navy); margin-top:10px;">No assignments yet.</div><div style="font-size:12px; color:var(--grey); margin-top:4px;">${role === 'sub' ? 'Start a random audit above, or ask the Main Auditor to assign you to a round.' : 'Ask the Main Auditor to assign you to a round.'}</div></div>`;
+    return backLink + individualSection + `<div class="card" style="text-align:center; padding:32px 20px;"><span style="font-size:40px;">📋</span><div style="font-weight:800; color:var(--navy); margin-top:10px;">No assignments yet.</div><div style="font-size:12px; color:var(--grey); margin-top:4px;">${role === 'sub' || role === 'dep' ? 'Start a random audit above, or ask the Main Auditor to assign you to a round.' : 'Ask the Main Auditor to assign you to a round.'}</div></div>`;
   }
   const openWork = myAssignments.filter(a => a.status === 'assigned' || a.status === 'counting');
   // "Past" folds in submitted AND revoked, so nothing a Sub-Auditor once

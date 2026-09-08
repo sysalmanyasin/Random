@@ -650,7 +650,7 @@ function refreshStaffChips() {
   holder.innerHTML = '';
   const self = { id: currentAuditorId, name: currentAuditorName + ' (You)' };
   holder.appendChild(Components.auditorChip(self, selectedStaffIds.includes(self.id)));
-  staff.filter(s => s.role === 'sub').forEach(s => holder.appendChild(Components.auditorChip(s, selectedStaffIds.includes(s.id))));
+  staff.filter(s => s.role === 'sub' || s.role === 'dep').forEach(s => holder.appendChild(Components.auditorChip(s, selectedStaffIds.includes(s.id))));
 }
 Bus.on('staff:changed', () => { if (openRoundId) refreshStaffChips(); });
 

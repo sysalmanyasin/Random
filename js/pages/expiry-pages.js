@@ -29,13 +29,14 @@ function _productMatches(query) {
     (p.generic || '').toLowerCase().includes(q));
 }
 
-// A Sub-Auditor's rack dropdown is filtered to whatever rack(s) are
-// assigned to them this month; if none are assigned yet (or they're
-// the Main Auditor), every active rack is offered instead.
+// A Sub-Auditor's (and now a Deputy Auditor's) rack dropdown is
+// filtered to whatever rack(s) are assigned to them this month; if
+// none are assigned yet (or they're the Main Auditor), every active
+// rack is offered instead.
 function _rackChoicesForCurrentUser() {
   const { role, racks } = Store.getState();
   const month = Actions.currentMonthKey();
-  const mine = role === 'sub' ? Actions.myAssignedRackNames(month) : [];
+  const mine = (role === 'sub' || role === 'dep') ? Actions.myAssignedRackNames(month) : [];
   if (mine.length > 0) return mine;
   return (racks || []).filter(r => r.active).map(r => r.name);
 }

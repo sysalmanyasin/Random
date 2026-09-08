@@ -110,7 +110,7 @@ export function assignmentCard(assignment, allAssignments, roundState, groupByCo
 // style already used by forceSubmitModalHTML for its own binary choice.
 export function reassignModalHTML(assignment, staffList, mainAuditor) {
   if (!assignment) return '';
-  const candidates = (staffList || []).filter(s => s.role === 'sub').slice();
+  const candidates = (staffList || []).filter(s => s.role === 'sub' || s.role === 'dep').slice();
   const rows = candidates.map(s => `
       <button class="btn btn-block" style="text-align:left; background:var(--light); color:var(--navy); margin-bottom:6px;"
         data-action="confirm-reassign" data-assignment-id="${esc(assignment.id)}"

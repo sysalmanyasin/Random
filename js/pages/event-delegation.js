@@ -34,28 +34,44 @@ Bus.on('toast', ({ msg, kind }) => {
   setTimeout(() => node.remove(), 2600);
 });
 
-let mainAuditorViewingOwnWork = false;
+// Which sub-view of the Team tab is showing, for roles that get both:
+// - 'sub' always gets the counting workspace, no toggle.
+// - 'main' defaults to the management view, can opt into "My Assigned
+//   Work" (their own self-picked/self-assigned counting).
+// - 'dep' defaults to the SAME counting workspace a Sub-Auditor gets
+//   (assignment picker, random self-pick audits, the works) since a
+//   Deputy Auditor should be able to do everything a Sub-Auditor does;
+//   they can opt into the read-only Team Audit management view on top
+//   of that, which is the one thing Sub-Auditors don't get.
+let viewingOwnWork = false;
 function renderTeamRoot() {
   const { role } = Store.getState();
-  if (role === 'sub' || (role === 'main' && mainAuditorViewingOwnWork)) renderTeamTabForSubAuditor();
+  const showCounting = role === 'sub' || ((role === 'main' || role === 'dep') && viewingOwnWork);
+  if (showCounting) renderTeamTabForSubAuditor();
   else renderTeamTab();
 }
-Bus.on('team:viewMyWork', () => { mainAuditorViewingOwnWork = true; renderTeamRoot(); });
-Bus.on('team:viewManage', () => { mainAuditorViewingOwnWork = false; renderTeamRoot(); });
-// A fresh tap on the Team Audit bottom-nav tab always starts back at
-// management view — "My Assigned Work" is a sub-view you opt into each
-// visit, not something that should silently persist (and confusingly
-// resurface for a totally different engagement) after switching tabs
-// away and back.
-Bus.on('view:activated', (page) => { if (page === 'team') { mainAuditorViewingOwnWork = false; renderTeamRoot(); } });
+Bus.on('team:viewMyWork', () => { viewingOwnWork = true; renderTeamRoot(); });
+Bus.on('team:viewManage', () => { viewingOwnWork = false; renderTeamRoot(); });
+// A fresh tap on the Team Audit bottom-nav tab always resets to each
+// role's default sub-view — Main starts at management, Dep starts at
+// the counting workspace (matching a Sub-Auditor) — rather than
+// silently persisting whichever one was open before switching tabs
+// away and back (which could resurface a totally different engagement).
+Bus.on('view:activated', (page) => {
+  if (page === 'team') {
+    const { role } = Store.getState();
+    viewingOwnWork = role === 'dep';
+    renderTeamRoot();
+  }
+});
 // myAssignments reloads in the background any time assignments change
 // anywhere (e.g. the Main Auditor just opening a round to manage it) —
 // only re-render the self-counting workspace if that's actually the
 // view on screen right now, otherwise this would silently blow away
-// whatever the Main Auditor was managing.
+// whatever a Main or Dep Auditor was managing.
 Bus.on('myAssignments:changed', () => {
   const { role } = Store.getState();
-  if (role === 'sub' || (role === 'main' && mainAuditorViewingOwnWork)) renderTeamTabForSubAuditor();
+  if (role === 'sub' || ((role === 'main' || role === 'dep') && viewingOwnWork)) renderTeamTabForSubAuditor();
 });
 Bus.on('engagement:opened', renderTeamRoot);
 Bus.on('engagement:closed', renderTeamRoot);
