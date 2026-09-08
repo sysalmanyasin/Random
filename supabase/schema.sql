@@ -420,6 +420,18 @@ create trigger trg_restrict_subauditor_assignment_updates
 -- approved. Same additive, safe-to-re-run style as the rest of this file.
 alter table rounds add column if not exists corrections jsonb not null default '{}';
 
+-- rounds.reconciliations is `corrections`'s sibling for the OTHER kind
+-- of edit (see `kind` below): instead of overriding the counted qty,
+-- it overrides this one item's FROZEN round-start system qty with a
+-- live figure — for when a variance is explained by real inventory
+-- movement since the round began (a transfer, a late invoice entry),
+-- not a bad count. Physical counts are never touched by this. Folded
+-- in by compile-actions.js buildMergedItems the same way corrections
+-- is, so the variance/impact numbers everywhere recompute naturally
+-- off the reconciled system qty — nothing downstream needs its own
+-- special case for this.
+alter table rounds add column if not exists reconciliations jsonb not null default '{}';
+
 create table if not exists variance_edit_suggestions (
   id uuid primary key default gen_random_uuid(),
   round_id uuid not null references rounds(id) on delete cascade,
@@ -431,8 +443,9 @@ create table if not exists variance_edit_suggestions (
   name text not null,
   system_qty numeric not null,
   previous_counted_qty numeric not null, -- snapshot at suggestion time, for staleness checks
-  suggested_qty numeric not null,
+  suggested_qty numeric not null, -- for kind='recount': proposed counted qty. For kind='reconciliation': proposed (live) system qty — see approveSuggestion in variance-edit-actions.js
   reason text not null default '',
+  kind text not null default 'recount' check (kind in ('recount','reconciliation')),
   suggested_by uuid not null references staff(id),
   suggested_by_name text not null,
   status text not null default 'pending' check (status in ('pending','approved','rejected')),

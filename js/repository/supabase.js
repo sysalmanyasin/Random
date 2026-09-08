@@ -129,6 +129,7 @@ function _rowToRound(row) {
     state: row.state, baseRoundId: row.base_round_id, itemSnapshot: row.item_snapshot || [], createdAt: row.created_at,
     lockedAt: row.locked_at, compiledAt: row.compiled_at, finalizedAt: row.finalized_at,
     corrections: row.corrections || {}, // approved variance-edit-suggestion overrides, keyed by itemKey — see compile-actions.js buildMergedItems
+    reconciliations: row.reconciliations || {}, // approved system-qty reconciliations, keyed by itemKey — see compile-actions.js buildMergedItems
   };
 }
 async function insertRound(client, r) {
@@ -485,7 +486,7 @@ function _rowToSuggestion(row) {
     engagementId: row.engagement_id, itemKey: row.item_key, company: row.company,
     code: row.code, name: row.name, systemQty: row.system_qty,
     previousCountedQty: row.previous_counted_qty, suggestedQty: row.suggested_qty,
-    reason: row.reason, suggestedBy: row.suggested_by, suggestedByName: row.suggested_by_name,
+    reason: row.reason, kind: row.kind || 'recount', suggestedBy: row.suggested_by, suggestedByName: row.suggested_by_name,
     status: row.status, reviewedBy: row.reviewed_by, reviewedByName: row.reviewed_by_name,
     reviewedAt: row.reviewed_at, createdAt: row.created_at,
   };
@@ -498,7 +499,7 @@ async function insertVarianceSuggestion(client, s) {
     round_id: s.roundId, compiled_round_id: s.compiledRoundId, engagement_id: s.engagementId,
     item_key: s.itemKey, company: s.company, code: s.code, name: s.name,
     system_qty: s.systemQty, previous_counted_qty: s.previousCountedQty,
-    suggested_qty: s.suggestedQty, reason: s.reason,
+    suggested_qty: s.suggestedQty, reason: s.reason, kind: s.kind || 'recount',
     suggested_by: s.suggestedBy, suggested_by_name: s.suggestedByName,
   }).select().single();
   if (error) throw error;
@@ -534,6 +535,18 @@ async function applyRoundCorrection(client, roundId, itemKey, correction) {
   if (e2) throw e2;
   return merged;
 }
+// Sibling of applyRoundCorrection, same merge-not-overwrite shape and
+// same race tradeoff (acceptable for the same reason: a low-frequency,
+// single-Main-Auditor action). Writes to rounds.reconciliations instead
+// — see the column comment in schema.sql for what this represents.
+async function applyRoundReconciliation(client, roundId, itemKey, reconciliation) {
+  const { data: current, error: e1 } = await client.from('rounds').select('reconciliations').eq('id', roundId).single();
+  if (e1) throw e1;
+  const merged = Object.assign({}, current.reconciliations || {}, { [itemKey]: reconciliation });
+  const { error: e2 } = await client.from('rounds').update({ reconciliations: merged }).eq('id', roundId);
+  if (e2) throw e2;
+  return merged;
+}
 
 export const SupabaseRepo = {
   buildSupabaseClient, signInWithPhonePin, signOut, getSession, onAuthStateChange, callAdminAction,
@@ -543,7 +556,7 @@ export const SupabaseRepo = {
   insertAssignments, updateAssignment, fetchAssignmentsByRound, fetchAssignmentProgressByRound, fetchAssignmentById, fetchMyAssignments,
   upsertSubmission, fetchSubmissionsByRound, fetchMySubmission,
   insertCompiledRound, fetchCompiledRoundsByRound, updateCompiledRoundConflicts, compileIndividualRoundRPC,
-  insertVarianceSuggestion, fetchSuggestionsByRound, updateSuggestionStatus, applyRoundCorrection,
+  insertVarianceSuggestion, fetchSuggestionsByRound, updateSuggestionStatus, applyRoundCorrection, applyRoundReconciliation,
   insertFinalSnapshot, fetchFinalSnapshotsByEngagement,
   insertAuditLogEntry, fetchAuditLog,
   fetchTemplates, insertTemplate, updateTemplate, deleteTemplateRemote,

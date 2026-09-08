@@ -1109,6 +1109,11 @@ function renderCompiledRoundUI(round) {
   // stays 'dep'-only even though the DB's insert policy also allows
   // 'sub' as future-proofing for if that ever changes.
   const canSuggest = role === 'dep';
+  // Reconciling is available to whoever can already see this workspace
+  // (Main or Deputy) — a Main Auditor self-approves immediately (see
+  // submit-reconcile-variance below), a Deputy's goes through the same
+  // pending queue as a plain correction.
+  const canReconcile = role === 'dep' || role === 'main';
   const compiled = compiledRounds.filter(c => c.roundId === round.id).pop();
   if (!compiled) {
     return canManage
@@ -1117,7 +1122,7 @@ function renderCompiledRoundUI(round) {
   }
   const familyReady = Actions.isFamilyFullyCompiled(rounds, round.roundNumber);
   const visible = _visibleVariances(compiled.variances);
-  const varianceRows = visible.map(row => Components.varianceRowHTML(row, { canSuggest })).join('') || '<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--grey);">No variances match this filter.</td></tr>';
+  const varianceRows = visible.map(row => Components.varianceRowHTML(row, { canSuggest, canReconcile })).join('') || '<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--grey);">No variances match this filter.</td></tr>';
   const filtered = visible.length !== compiled.variances.length;
   const roundSuggestions = (suggestions || []).filter(s => s.roundId === round.id);
   const pendingCount = roundSuggestions.filter(s => s.status === 'pending').length;
@@ -1583,6 +1588,54 @@ export function initEngagementPages() {
       if (result) {
         const overlay = $('suggest-overlay');
         if (overlay) overlay.style.display = 'none';
+      }
+    },
+    'open-reconcile': async (el) => {
+      const overlay = $('suggest-overlay');
+      const content = $('suggest-content');
+      if (!overlay || !content || !openRoundId) return;
+      const { compiledRounds, role } = Store.getState();
+      const compiled = compiledRounds.filter(c => c.roundId === openRoundId).pop();
+      const row = compiled && compiled.variances.find(v => v.itemKey === el.dataset.itemKey);
+      if (!compiled || !row) return;
+      // Same sync-now gate as the correction modal, before the live
+      // figure this proposal is built on is read — see engagement-pages.js
+      // open-suggest-correction and legacy-actions.js
+      // ensureFreshInventoryForAudit.
+      await Actions.ensureFreshInventoryForAudit({ skipIfSyncedWithinMs: CORRECTION_SYNC_STALE_MS });
+      const { products } = Store.getState();
+      const liveProduct = row.code
+        ? (products || []).find(p => p.company === row.company && p.code === row.code)
+        : null;
+      const live = liveProduct ? { qty: liveProduct.qty } : null;
+      content.innerHTML = Components.reconcileModalHTML(row, live, role === 'main');
+      content.dataset.compiledRoundId = compiled.id;
+      content.dataset.roundId = compiled.roundId;
+      content.dataset.engagementId = compiled.engagementId;
+      overlay.style.display = 'flex';
+    },
+    'submit-reconcile-variance': async (el) => {
+      const content = $('suggest-content');
+      const reasonInput = $('reconcile-reason-input');
+      if (!content) return;
+      const liveQty = parseFloat(el.dataset.liveQty);
+      if (Number.isNaN(liveQty)) { Bus.emit('toast', { msg: 'Could not read the live quantity — reopen and try again', kind: 'error' }); return; }
+      const reason = reasonInput ? reasonInput.value.trim() : '';
+      const { compiledRounds, role } = Store.getState();
+      const compiled = compiledRounds.find(c => c.id === content.dataset.compiledRoundId);
+      const row = compiled && compiled.variances.find(v => v.itemKey === el.dataset.itemKey);
+      if (!compiled || !row) return;
+      const result = role === 'main'
+        ? await Actions.reconcileVarianceAsMain(compiled, row, liveQty, reason)
+        : await Actions.suggestReconciliation(compiled, row, liveQty, reason);
+      if (result) {
+        const overlay = $('suggest-overlay');
+        if (overlay) overlay.style.display = 'none';
+        // A Main Auditor's reconciliation is applied immediately
+        // (no approval queue), so refresh the workspace right away —
+        // a Deputy/Sub's just goes to the pending queue instead, same
+        // as submit-suggest-correction, and needs no immediate re-render.
+        if (role === 'main') renderRoundWorkspace();
       }
     },
     'approve-suggestion': async (el) => {
