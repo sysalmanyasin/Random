@@ -45,6 +45,13 @@ Bus.on('auth:loggedIn', async (profile) => {
     await StaffActions.loadStaffRoster();
     await loadAuditLogList();
     await CountingActions.loadMyAssignments(); // picks up any self-assigned work too
+  } else if (profile.role === 'dep') {
+    // Deputy Auditor: same view of engagements/rounds as Main, but no
+    // staff roster or audit log (RLS blocks those reads anyway) and no
+    // ability to create/assign/compile — enforced server-side by RLS,
+    // the Team Audit page just doesn't render those controls for 'dep'.
+    await EngagementActions.loadEngagementsList();
+    await CountingActions.loadMyAssignments();
   } else {
     await CountingActions.loadMyAssignments();
   }

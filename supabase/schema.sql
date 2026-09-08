@@ -12,10 +12,15 @@ create table if not exists staff (
   id uuid primary key references auth.users(id) on delete cascade,
   name text not null,
   phone text unique not null,
-  role text not null check (role in ('main','sub')),
+  role text not null check (role in ('main','dep','sub')),
   access_expires_at timestamptz,        -- null = never expires
   created_at timestamptz not null default now()
 );
+
+-- Migration for a database that already has the old ('main','sub')
+-- constraint — safe to re-run, no-op once already widened.
+alter table staff drop constraint if exists staff_role_check;
+alter table staff add constraint staff_role_check check (role in ('main','dep','sub'));
 
 -- ── engagements / rounds / assignments / submissions ────────────
 create table if not exists engagements (
@@ -128,6 +133,15 @@ create table if not exists audit_log (
 create or replace function is_main_auditor()
 returns boolean language sql security definer stable as $$
   select exists (select 1 from staff where id = auth.uid() and role = 'main');
+$$;
+
+-- Deputy Auditor: a read-only tier between Main and Sub. Used below to
+-- grant SELECT (never insert/update/delete) on engagements/rounds/
+-- assignments/submissions, alongside the existing "main only" for-all
+-- policies (Postgres OR's permissive policies together per command).
+create or replace function is_dep_or_main()
+returns boolean language sql security definer stable as $$
+  select exists (select 1 from staff where id = auth.uid() and role in ('main','dep'));
 $$;
 
 create or replace function is_access_valid()
@@ -246,8 +260,12 @@ create policy "staff main manage" on staff for all
 -- only ever see their own assignment + submission rows below.
 drop policy if exists "main only" on engagements;
 create policy "main only" on engagements for all using (is_main_auditor());
+drop policy if exists "dep read engagements" on engagements;
+create policy "dep read engagements" on engagements for select using (is_dep_or_main());
 drop policy if exists "main only" on rounds;
 create policy "main only" on rounds for all using (is_main_auditor());
+drop policy if exists "dep read rounds" on rounds;
+create policy "dep read rounds" on rounds for select using (is_dep_or_main());
 drop policy if exists "main only" on compiled_rounds;
 create policy "main only" on compiled_rounds for all using (is_main_auditor());
 drop policy if exists "main only" on final_snapshots;
@@ -308,6 +326,9 @@ create unique index if not exists uq_assignments_one_open_individual_pick
 drop policy if exists "assignments main all" on assignments;
 create policy "assignments main all" on assignments for all
   using (is_main_auditor());
+drop policy if exists "dep read assignments" on assignments;
+create policy "dep read assignments" on assignments for select
+  using (is_dep_or_main());
 drop policy if exists "assignments sub read own" on assignments;
 create policy "assignments sub read own" on assignments for select
   using (auditor_id = auth.uid() and is_access_valid());
@@ -332,6 +353,9 @@ create policy "sub create own individual assignment" on assignments for insert
 drop policy if exists "submissions main all" on submissions;
 create policy "submissions main all" on submissions for all
   using (is_main_auditor());
+drop policy if exists "dep read submissions" on submissions;
+create policy "dep read submissions" on submissions for select
+  using (is_dep_or_main());
 drop policy if exists "submissions sub insert own" on submissions;
 create policy "submissions sub insert own" on submissions for insert
   with check (auditor_id = auth.uid() and is_access_valid() and is_engagement_open(engagement_id) and is_assignment_editable(assignment_id));

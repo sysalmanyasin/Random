@@ -35,7 +35,7 @@ export function loggedInHeaderHTML(name, role, accessExpiresAt) {
   return `
     <div class="sticky-controls" style="background:var(--navy); color:white; display:flex; justify-content:space-between; align-items:center;">
       <div>
-        <div style="font-size:12px; font-weight:700;">${esc(name)} — ${role === 'main' ? 'Main Auditor' : 'Sub-Auditor'}</div>
+        <div style="font-size:12px; font-weight:700;">${esc(name)} — ${role === 'main' ? 'Main Auditor' : role === 'dep' ? 'Deputy Auditor' : 'Sub-Auditor'}</div>
         ${expiryNote ? `<div style="font-size:10px; opacity:0.8;">${expiryNote}</div>` : ''}
       </div>
       <button class="btn btn-sm" style="background:rgba(255,255,255,0.15); color:white;" data-action="logout">Log Out</button>

@@ -21,11 +21,13 @@ const $ = (id) => document.getElementById(id);
 
 function toast(message, kind = 'success') { Bus.emit('toast', { msg: message, kind }); }
 
-// ── Navigation (shared — every page module calls this to switch tabs) ──
-// A Sub-Auditor is only ever allowed onto the Team Audit surface (and
-// its own sub-views) — everything else (inventory, sync/import,
-// settings, staff) reads Supabase tables RLS wouldn't return to them
-// anyway, so letting them *arrive* at those pages is confusing at best.
+// A Sub-Auditor (and now a Deputy Auditor) is only ever allowed onto
+// the Team Audit surface (and its own sub-views) — everything else
+// (inventory, sync/import, settings, staff, the Main Auditor's own
+// Individual Assignments tool) reads Supabase tables RLS wouldn't
+// return to them anyway, so letting them *arrive* at those pages is
+// confusing at best (and for Individual Assignments, actively wrong —
+// it was never RLS-gated by role, only kept out of reach by navigation).
 // This check is the single chokepoint every navigation path goes
 // through (home tiles, bottom nav, deep links, Bus 'nav:goto' events),
 // so gating it here — rather than just hiding buttons — closes the gap
@@ -34,7 +36,7 @@ function toast(message, kind = 'success') { Bus.emit('toast', { msg: message, ki
 const SUB_AUDITOR_ALLOWED_VIEWS = new Set(['team', 'expiry']);
 export function executeViewNavigation(viewIdentifierToken) {
   const { role } = Store.getState();
-  if (role === 'sub' && !SUB_AUDITOR_ALLOWED_VIEWS.has(viewIdentifierToken)) {
+  if ((role === 'sub' || role === 'dep') && !SUB_AUDITOR_ALLOWED_VIEWS.has(viewIdentifierToken)) {
     viewIdentifierToken = 'team';
   }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));

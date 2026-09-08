@@ -170,6 +170,8 @@ export function initStaffPages() {
     },
     'staff-delete': (el) => Actions.deleteStaffMember(el.dataset.staffId),
     'staff-promote': (el) => Actions.promoteStaffToMain(el.dataset.staffId, el.dataset.staffName),
+    'staff-promote-dep': (el) => Actions.promoteStaffToDep(el.dataset.staffId, el.dataset.staffName),
+    'staff-demote-sub': (el) => Actions.demoteStaffToSub(el.dataset.staffId, el.dataset.staffName),
     'staff-set-expiry': async (el) => {
       const input = document.querySelector(`.staff-expiry-input[data-staff-id="${el.dataset.staffId}"]`);
       const iso = input && input.value ? new Date(input.value + 'T23:59:59').toISOString() : null;

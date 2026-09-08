@@ -123,7 +123,7 @@ export function renderTeamTab() {
   const container = $('team-tab-root');
   if (!container) return;
   const { role } = Store.getState();
-  if (role !== 'main') return; // sub-pages.js owns rendering for a Sub-Auditor
+  if (role !== 'main' && role !== 'dep') return; // sub-pages.js owns rendering for a Sub-Auditor
 
   const { engagements, currentEngagementId, myAssignments } = Store.getState();
   const myWorkBanner = myWorkBannerHTML(myAssignments);
@@ -161,6 +161,8 @@ let scopeSearchToken = '';
 let scopeSortAscending = true;
 
 function renderEngagementListHTML(engagements) {
+  const { role } = Store.getState();
+  const canManage = role === 'main';
   const cardsHtml = engagements.length === 0
     ? '<div class="card" style="text-align:center; padding:30px 16px;"><span style="font-size:36px;">🗂️</span><div style="font-weight:700; margin-top:8px; color:var(--navy);">No engagements yet.</div><div style="font-size:12px; color:var(--grey); margin-top:4px;">Create one to start a multi-auditor cycle.</div></div>'
     : '<div id="engagement-cards-holder"></div>';
@@ -172,6 +174,7 @@ function renderEngagementListHTML(engagements) {
   return `
     <div class="card-title">Engagements</div>
     ${cardsHtml}
+    ${canManage ? `
     <div class="card-title">New Engagement</div>
     <div class="card">
       <label class="settings-label" for="new-engagement-name">Engagement Name</label>
@@ -195,7 +198,7 @@ function renderEngagementListHTML(engagements) {
         <div id="scope-selected-count" style="font-size:11px; color:var(--grey); margin-bottom:10px;"></div>
       </div>
       <button class="btn btn-primary btn-block" data-action="create-engagement">Create Engagement</button>
-    </div>`;
+    </div>` : ''}`;
 }
 
 function renderScopeCompanyPicker() {
@@ -277,7 +280,8 @@ Bus.on('engagements:changed', () => { if (currentSubView === 'list') refreshEnga
 Bus.on('view:activated', (page) => { if (page === 'individual') renderIndividualDashboard(); });
 
 function renderSubRoundSection(engagement) {
-  const { products } = Store.getState();
+  const { role, products } = Store.getState();
+  if (role !== 'main') return ''; // creating sub-rounds is Main-only
   const allCompanies = [...new Set(products.map(p => p.company))];
   const newCompanies = allCompanies.filter(c => !engagement.scope.companies.includes(c));
 
@@ -360,19 +364,20 @@ let productSearchQuery = '';
 let engagementDangerZoneOpen = false;
 
 function renderEngagementDetailHTML(engagement) {
-  const { rounds } = Store.getState();
+  const { rounds, role } = Store.getState();
+  const canManage = role === 'main';
   const hasRounds = rounds.some(r => r.engagementId === engagement.id);
   const tab = (key) => engagementSwipeTab === key ? 'section-sub-tab active' : 'section-sub-tab';
   return `
     <button class="sort-btn" data-action="team-back-to-list" style="margin-bottom:10px;">← All Engagements</button>
     ${Components.engagementHeaderHTML(engagement)}
-    <button class="btn" style="width:100%; font-size:11px; padding:8px; margin:10px 0; background:var(--light); color:var(--text);" data-action="team-archive-engagement" data-engagement-id="${engagement.id}">${engagement.status === 'archived' ? '↩️ Reopen Engagement' : '🗄️ Archive (keeps everything, hides from the open list)'}</button>
+    ${canManage ? `<button class="btn" style="width:100%; font-size:11px; padding:8px; margin:10px 0; background:var(--light); color:var(--text);" data-action="team-archive-engagement" data-engagement-id="${engagement.id}">${engagement.status === 'archived' ? '↩️ Reopen Engagement' : '🗄️ Archive (keeps everything, hides from the open list)'}</button>` : ''}
 
     <div class="section-nav-card" style="margin-bottom:10px;">
       <div class="section-sub-tabs">
         <button class="${tab('rounds')}" data-action="team-swipe-tab" data-swipe="rounds">Rounds</button>
         <button class="${tab('dashboard')}" data-action="team-swipe-tab" data-swipe="dashboard">Dashboard</button>
-        <button class="${tab('reports')}" data-action="team-swipe-tab" data-swipe="reports">Reports</button>
+        ${canManage ? `<button class="${tab('reports')}" data-action="team-swipe-tab" data-swipe="reports">Reports</button>` : ''}
         <button class="${tab('search')}" data-action="team-swipe-tab" data-swipe="search">🔍 Search</button>
       </div>
     </div>
@@ -383,7 +388,7 @@ function renderEngagementDetailHTML(engagement) {
         <div id="round-list-holder"></div>
         ${hasRounds
           ? '<div style="font-size:11px; color:var(--grey); margin-bottom:14px; text-align:center;">To start Round 2+, compile the current round below, then use "Generate Next Round" — it builds the right item list for you.</div>'
-          : '<button class="btn btn-primary btn-block" style="margin-bottom:14px;" data-action="team-create-round">➕ Create Round 1</button>'}
+          : (canManage ? '<button class="btn btn-primary btn-block" style="margin-bottom:14px;" data-action="team-create-round">➕ Create Round 1</button>' : '<div style="font-size:12px; color:var(--grey); text-align:center; padding:10px 0;">No rounds yet.</div>')}
         <div id="subround-section-holder">${hasRounds ? renderSubRoundSection(engagement) : ''}</div>
         <div id="round-workspace-holder"></div>
       </div>
@@ -391,12 +396,13 @@ function renderEngagementDetailHTML(engagement) {
         <div class="card-title" style="margin-top:0;">Dashboard</div>
         <div id="dashboard-holder"></div>
       </div>
+      ${canManage ? `
       <div class="swipe-panel" id="swipe-panel-reports">
         <div class="card-title" style="margin-top:0;">Reports</div>
         <div style="font-size:11px; color:var(--grey); margin:-4px 0 8px;">Tap a report to see what it includes, or tap Export to download it right away.</div>
         ${Components.reportButtonsHTML()}
         <div id="final-snapshot-holder"></div>
-      </div>
+      </div>` : ''}
       <div class="swipe-panel" id="swipe-panel-search">
         <div class="card-title" style="margin-top:0;">Search Products</div>
         <div style="font-size:11px; color:var(--grey); margin:-4px 0 10px;">Find every round in this engagement where a product code or name was counted — open or already compiled, most recent round first.</div>
@@ -405,6 +411,7 @@ function renderEngagementDetailHTML(engagement) {
       </div>
     </div>
 
+    ${canManage ? `
     <div class="history-header" data-action="toggle-engagement-danger-zone" role="button" tabindex="0" aria-expanded="${engagementDangerZoneOpen}" style="margin-top:18px;">
       <span style="font-size:11px; font-weight:700; color:var(--grey);">⚠️ Advanced — close or delete this engagement</span>
       <span class="arrow-toggle" style="transform:rotate(${engagementDangerZoneOpen ? '90deg' : '0deg'});">›</span>
@@ -415,7 +422,7 @@ function renderEngagementDetailHTML(engagement) {
         <button class="btn btn-danger" style="width:100%; font-size:11px; padding:8px; margin-bottom:8px;" data-action="team-close-engagement" data-engagement-id="${engagement.id}">Close Permanently</button>
         <button class="btn btn-danger" style="width:100%; font-size:11px; padding:8px; background:#7a1212;" data-action="team-delete-engagement" data-engagement-id="${engagement.id}">🗑️ Delete Engagement Forever</button>
       </div>
-    ` : ''}
+    ` : ''}` : ''}
   `;
 }
 
@@ -591,6 +598,10 @@ function renderRoundWorkspace() {
 
 // ── §Assignment Engine (draft round) ──
 function renderDraftAssignmentUI(round) {
+  const { role } = Store.getState();
+  if (role !== 'main') {
+    return `<div class="card" style="text-align:center; color:var(--grey); font-size:12px; padding:16px;">This round is still being set up by the Main Auditor.</div>`;
+  }
   if (round.unit === 'item') {
     return `
       <div class="card-title">Staff</div>
@@ -646,12 +657,12 @@ Bus.on('staff:changed', () => { if (openRoundId) refreshStaffChips(); });
 function refreshAssignmentCards() {
   const holder = $('assignment-cards-holder');
   if (!holder || !openRoundId) return;
-  const { assignments, rounds } = Store.getState();
+  const { assignments, rounds, role } = Store.getState();
   const round = rounds.find(r => r.id === openRoundId);
   const roundAssignments = assignments.filter(a => a.roundId === openRoundId && a.status !== 'revoked');
   holder.innerHTML = '';
   if (roundAssignments.length === 0) { holder.appendChild(Components.noAssignmentsEmptyState()); return; }
-  roundAssignments.forEach(a => holder.appendChild(Components.assignmentCard(a, roundAssignments, round?.state, assignmentGroupByCompany)));
+  roundAssignments.forEach(a => holder.appendChild(Components.assignmentCard(a, roundAssignments, round?.state, assignmentGroupByCompany, role !== 'main')));
 }
 Bus.on('assignments:changed', () => {
   if (openRoundId) refreshAssignmentCards();
@@ -689,12 +700,13 @@ function selectedStaff() {
 
 // ── §Pairing System, replaced: access is automatic on login now ──
 function renderLockedAssignmentsUI(round) {
+  const { role } = Store.getState();
   return `
     <div class="card-title">Assignments — visible to each person the moment they log in</div>
     <div id="assignment-cards-holder"></div>
     <div class="card-title">Compile</div>
     <div id="compile-status-holder"></div>
-    <button class="btn btn-primary btn-block" style="margin-top:8px;" data-action="team-compile-round" data-round-id="${round.id}">⚙️ Compile Round</button>
+    ${role === 'main' ? `<button class="btn btn-primary btn-block" style="margin-top:8px;" data-action="team-compile-round" data-round-id="${round.id}">⚙️ Compile Round</button>` : ''}
   `;
 }
 function refreshCompileStatus() {
@@ -1076,7 +1088,10 @@ function renderReportOverview() {
 
 // ── §Compilation Engine + §Difference Engine (compiled round) ──
 function renderCompiledRoundUI(round) {
-  const { compiledRounds, rounds } = Store.getState();
+  const { compiledRounds, rounds, role } = Store.getState();
+  if (role !== 'main') {
+    return `<div class="card" style="text-align:center; color:var(--grey); font-size:12px; padding:16px;">This round has been compiled. Variance details and reports are only visible to the Main Auditor.</div>`;
+  }
   const compiled = compiledRounds.filter(c => c.roundId === round.id).pop();
   if (!compiled) return '<div class="card">Compiling…</div>';
   const familyReady = Actions.isFamilyFullyCompiled(rounds, round.roundNumber);

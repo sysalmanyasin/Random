@@ -19,6 +19,7 @@ import { esc } from './dom-utils.js';
 export function staffCardHTML(staffMember, appUrl, expanded) {
   const blocked = staffMember.accessExpiresAt && new Date(staffMember.accessExpiresAt).getTime() < Date.now();
   const isMain = staffMember.role === 'main';
+  const isDep = staffMember.role === 'dep';
   const id = esc(staffMember.id);
   return `
     <div class="staff-card-wrap" data-staff-id="${id}">
@@ -31,7 +32,7 @@ export function staffCardHTML(staffMember, appUrl, expanded) {
         <div class="staff-card-summary" data-action="staff-toggle-expand" data-staff-id="${id}">
           <span class="staff-drag-handle" data-action="staff-drag-handle" data-staff-id="${id}" aria-label="Drag to reorder">⠿</span>
           <div class="staff-summary-text">
-            <div style="font-weight:800; color:var(--navy); font-size:13px;">${esc(staffMember.name)} ${isMain ? '👑' : ''}</div>
+            <div style="font-weight:800; color:var(--navy); font-size:13px;">${esc(staffMember.name)} ${isMain ? '👑' : ''}${isDep ? '🛡️' : ''}</div>
             <div style="font-size:11px; color:var(--grey); margin-top:2px;">${esc(staffMember.phone)}</div>
           </div>
           <span class="val-badge ${blocked ? 'val-red' : 'val-green'}">${blocked ? 'Blocked/Expired' : 'Active'}</span>
@@ -51,6 +52,9 @@ export function staffCardHTML(staffMember, appUrl, expanded) {
             <input type="date" class="settings-input staff-expiry-input" style="margin:0; flex:1; font-size:12px; padding:8px;" data-staff-id="${id}" value="${staffMember.accessExpiresAt ? esc(staffMember.accessExpiresAt.slice(0, 10)) : ''}">
             <button class="btn" style="font-size:11px; padding:8px 10px; background:var(--light); color:var(--text);" data-action="staff-set-expiry" data-staff-id="${id}">Set</button>
           </div>
+          ${isDep
+            ? `<button class="btn btn-block" style="margin-bottom:6px; font-size:11px; padding:8px; background:var(--light); color:var(--text);" data-action="staff-demote-sub" data-staff-id="${id}" data-staff-name="${esc(staffMember.name)}">Move to Sub-Auditor</button>`
+            : `<button class="btn btn-block" style="margin-bottom:6px; font-size:11px; padding:8px; background:#E6F0FF; color:#1A4D8F; border:1px solid #CFE0F7;" data-action="staff-promote-dep" data-staff-id="${id}" data-staff-name="${esc(staffMember.name)}">🛡️ Promote to Deputy Auditor</button>`}
           <button class="btn btn-block" style="margin-bottom:6px; font-size:11px; padding:8px; background:#FFF3D6; color:#8A6D00; border:1px solid #F0D998;" data-action="staff-promote" data-staff-id="${id}" data-staff-name="${esc(staffMember.name)}">👑 Promote to Main Auditor</button>`}
           <a href="${esc(appUrl)}" target="_blank" data-action="staff-send-whatsapp" data-staff-id="${id}" class="btn btn-block" style="background:#25D366; color:white; text-decoration:none; display:block; text-align:center; padding:10px; font-weight:700; font-size:12px;">📲 Send via WhatsApp</a>
         </div>
