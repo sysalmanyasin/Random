@@ -70,13 +70,30 @@ export function varianceRowHTML(row, opts) {
 }
 
 // ── Suggest Correction modal (Deputy/Sub) ──────────────────────
-export function suggestCorrectionModalHTML(row) {
+// `live` (optional): { qty, syncedAt } — the CURRENT system qty for this
+// item, resolved fresh against Store.products (see engagement-pages.js
+// open-suggest-correction, which runs the same fresh-inventory sync
+// gate as every other audit-launch/refresh point — see
+// legacy-actions.js ensureFreshInventoryForAudit) right before this
+// modal opens. `row.systemQty` stays what it always was: the frozen
+// qty from when the round's item snapshot was taken (compile-actions.js
+// buildMergedItems) — that's still the correct number for computing
+// this round's variance, so it's kept as a small secondary line
+// whenever it disagrees with the live figure, rather than silently
+// replaced. If the code no longer resolves against live inventory
+// (e.g. discontinued) `live` is omitted and this falls back to the
+// frozen figure exactly as before.
+export function suggestCorrectionModalHTML(row, live) {
   if (!row) return '';
+  const hasLive = live && Number.isFinite(live.qty);
+  const displayQty = hasLive ? live.qty : row.systemQty;
+  const staleNote = hasLive && live.qty !== row.systemQty
+    ? `<div style="font-size:9.5px; color:var(--grey); margin-top:2px;">was ${row.systemQty} at round start</div>` : '';
   return `
     <h3 class="modal-title" style="margin-bottom:4px;">Suggest a correction</h3>
     <div style="font-size:12.5px; color:var(--grey); margin-bottom:12px;">${esc(row.name)} — ${esc(row.company)}</div>
     <div style="display:flex; gap:16px; margin-bottom:12px;">
-      <div><div style="font-size:10px; color:var(--grey);">System</div><div style="font-weight:800; color:var(--navy);">${row.systemQty}</div></div>
+      <div><div style="font-size:10px; color:var(--grey);">System${hasLive ? ' (live)' : ''}</div><div style="font-weight:800; color:var(--navy);">${displayQty}</div>${staleNote}</div>
       <div><div style="font-size:10px; color:var(--grey);">Current counted</div><div style="font-weight:800; color:var(--navy);">${row.countedQty}</div></div>
     </div>
     <label style="display:block; font-size:11px; font-weight:700; color:var(--navy); margin-bottom:4px;">Your recount</label>

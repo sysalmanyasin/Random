@@ -17,6 +17,15 @@ import { Components } from '../components.js';
 
 const $ = (id) => document.getElementById(id);
 
+// Sync-now gate for the Suggest Correction modal's live "System" qty.
+// Deliberately its OWN threshold rather than reusing LegacyActions'
+// AUDIT_SYNC_STALE_MS (2 min) — that constant also gates round-creation
+// snapshots (individual-actions.js / round-actions.js), and a Deputy/Sub
+// checking a variance is a lower-stakes, more-frequent action than
+// launching a new audit, so it can tolerate a slightly staler read
+// before forcing a real network round-trip.
+const CORRECTION_SYNC_STALE_MS = 15 * 60 * 1000; // 15 minutes
+
 // Local, ephemeral UI-only state — same pattern as legacy-pages' pinBuffer.
 
 // ── Individual Assignments (grouped-by-staff view) ─────────────
@@ -1519,7 +1528,7 @@ export function initEngagementPages() {
       if (overlay) overlay.style.display = 'none';
       renderRoundWorkspace();
     },
-    'open-suggest-correction': (el) => {
+    'open-suggest-correction': async (el) => {
       const overlay = $('suggest-overlay');
       const content = $('suggest-content');
       if (!overlay || !content || !openRoundId) return;
@@ -1527,10 +1536,27 @@ export function initEngagementPages() {
       const compiled = compiledRounds.filter(c => c.roundId === openRoundId).pop();
       const row = compiled && compiled.variances.find(v => v.itemKey === el.dataset.itemKey);
       if (!compiled || !row) return;
+      // Sync-now gate: the "System" figure this modal is about to show
+      // is used by a Main Auditor deciding whether to approve a
+      // recount, so it should be the CURRENT system qty, not just
+      // whatever was frozen into row.systemQty when the round's
+      // snapshot was taken (see compile-actions.js buildMergedItems).
+      // Reuses the same fresh-inventory mechanism every other
+      // audit-launch point already uses (legacy-actions.js
+      // ensureFreshInventoryForAudit), just with this modal's own
+      // 15-minute staleness window — silent, and a no-op if this
+      // device already synced within that window, so opening the
+      // modal repeatedly doesn't hammer the network.
+      await Actions.ensureFreshInventoryForAudit({ skipIfSyncedWithinMs: CORRECTION_SYNC_STALE_MS });
+      const { products } = Store.getState();
+      const liveProduct = row.code
+        ? (products || []).find(p => p.company === row.company && p.code === row.code)
+        : null;
+      const live = liveProduct ? { qty: liveProduct.qty } : null;
       // Kept on the button's own dataset (not a module-level variable)
       // so re-opening the same modal for a different row can't leak
       // stale compiledRoundId/roundId from whichever row was open last.
-      content.innerHTML = Components.suggestCorrectionModalHTML(row);
+      content.innerHTML = Components.suggestCorrectionModalHTML(row, live);
       content.dataset.compiledRoundId = compiled.id;
       content.dataset.roundId = compiled.roundId;
       content.dataset.engagementId = compiled.engagementId;
