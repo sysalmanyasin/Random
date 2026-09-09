@@ -510,6 +510,16 @@ async function fetchSuggestionsByRound(client, roundId) {
   if (error) throw error;
   return (data || []).map(_rowToSuggestion);
 }
+// Engagement-wide fetch — used by the Rounds list (round cards), which
+// needs to know which ROUNDS have pending approvals without the user
+// having opened each one individually (loadSuggestionsForRound only
+// covers whichever single round is currently open).
+async function fetchSuggestionsByEngagement(client, engagementId) {
+  const { data, error } = await client.from('variance_edit_suggestions').select('*')
+    .eq('engagement_id', engagementId).order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(_rowToSuggestion);
+}
 // RLS has no update policy for dep/sub on this table, so this call
 // only ever succeeds for a Main Auditor session — enforced server-side,
 // not just gated in the calling action.
@@ -543,7 +553,7 @@ export const SupabaseRepo = {
   insertAssignments, updateAssignment, fetchAssignmentsByRound, fetchAssignmentProgressByRound, fetchAssignmentById, fetchMyAssignments,
   upsertSubmission, fetchSubmissionsByRound, fetchMySubmission,
   insertCompiledRound, fetchCompiledRoundsByRound, updateCompiledRoundConflicts, compileIndividualRoundRPC,
-  insertVarianceSuggestion, fetchSuggestionsByRound, updateSuggestionStatus, applyRoundCorrection,
+  insertVarianceSuggestion, fetchSuggestionsByRound, fetchSuggestionsByEngagement, updateSuggestionStatus, applyRoundCorrection,
   insertFinalSnapshot, fetchFinalSnapshotsByEngagement,
   insertAuditLogEntry, fetchAuditLog,
   fetchTemplates, insertTemplate, updateTemplate, deleteTemplateRemote,

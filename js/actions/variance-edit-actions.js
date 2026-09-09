@@ -77,6 +77,23 @@ async function loadSuggestionsForRound(roundId) {
   return suggestions;
 }
 
+// Engagement-wide counterpart, for the Rounds list (round cards) — a
+// Main Auditor browsing the list of rounds needs to know WHICH rounds
+// have pending approvals without opening each one (loadSuggestionsForRound
+// above only ever covers whichever single round is currently open).
+// Deliberately does NOT emit 'suggestions:changed' — refreshRoundList()
+// (the only caller) already consumes the returned array directly, and
+// emitting here would re-trigger refreshRoundList via that same event's
+// listener, looping. Still shares the Store.suggestions slot — safe
+// since it's a superset that still includes whatever round is open.
+async function loadSuggestionsForEngagement(engagementId) {
+  if (!engagementId) return [];
+  const { sbClient } = Store.getState();
+  const suggestions = await Repo.fetchSuggestionsByEngagement(sbClient, engagementId);
+  Store.setState({ suggestions });
+  return suggestions;
+}
+
 function pendingSuggestionCount(roundId) {
   const { suggestions } = Store.getState();
   return suggestions.filter(s => s.roundId === roundId && s.status === 'pending').length;
@@ -141,6 +158,6 @@ async function rejectSuggestion(suggestionId, note) {
 }
 
 export const VarianceEditActions = {
-  suggestVarianceEdit, loadSuggestionsForRound, pendingSuggestionCount,
+  suggestVarianceEdit, loadSuggestionsForRound, loadSuggestionsForEngagement, pendingSuggestionCount,
   approveSuggestion, rejectSuggestion, liveQtyForRow,
 };

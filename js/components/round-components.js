@@ -34,7 +34,14 @@ const STATE_BADGE = {
 // the Dashboard tab shows, surfaced here so the Main Auditor doesn't
 // have to leave the Rounds list to see who's submitted. Callers pass
 // `null`/`undefined` for a round with no assignments yet (draft).
-export function roundCard(round, isLatest, individualInfo, netVariance, auditorProgress, canManage) {
+// `pendingApprovalsCount` (optional, Main-only): count of this round's
+// still-pending variance_edit_suggestions — a Deputy's "Suggest a
+// correction" sitting in Main's queue. 0/null/undefined renders nothing.
+// Only ever passed for canManage (Main) — a Deputy sees their own
+// pending sends on the item itself (see compile-components.js
+// varianceRowHTML), not as a list-level count, since it's Main who
+// needs to know at a glance which round needs their attention.
+export function roundCard(round, isLatest, individualInfo, netVariance, auditorProgress, canManage, pendingApprovalsCount) {
   const card = document.createElement('div');
   card.className = 'company-card';
   card.dataset.action = 'open-round';
@@ -48,6 +55,13 @@ export function roundCard(round, isLatest, individualInfo, netVariance, auditorP
       📉 Net value variance:
       <span class="${netVariance > 0 ? 'diff-pos' : (netVariance < 0 ? 'diff-neg' : 'diff-zero')}" style="font-weight:700;">
         ${netVariance > 0 ? '+' : ''}Rs ${Math.round(netVariance).toLocaleString()}
+      </span>
+    </div>` : '';
+  const hasPendingApprovals = canManage && pendingApprovalsCount > 0;
+  const pendingApprovalsHTML = hasPendingApprovals ? `
+    <div class="company-card-meta" style="margin-top:2px;">
+      <span style="font-weight:700; color:var(--gold-ink, #b45309);">
+        ⏳ ${pendingApprovalsCount} correction${pendingApprovalsCount === 1 ? '' : 's'} awaiting your approval
       </span>
     </div>` : '';
   const hasAuditorProgress = auditorProgress && auditorProgress.total > 0;
@@ -82,6 +96,7 @@ export function roundCard(round, isLatest, individualInfo, netVariance, auditorP
       <div class="company-card-name">Round ${label} ${isLatest ? '(current)' : ''}</div>
       <div class="company-card-meta">Unit: ${round.unit === 'company' ? 'Company-level' : 'Company + Item'} · Created ${new Date(round.createdAt).toLocaleDateString('en-PK')}</div>
       ${netVarianceHTML}
+      ${pendingApprovalsHTML}
       ${auditorProgressHTML}
       ${individualStrip}
     </div>

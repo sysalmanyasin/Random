@@ -129,6 +129,7 @@ export function renderTeamTab() {
   const myWorkBanner = myWorkBannerHTML(myAssignments);
   if (!currentEngagementId || currentSubView === 'list') {
     _stopProgressPoll();
+    _stopRoundListPoll();
     container.innerHTML = myWorkBanner + renderEngagementListHTML(engagements);
     refreshEngagementCards();
     return;
@@ -137,6 +138,12 @@ export function renderTeamTab() {
   if (!engagement) { currentSubView = 'list'; return renderTeamTab(); }
   container.innerHTML = myWorkBanner + renderEngagementDetailHTML(engagement);
   refreshRoundList();
+  // Cross-device: a Deputy on another device sending a correction, or
+  // Main approving/rejecting one from a different device, should move
+  // this round's "⏳ N awaiting approval" badge without anyone touching
+  // this screen. See _startSuggestionPollIfNeeded for the equivalent on
+  // an individual open round's variance table.
+  _startRoundListPollIfNeeded(currentEngagementId);
 }
 
 // Self-assigning yourself companies in a round only creates the
@@ -506,13 +513,26 @@ async function refreshRoundList() {
   const { compiledRounds } = Store.getState();
 
   const { role: currentRole } = Store.getState();
+  // Engagement-wide suggestions fetch, so a round card can flag "N
+  // pending approval(s)" for ANY round in the list — not just whichever
+  // one happens to be open. Cheap single read, and only Main/Deputy
+  // ever reach this list (a plain Sub-Auditor has their own page).
+  let pendingApprovalsByRoundId = new Map();
+  if (currentEngagementId) {
+    const suggestions = await Actions.loadSuggestionsForEngagement(currentEngagementId);
+    pendingApprovalsByRoundId = suggestions.reduce((map, s) => {
+      if (s.status === 'pending') map.set(s.roundId, (map.get(s.roundId) || 0) + 1);
+      return map;
+    }, new Map());
+  }
   sorted.forEach(r => holder.appendChild(Components.roundCard(
     r,
     r.id === latest.id,
     individualSummary ? individualSummary.get(r.id) : null,
     _roundNetVariance(r, compiledRounds),
     auditorProgressMap.get(r.id) || null,
-    currentRole === 'main'
+    currentRole === 'main',
+    currentRole === 'main' ? (pendingApprovalsByRoundId.get(r.id) || 0) : 0
   )));
   refreshDashboard();
 }
@@ -572,6 +592,23 @@ function _startSuggestionPollIfNeeded(round) {
   _suggestionPollTimer = setInterval(async () => {
     if (!openRoundId || openRoundId !== round.id) { _stopSuggestionPoll(); return; }
     await Actions.loadSuggestionsForRound(round.id);
+  }, 15000);
+}
+
+// Rounds list (round cards) poll — separate from
+// _startSuggestionPollIfNeeded above, which only covers whichever
+// single round is currently open. This one runs whenever the
+// engagement's detail view is on screen at all, open round or not,
+// since the round list sits above the workspace and is always visible
+// there (see round-list-holder in renderEngagementDetailHTML).
+let _roundListPollTimer = null;
+function _stopRoundListPoll() { clearInterval(_roundListPollTimer); _roundListPollTimer = null; }
+function _startRoundListPollIfNeeded(engagementId) {
+  _stopRoundListPoll();
+  if (!engagementId) return;
+  _roundListPollTimer = setInterval(() => {
+    if (currentSubView !== 'detail' || Store.getState().currentEngagementId !== engagementId) { _stopRoundListPoll(); return; }
+    refreshRoundList();
   }, 15000);
 }
 
@@ -744,7 +781,15 @@ function refreshCompileStatus() {
   holder.appendChild(card);
 }
 Bus.on('submissions:changed', () => { if (openRoundId) refreshCompileStatus(); });
-Bus.on('suggestions:changed', () => { if (openRoundId) renderRoundWorkspace(); });
+Bus.on('suggestions:changed', () => {
+  if (openRoundId) renderRoundWorkspace();
+  // Round list sits ABOVE the round workspace on the same 'rounds' tab
+  // (see round-list-holder/round-workspace-holder in the detail-view
+  // markup) — both are visible together, so a suggestion created/
+  // approved/rejected anywhere should refresh both, not just whichever
+  // round happens to be open.
+  if (currentSubView === 'detail') refreshRoundList();
+});
 Bus.on('compile:missingAssignments', ({ missing }) => {
   const holder = $('compile-status-holder');
   if (!holder) return;
@@ -1288,7 +1333,7 @@ export function initEngagementPages() {
       currentSubView = 'detail'; openRoundId = null; engagementSwipeTab = 'rounds'; productSearchQuery = '';
       renderTeamTab();
     },
-    'team-back-to-list': () => { Actions.closeEngagementView(); currentSubView = 'list'; openRoundId = null; dashboardOpenSections = new Set(); engagementSwipeTab = 'rounds'; productSearchQuery = ''; engagementDangerZoneOpen = false; renderTeamTab(); },
+    'team-back-to-list': () => { Actions.closeEngagementView(); currentSubView = 'list'; openRoundId = null; dashboardOpenSections = new Set(); engagementSwipeTab = 'rounds'; productSearchQuery = ''; engagementDangerZoneOpen = false; _stopProgressPoll(); _stopSuggestionPoll(); _stopRoundListPoll(); renderTeamTab(); },
     'toggle-engagement-danger-zone': () => { engagementDangerZoneOpen = !engagementDangerZoneOpen; renderTeamTab(); },
     'team-swipe-tab': (el) => setEngagementSwipeTab(el.dataset.swipe),
     'toggle-dashboard-section': (el) => {
