@@ -532,7 +532,7 @@ Bus.on('rounds:changed', () => { if (currentSubView === 'detail') refreshRoundLi
 // gracefully, but explicitly clearing openRoundId also stops its
 // progress-poll timer and the now-stale subround section).
 Bus.on('round:deleted', ({ roundId }) => {
-  if (openRoundId === roundId) { openRoundId = null; _stopProgressPoll(); renderRoundWorkspace(); }
+  if (openRoundId === roundId) { openRoundId = null; _stopProgressPoll(); _stopSuggestionPoll(); renderRoundWorkspace(); }
   if (currentSubView === 'detail') refreshSubRoundSection();
 });
 
@@ -555,6 +555,26 @@ function _startProgressPollIfNeeded(round) {
   }, 15000);
 }
 
+// Cross-device visibility for Suggest Correction: a Deputy filing a
+// correction on their phone should show up as a pending badge on the
+// SAME item for the Main Auditor (or another Deputy) looking at the
+// compiled round on a different device, without either of them having
+// to leave and reopen the round. loadSuggestionsForRound() re-fetches
+// from Supabase and emits 'suggestions:changed', which the listener
+// below already wires to a re-render — so this poll is just what keeps
+// that fetch happening while the compiled round view is on screen, for
+// BOTH 'main' and 'dep' (a plain Sub never reaches this view at all).
+let _suggestionPollTimer = null;
+function _stopSuggestionPoll() { clearInterval(_suggestionPollTimer); _suggestionPollTimer = null; }
+function _startSuggestionPollIfNeeded(round) {
+  _stopSuggestionPoll();
+  if (!round || round.state !== 'compiled') return;
+  _suggestionPollTimer = setInterval(async () => {
+    if (!openRoundId || openRoundId !== round.id) { _stopSuggestionPoll(); return; }
+    await Actions.loadSuggestionsForRound(round.id);
+  }, 15000);
+}
+
 async function openRound(roundId) {
   openRoundId = roundId;
   selectedStaffIds = [];
@@ -571,11 +591,12 @@ async function openRound(roundId) {
 
 function renderRoundWorkspace() {
   const holder = $('round-workspace-holder');
-  if (!holder || !openRoundId) { if (holder) holder.innerHTML = ''; _stopProgressPoll(); return; }
+  if (!holder || !openRoundId) { if (holder) holder.innerHTML = ''; _stopProgressPoll(); _stopSuggestionPoll(); return; }
   const { rounds } = Store.getState();
   const round = rounds.find(r => r.id === openRoundId);
-  if (!round) { holder.innerHTML = ''; _stopProgressPoll(); return; }
+  if (!round) { holder.innerHTML = ''; _stopProgressPoll(); _stopSuggestionPoll(); return; }
   _startProgressPollIfNeeded(round);
+  _startSuggestionPollIfNeeded(round);
 
   let body = '';
   if (round.state === 'draft') {
@@ -1091,6 +1112,27 @@ function renderReportOverview() {
 }
 
 // ── §Compilation Engine + §Difference Engine (compiled round) ──
+// Reduces a round's suggestions to "one to show per item" — the row
+// badge only needs the single most-relevant not-yet-rejected suggestion
+// per itemKey. Prefers a still-pending one over an approved-but-not-
+// yet-recompiled one (pending is the one that actually needs eyes on
+// it); rejected suggestions never surface here at all, since they're
+// resolved and shouldn't keep flagging the row.
+function _latestOpenSuggestionByItemKey(roundSuggestions) {
+  const map = new Map();
+  (roundSuggestions || []).forEach(s => {
+    if (s.status === 'rejected') return;
+    const existing = map.get(s.itemKey);
+    if (!existing) { map.set(s.itemKey, s); return; }
+    const rank = (st) => (st === 'pending' ? 1 : 0);
+    if (rank(s.status) > rank(existing.status)) { map.set(s.itemKey, s); return; }
+    if (rank(s.status) === rank(existing.status) && new Date(s.createdAt) > new Date(existing.createdAt)) {
+      map.set(s.itemKey, s);
+    }
+  });
+  return map;
+}
+
 function renderCompiledRoundUI(round) {
   const { compiledRounds, rounds, role, suggestions, products } = Store.getState();
   const canManage = role === 'main';
@@ -1114,9 +1156,14 @@ function renderCompiledRoundUI(round) {
   }
   const familyReady = Actions.isFamilyFullyCompiled(rounds, round.roundNumber);
   const visible = _visibleVariances(compiled.variances);
-  const varianceRows = visible.map(row => Components.varianceRowHTML(row, { canSuggest, canCorrect })).join('') || '<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--grey);">No variances match this filter.</td></tr>';
-  const filtered = visible.length !== compiled.variances.length;
   const roundSuggestions = (suggestions || []).filter(s => s.roundId === round.id);
+  // Per-item lookup so the variance table itself shows a pending/approved
+  // badge right on the row (visible to Deputy AND Main, on any device —
+  // see _startSuggestionPollIfNeeded above for the cross-device refresh),
+  // not just buried in the Pending Corrections queue below.
+  const suggestionByItemKey = _latestOpenSuggestionByItemKey(roundSuggestions);
+  const varianceRows = visible.map(row => Components.varianceRowHTML(row, { canSuggest, canCorrect, suggestion: suggestionByItemKey.get(row.itemKey) })).join('') || '<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--grey);">No variances match this filter.</td></tr>';
+  const filtered = visible.length !== compiled.variances.length;
   const pendingCount = roundSuggestions.filter(s => s.status === 'pending').length;
   const approvedNotYetAppliedCount = roundSuggestions.filter(s => s.status === 'approved').length;
 
@@ -1566,11 +1613,17 @@ export function initEngagementPages() {
       // Auditor filing their own correction applies immediately instead
       // of going into their own Pending Corrections queue.
       const autoApprove = el.dataset.autoApprove === '1';
-      const result = await Actions.suggestVarianceEdit(compiled, row, suggestedQty, reasonInput ? reasonInput.value.trim() : '', autoApprove);
+      const reasonText = reasonInput ? reasonInput.value.trim() : '';
+      const result = await Actions.suggestVarianceEdit(compiled, row, suggestedQty, reasonText, autoApprove);
       if (result) {
-        const overlay = $('suggest-overlay');
-        if (overlay) overlay.style.display = 'none';
         if (autoApprove) renderRoundWorkspace();
+        // Swap the modal's own content into a "what was sent" summary
+        // instead of hiding the overlay — see correctionSentModalHTML.
+        // Same overlay/close-action, just a different screen inside it.
+        content.innerHTML = Components.correctionSentModalHTML({
+          name: row.name, company: row.company, previousCountedQty: row.countedQty,
+          suggestedQty, reason: reasonText, isMain: autoApprove,
+        });
       }
     },
     'approve-suggestion': async (el) => {

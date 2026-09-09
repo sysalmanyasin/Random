@@ -61,12 +61,23 @@ export function varianceRowHTML(row, opts) {
   // compile-actions.js buildMergedItems) — this tag only ever appears
   // post-recompile, never the moment a suggestion is merely approved.
   const correctedTag = row.correctedBy ? `<br><span style="font-size:10px; color:var(--green-ink, #15803d); font-weight:700;">✓ corrected by ${esc(row.correctedBy)}</span>` : '';
+  // opts.suggestion — the single open (pending/approved, never rejected)
+  // suggestion for this itemKey, if any (see engagement-pages.js
+  // _latestOpenSuggestionByItemKey). Shown directly on the item so
+  // BOTH the Deputy who sent it and the Main Auditor reviewing it see
+  // the same status on the same row, on any device, without opening
+  // the separate Pending Corrections queue — that queue still exists
+  // for Main's approve/reject actions, this is just visibility.
+  const suggestion = opts && opts.suggestion;
+  const suggestionTag = !suggestion ? '' : (suggestion.status === 'pending'
+    ? `<br><span style="font-size:10px; color:var(--gold-ink, #b45309); font-weight:700;">⏳ Pending: ${suggestion.previousCountedQty} → ${suggestion.suggestedQty} · sent by ${esc(suggestion.suggestedByName)}</span>`
+    : `<br><span style="font-size:10px; color:var(--green-ink, #15803d); font-weight:700;">✅ Approved: ${suggestion.previousCountedQty} → ${suggestion.suggestedQty} — recompile to apply</span>`);
   const suggestBtn = canSuggest
     ? `<button type="button" class="variance-suggest-btn" data-action="open-suggest-correction" data-item-key="${esc(row.itemKey)}" title="Suggest a correction" aria-label="Suggest a correction for ${esc(row.name)}">✏️</button>`
     : '';
   return `
     <tr class="${sevCls}">
-      <td style="padding-left:10px;"><strong>${esc(row.name)}</strong><br><span style="font-size:10px; color:var(--grey);">${esc(row.company)} · Rs ${Math.abs(impactRs).toLocaleString()} impact</span>${correctedTag}</td>
+      <td style="padding-left:10px;"><strong>${esc(row.name)}</strong><br><span style="font-size:10px; color:var(--grey);">${esc(row.company)} · Rs ${Math.abs(impactRs).toLocaleString()} impact</span>${correctedTag}${suggestionTag}</td>
       <td style="text-align:right;">${row.systemQty}</td>
       <td style="text-align:right;">${row.countedQty}</td>
       <td style="text-align:right; padding-right:10px;" class="${cls}">${delta > 0 ? '+' : ''}${delta}${suggestBtn}</td>
@@ -115,6 +126,31 @@ export function suggestCorrectionModalHTML(row, opts) {
       <button class="btn btn-primary" style="flex:1;" data-action="submit-suggest-correction" data-item-key="${esc(row.itemKey)}" data-auto-approve="${isMain ? '1' : '0'}">${isMain ? 'Apply Correction' : 'Send to Main Auditor'}</button>
       <button class="sort-btn" style="flex:1;" data-action="close-suggest-correction">Cancel</button>
     </div>`;
+}
+
+// ── Correction Sent / Applied confirmation popup ────────────────
+// Shown in place of the Suggest Correction modal right after a
+// successful submit — a plain toast is easy to miss, and both a
+// Deputy and a Main Auditor benefit from seeing exactly what was just
+// recorded (old → new qty, reason, and whether it's still awaiting
+// approval or was applied immediately) before the overlay closes.
+export function correctionSentModalHTML(details) {
+  if (!details) return '';
+  const delta = details.suggestedQty - details.previousCountedQty;
+  const cls = delta > 0 ? 'diff-pos' : (delta < 0 ? 'diff-neg' : 'diff-zero');
+  const statusLine = details.isMain
+    ? `✅ Applied immediately — recompile the round to fold it into the report.`
+    : `⏳ Sent to Main Auditor for approval.`;
+  return `
+    <h3 class="modal-title" style="margin-bottom:4px;">${details.isMain ? 'Correction applied' : 'Correction sent'}</h3>
+    <div style="font-size:12.5px; color:var(--grey); margin-bottom:12px;">${esc(details.name)} — ${esc(details.company)}</div>
+    <div style="background:var(--light); border-radius:10px; padding:10px 12px; margin-bottom:14px;">
+      <div style="font-size:11px; font-weight:700; color:${details.isMain ? 'var(--green-ink, #15803d)' : 'var(--gold-ink, #b45309)'}; margin-bottom:6px;">${statusLine}</div>
+      <div style="font-size:13px;"><span style="color:var(--grey);">${details.previousCountedQty} → </span><strong>${details.suggestedQty}</strong>
+        <span class="${cls}" style="font-weight:800; margin-left:6px;">${delta > 0 ? '+' : ''}${delta}</span></div>
+      ${details.reason ? `<div style="font-size:11.5px; color:var(--text); margin-top:6px;">"${esc(details.reason)}"</div>` : ''}
+    </div>
+    <button class="btn btn-primary btn-block" data-action="close-suggest-correction">Done</button>`;
 }
 
 // ── Pending Corrections queue (Main Auditor's approve/reject list) ──
