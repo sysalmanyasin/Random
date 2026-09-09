@@ -71,7 +71,7 @@ function mergeFamilyCompiled(familyRoundIds, compiledRounds) {
   };
 }
 
-function buildMergedItems(roundAssignments, submissions, corrections, reconciliations) {
+function buildMergedItems(roundAssignments, submissions, corrections) {
   const merged = new Map();
   const overlapWarnings = [];
   roundAssignments.forEach(assignment => {
@@ -128,32 +128,16 @@ function buildMergedItems(roundAssignments, submissions, corrections, reconcilia
   // verified number from a Deputy/Sub recheck, so it always wins over
   // both an uncounted-defaults-to-0 row and a plain typed count, and it
   // is never treated as an auto-match (missing stays accurate).
-  // Approved reconciliations (see variance-edit-actions.js
-  // suggestReconciliation/reconcileVarianceAsMain + rounds.reconciliations
-  // in schema.sql) override the FROZEN round-start systemQty itself —
-  // deliberately the opposite end of the row from a correction, which
-  // overrides countedQty. Once folded in here, every downstream
-  // consumer (variance-row rendering, Rs-impact math, reports) already
-  // computes off `systemQty`, so it automatically shows the reconciled
-  // variance with no extra special-casing anywhere else. The pre-
-  // reconciliation figure is kept on the row as `originalSystemQty` —
-  // purely for the "was X" tag in the UI — never used in any further
-  // calculation, so a report always shows numbers that are internally
-  // consistent with each other.
   const mergedItems = Array.from(merged.values()).map(row => {
     const corr = (corrections || {})[row.itemKey];
-    const recon = (reconciliations || {})[row.itemKey];
     const rawCounted = corr ? corr.countedQty : row.rawCounted;
     const autoMatched = corr ? false : row.autoMatched;
-    const effectiveSystemQty = recon ? recon.systemQty : row.systemQty;
-    const { effectiveQty, missing, variance } = computeEffectiveRow(effectiveSystemQty, rawCounted, autoMatched);
+    const { effectiveQty, missing, variance } = computeEffectiveRow(row.systemQty, rawCounted, autoMatched);
     return {
       itemKey: row.itemKey, company: row.company, code: row.code, name: row.name,
-      systemQty: effectiveSystemQty, price: row.price, countedQty: effectiveQty, variance,
+      systemQty: row.systemQty, price: row.price, countedQty: effectiveQty, variance,
       auditorName: row.auditorName, note: row.note, missing, autoMatched, confirmedSame: row.confirmedSame,
       correctedBy: corr ? corr.approvedByName : null, correctedAt: corr ? corr.approvedAt : null,
-      reconciledBy: recon ? recon.approvedByName : null, reconciledAt: recon ? recon.approvedAt : null,
-      originalSystemQty: recon ? recon.originalSystemQty : null,
     };
   });
   return { mergedItems, overlapWarnings };
@@ -242,7 +226,7 @@ async function compileRound(roundId, options) {
     return null;
   }
 
-  const { mergedItems, overlapWarnings } = buildMergedItems(roundAssignments, submissions, round.corrections, round.reconciliations);
+  const { mergedItems, overlapWarnings } = buildMergedItems(roundAssignments, submissions, round.corrections);
 
   if (overlapWarnings.length > 0) {
     logAudit('round:compileOverlapDetected', { roundId, overlapCount: overlapWarnings.length, sample: overlapWarnings.slice(0, 10) });

@@ -40,20 +40,14 @@ function _varianceSeverityClass(impactRs) {
   return 'variance-sev-low';
 }
 
-// `opts` (optional): { canSuggest, canReconcile }.
-// canSuggest shows a pencil icon that opens the Suggest Correction
-// modal (see engagement-pages.js data-action="open-suggest-correction")
-// — proposes a new COUNTED qty. canReconcile shows a separate ⚖ icon
-// that opens the Reconcile Variance modal (data-action="open-reconcile")
-// — proposes overriding the FROZEN system qty instead, for when a
-// variance is explained by real inventory movement rather than a bad
-// count (see variance-edit-actions.js suggestReconciliation /
-// reconcileVarianceAsMain). Neither is restricted to items the caller
-// was personally assigned — a Deputy/Sub (or Main) may act on any item
-// in the compiled round (see schema.sql, variance_edit_suggestions RLS).
+// `opts` (optional): { canSuggest } — canSuggest shows a pencil icon
+// that opens the Suggest Correction modal (see engagement-pages.js
+// data-action="open-suggest-correction"). Deliberately NOT restricted
+// to items the caller was personally assigned — a Deputy/Sub may
+// suggest an edit on any item in the compiled round (see schema.sql,
+// variance_edit_suggestions RLS).
 export function varianceRowHTML(row, opts) {
   const canSuggest = !!(opts && opts.canSuggest);
-  const canReconcile = !!(opts && opts.canReconcile);
   const delta = row.countedQty - row.systemQty;
   const cls = delta > 0 ? 'diff-pos' : (delta < 0 ? 'diff-neg' : 'diff-zero');
   const impactRs = delta * (row.price || 0);
@@ -63,50 +57,26 @@ export function varianceRowHTML(row, opts) {
   // compile-actions.js buildMergedItems) — this tag only ever appears
   // post-recompile, never the moment a suggestion is merely approved.
   const correctedTag = row.correctedBy ? `<br><span style="font-size:10px; color:var(--green-ink, #15803d); font-weight:700;">✓ corrected by ${esc(row.correctedBy)}</span>` : '';
-  // reconciledBy is the equivalent tag for an approved reconciliation —
-  // shows the pre-reconciliation systemQty so the change is visible on
-  // the row itself, not just buried in the audit log.
-  const reconciledTag = row.reconciledBy ? `<br><span style="font-size:10px; color:var(--blue-ink, #1d4ed8); font-weight:700;">⚖ reconciled by ${esc(row.reconciledBy)} (was ${row.originalSystemQty})</span>` : '';
   const suggestBtn = canSuggest
     ? `<button type="button" class="variance-suggest-btn" data-action="open-suggest-correction" data-item-key="${esc(row.itemKey)}" title="Suggest a correction" aria-label="Suggest a correction for ${esc(row.name)}">✏️</button>`
     : '';
-  const reconcileBtn = canReconcile
-    ? `<button type="button" class="variance-suggest-btn" data-action="open-reconcile" data-item-key="${esc(row.itemKey)}" title="Reconcile variance" aria-label="Reconcile variance for ${esc(row.name)}">⚖️</button>`
-    : '';
   return `
     <tr class="${sevCls}">
-      <td style="padding-left:10px;"><strong>${esc(row.name)}</strong><br><span style="font-size:10px; color:var(--grey);">${esc(row.company)} · Rs ${Math.abs(impactRs).toLocaleString()} impact</span>${correctedTag}${reconciledTag}</td>
+      <td style="padding-left:10px;"><strong>${esc(row.name)}</strong><br><span style="font-size:10px; color:var(--grey);">${esc(row.company)} · Rs ${Math.abs(impactRs).toLocaleString()} impact</span>${correctedTag}</td>
       <td style="text-align:right;">${row.systemQty}</td>
       <td style="text-align:right;">${row.countedQty}</td>
-      <td style="text-align:right; padding-right:10px;" class="${cls}">${delta > 0 ? '+' : ''}${delta}${suggestBtn}${reconcileBtn}</td>
+      <td style="text-align:right; padding-right:10px;" class="${cls}">${delta > 0 ? '+' : ''}${delta}${suggestBtn}</td>
     </tr>`;
 }
 
 // ── Suggest Correction modal (Deputy/Sub) ──────────────────────
-// `live` (optional): { qty, syncedAt } — the CURRENT system qty for this
-// item, resolved fresh against Store.products (see engagement-pages.js
-// open-suggest-correction, which runs the same fresh-inventory sync
-// gate as every other audit-launch/refresh point — see
-// legacy-actions.js ensureFreshInventoryForAudit) right before this
-// modal opens. `row.systemQty` stays what it always was: the frozen
-// qty from when the round's item snapshot was taken (compile-actions.js
-// buildMergedItems) — that's still the correct number for computing
-// this round's variance, so it's kept as a small secondary line
-// whenever it disagrees with the live figure, rather than silently
-// replaced. If the code no longer resolves against live inventory
-// (e.g. discontinued) `live` is omitted and this falls back to the
-// frozen figure exactly as before.
-export function suggestCorrectionModalHTML(row, live) {
+export function suggestCorrectionModalHTML(row) {
   if (!row) return '';
-  const hasLive = live && Number.isFinite(live.qty);
-  const displayQty = hasLive ? live.qty : row.systemQty;
-  const staleNote = hasLive && live.qty !== row.systemQty
-    ? `<div style="font-size:9.5px; color:var(--grey); margin-top:2px;">was ${row.systemQty} at round start</div>` : '';
   return `
     <h3 class="modal-title" style="margin-bottom:4px;">Suggest a correction</h3>
     <div style="font-size:12.5px; color:var(--grey); margin-bottom:12px;">${esc(row.name)} — ${esc(row.company)}</div>
     <div style="display:flex; gap:16px; margin-bottom:12px;">
-      <div><div style="font-size:10px; color:var(--grey);">System${hasLive ? ' (live)' : ''}</div><div style="font-weight:800; color:var(--navy);">${displayQty}</div>${staleNote}</div>
+      <div><div style="font-size:10px; color:var(--grey);">System</div><div style="font-weight:800; color:var(--navy);">${row.systemQty}</div></div>
       <div><div style="font-size:10px; color:var(--grey);">Current counted</div><div style="font-weight:800; color:var(--navy);">${row.countedQty}</div></div>
     </div>
     <label style="display:block; font-size:11px; font-weight:700; color:var(--navy); margin-bottom:4px;">Your recount</label>
@@ -115,40 +85,6 @@ export function suggestCorrectionModalHTML(row, live) {
     <textarea id="suggest-reason-input" class="search-input" style="width:100%; min-height:60px; margin-bottom:12px; resize:vertical;" placeholder="e.g. recounted, found 2 more on shelf B4"></textarea>
     <div style="display:flex; gap:8px;">
       <button class="btn btn-primary" style="flex:1;" data-action="submit-suggest-correction" data-item-key="${esc(row.itemKey)}">Send to Main Auditor</button>
-      <button class="sort-btn" style="flex:1;" data-action="close-suggest-correction">Cancel</button>
-    </div>`;
-}
-
-// ── Reconcile Variance modal (Deputy/Sub suggest, or Main self-approve) ──
-// Unlike suggestCorrectionModalHTML above (proposes a new COUNTED
-// qty), this proposes overriding the round's FROZEN system qty for
-// this one item with its current live figure — for when the variance
-// is explained by real inventory movement since the round began (a
-// transfer, a late invoice entry), not a bad count. The physical count
-// is never touched here. `isMain` only changes the button label/copy:
-// a Main Auditor's submit is self-approved immediately (see
-// engagement-pages.js submit-reconcile-variance), a Deputy/Sub's goes
-// to the pending queue like a normal correction.
-export function reconcileModalHTML(row, live, isMain) {
-  if (!row) return '';
-  const liveQty = (live && Number.isFinite(live.qty)) ? live.qty : row.systemQty;
-  const previewVariance = liveQty - row.countedQty;
-  const previewCls = previewVariance > 0 ? 'diff-pos' : (previewVariance < 0 ? 'diff-neg' : 'diff-zero');
-  const currentCls = row.variance > 0 ? 'diff-pos' : (row.variance < 0 ? 'diff-neg' : 'diff-zero');
-  return `
-    <h3 class="modal-title" style="margin-bottom:4px;">Reconcile variance</h3>
-    <div style="font-size:12.5px; color:var(--grey); margin-bottom:10px;">${esc(row.name)} — ${esc(row.company)}</div>
-    <div style="font-size:11px; color:var(--grey); background:var(--light-bg, #f5f6fa); border-radius:8px; padding:8px 10px; margin-bottom:12px;">This replaces this item's round-start system qty with its current live figure. Use it only when the variance is genuinely explained by inventory movement since the round began — not as a way to adjust a count.</div>
-    <div style="display:flex; gap:14px; margin-bottom:10px;">
-      <div><div style="font-size:10px; color:var(--grey);">Round-start system</div><div style="font-weight:800; color:var(--navy);">${row.systemQty}</div></div>
-      <div><div style="font-size:10px; color:var(--grey);">Live system now</div><div style="font-weight:800; color:var(--navy);">${liveQty}</div></div>
-      <div><div style="font-size:10px; color:var(--grey);">Physical count</div><div style="font-weight:800; color:var(--navy);">${row.countedQty}</div></div>
-    </div>
-    <div style="font-size:11.5px; color:var(--grey); margin-bottom:12px;">Variance would change from <strong class="${currentCls}">${row.variance > 0 ? '+' : ''}${row.variance}</strong> to <strong class="${previewCls}">${previewVariance > 0 ? '+' : ''}${previewVariance}</strong></div>
-    <label style="display:block; font-size:11px; font-weight:700; color:var(--navy); margin-bottom:4px;">Reason (required)</label>
-    <textarea id="reconcile-reason-input" class="search-input" style="width:100%; min-height:60px; margin-bottom:12px; resize:vertical;" placeholder="e.g. 3 units transferred to Branch 2 on 4 Sep, invoice #123"></textarea>
-    <div style="display:flex; gap:8px;">
-      <button class="btn btn-primary" style="flex:1;" data-action="submit-reconcile-variance" data-item-key="${esc(row.itemKey)}" data-live-qty="${liveQty}">${isMain ? 'Approve & Apply' : 'Send to Main Auditor'}</button>
       <button class="sort-btn" style="flex:1;" data-action="close-suggest-correction">Cancel</button>
     </div>`;
 }
