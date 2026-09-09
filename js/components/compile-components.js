@@ -40,14 +40,18 @@ function _varianceSeverityClass(impactRs) {
   return 'variance-sev-low';
 }
 
-// `opts` (optional): { canSuggest } — canSuggest shows a pencil icon
-// that opens the Suggest Correction modal (see engagement-pages.js
-// data-action="open-suggest-correction"). Deliberately NOT restricted
-// to items the caller was personally assigned — a Deputy/Sub may
-// suggest an edit on any item in the compiled round (see schema.sql,
+// `opts` (optional): { canSuggest, canCorrect } — either one shows the
+// same pencil icon, opening the Suggest Correction modal (see
+// engagement-pages.js data-action="open-suggest-correction"). canSuggest
+// is for a Deputy/Sub (goes to Main's Pending Corrections queue);
+// canCorrect is for the Main Auditor themselves (same modal, but the
+// page passes isMain through so the modal auto-approves on submit
+// instead of queuing). Deliberately NOT restricted to items the caller
+// was personally assigned — anyone with either flag may suggest/apply
+// an edit on any item in the compiled round (see schema.sql,
 // variance_edit_suggestions RLS).
 export function varianceRowHTML(row, opts) {
-  const canSuggest = !!(opts && opts.canSuggest);
+  const canSuggest = !!(opts && (opts.canSuggest || opts.canCorrect));
   const delta = row.countedQty - row.systemQty;
   const cls = delta > 0 ? 'diff-pos' : (delta < 0 ? 'diff-neg' : 'diff-zero');
   const impactRs = delta * (row.price || 0);
@@ -69,9 +73,31 @@ export function varianceRowHTML(row, opts) {
     </tr>`;
 }
 
-// ── Suggest Correction modal (Deputy/Sub) ──────────────────────
-export function suggestCorrectionModalHTML(row) {
+// ── Suggest Correction modal (Deputy/Sub, or Main Auditor) ─────
+// `opts` (optional): { liveQty, isMain }.
+// liveQty — the CURRENT live-inventory qty for this SKU (see
+// variance-edit-actions.js liveQtyForRow), shown as a reference under
+// the recount field. It's the frozen `row.systemQty` above that's
+// actually compared against on submit — liveQty is informational only,
+// so stock movement since the round's cutoff doesn't get silently
+// mistaken for a counting error. null/undefined (no matching code in
+// live inventory) simply omits the line rather than showing a
+// misleading zero.
+// isMain — Main Auditor filing their own correction: same modal, but
+// the submit button applies it immediately (auto-approved) instead of
+// queuing it for Main's own later approval. See engagement-pages.js
+// 'submit-suggest-correction' + suggestVarianceEdit's autoApprove arg.
+export function suggestCorrectionModalHTML(row, opts) {
   if (!row) return '';
+  const liveQty = opts && opts.liveQty;
+  const hasLive = liveQty !== undefined && liveQty !== null;
+  const liveDiffers = hasLive && liveQty !== row.systemQty;
+  const isMain = !!(opts && opts.isMain);
+  const liveQtyHTML = hasLive ? `
+    <div style="margin-bottom:12px;">
+      <div style="font-size:10px; color:var(--grey);">Live system qty (right now)</div>
+      <div style="font-weight:800; color:${liveDiffers ? 'var(--red, #b91c1c)' : 'var(--navy)'};">${liveQty}${liveDiffers ? ` <span style="font-size:10px; font-weight:600; color:var(--grey);">(system moved since this round's cutoff of ${row.systemQty})</span>` : ''}</div>
+    </div>` : '';
   return `
     <h3 class="modal-title" style="margin-bottom:4px;">Suggest a correction</h3>
     <div style="font-size:12.5px; color:var(--grey); margin-bottom:12px;">${esc(row.name)} — ${esc(row.company)}</div>
@@ -81,10 +107,12 @@ export function suggestCorrectionModalHTML(row) {
     </div>
     <label style="display:block; font-size:11px; font-weight:700; color:var(--navy); margin-bottom:4px;">Your recount</label>
     <input type="number" id="suggest-qty-input" class="search-input" style="width:100%; margin-bottom:10px;" value="${row.countedQty}" inputmode="decimal">
+    ${liveQtyHTML}
     <label style="display:block; font-size:11px; font-weight:700; color:var(--navy); margin-bottom:4px;">Reason (recommended)</label>
     <textarea id="suggest-reason-input" class="search-input" style="width:100%; min-height:60px; margin-bottom:12px; resize:vertical;" placeholder="e.g. recounted, found 2 more on shelf B4"></textarea>
+    ${isMain ? `<div style="font-size:10.5px; color:var(--grey); margin-bottom:8px;">You're Main Auditor — this applies immediately, no approval step.</div>` : ''}
     <div style="display:flex; gap:8px;">
-      <button class="btn btn-primary" style="flex:1;" data-action="submit-suggest-correction" data-item-key="${esc(row.itemKey)}">Send to Main Auditor</button>
+      <button class="btn btn-primary" style="flex:1;" data-action="submit-suggest-correction" data-item-key="${esc(row.itemKey)}" data-auto-approve="${isMain ? '1' : '0'}">${isMain ? 'Apply Correction' : 'Send to Main Auditor'}</button>
       <button class="sort-btn" style="flex:1;" data-action="close-suggest-correction">Cancel</button>
     </div>`;
 }
@@ -94,13 +122,22 @@ export function suggestCorrectionModalHTML(row) {
 // filtered to this round by the caller) plus lookup data the row itself
 // doesn't carry (nothing extra needed today, kept for symmetry with the
 // rest of this file's pure-render functions).
-export function suggestionQueueHTML(suggestions) {
+// `opts` (optional): { products } — the live inventory list, used only
+// to look up each suggestion's CURRENT live qty (by company+code) so
+// Main Auditor can see whether stock has moved since the suggestion was
+// filed, alongside the frozen previousCountedQty → suggestedQty figures
+// already on the suggestion row itself. Purely a display lookup, done
+// fresh each render — never stored on the suggestion.
+export function suggestionQueueHTML(suggestions, opts) {
+  const products = (opts && opts.products) || null;
   const pending = (suggestions || []).filter(s => s.status === 'pending');
   if (pending.length === 0) {
     return `<div style="font-size:12px; color:var(--grey); text-align:center; padding:10px;">No pending corrections.</div>`;
   }
   const rows = pending.map(s => {
     const delta = s.suggestedQty - s.previousCountedQty;
+    const live = products && s.code ? products.find(p => p.company === s.company && p.code === s.code) : null;
+    const liveHTML = live ? `<div style="font-size:10px; color:var(--grey);">Live system qty right now: <strong style="color:var(--navy);">${live.qty}</strong></div>` : '';
     return `
     <div class="movable-row" style="align-items:flex-start; flex-direction:column; gap:6px;">
       <div style="width:100%; display:flex; justify-content:space-between; gap:8px;">
@@ -113,6 +150,7 @@ export function suggestionQueueHTML(suggestions) {
           <div style="font-size:10px; font-weight:700;" class="${delta > 0 ? 'diff-pos' : (delta < 0 ? 'diff-neg' : 'diff-zero')}">${delta > 0 ? '+' : ''}${delta}</div>
         </div>
       </div>
+      ${liveHTML}
       ${s.reason ? `<div style="font-size:11px; color:var(--text); background:var(--light); padding:6px 8px; border-radius:8px; width:100%;">"${esc(s.reason)}"</div>` : ''}
       <div style="display:flex; gap:8px; width:100%;">
         <button class="btn btn-primary" style="flex:1; font-size:11px; padding:8px;" data-action="approve-suggestion" data-suggestion-id="${esc(s.id)}">✅ Approve</button>

@@ -1092,7 +1092,7 @@ function renderReportOverview() {
 
 // ── §Compilation Engine + §Difference Engine (compiled round) ──
 function renderCompiledRoundUI(round) {
-  const { compiledRounds, rounds, role, suggestions } = Store.getState();
+  const { compiledRounds, rounds, role, suggestions, products } = Store.getState();
   const canManage = role === 'main';
   // Deputy Auditor is the only role that reaches this render path with
   // a compiled-round view — a plain Sub-Auditor only ever sees their
@@ -1100,6 +1100,12 @@ function renderCompiledRoundUI(round) {
   // stays 'dep'-only even though the DB's insert policy also allows
   // 'sub' as future-proofing for if that ever changes.
   const canSuggest = role === 'dep';
+  // Main Auditor gets the same pencil/modal as a Deputy (canCorrect),
+  // except the modal is opened with isMain so the submit button applies
+  // the correction immediately instead of queuing it for Main's own
+  // approval — see 'open-suggest-correction' / 'submit-suggest-correction'
+  // below and suggestVarianceEdit's autoApprove arg.
+  const canCorrect = canManage;
   const compiled = compiledRounds.filter(c => c.roundId === round.id).pop();
   if (!compiled) {
     return canManage
@@ -1108,7 +1114,7 @@ function renderCompiledRoundUI(round) {
   }
   const familyReady = Actions.isFamilyFullyCompiled(rounds, round.roundNumber);
   const visible = _visibleVariances(compiled.variances);
-  const varianceRows = visible.map(row => Components.varianceRowHTML(row, { canSuggest })).join('') || '<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--grey);">No variances match this filter.</td></tr>';
+  const varianceRows = visible.map(row => Components.varianceRowHTML(row, { canSuggest, canCorrect })).join('') || '<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--grey);">No variances match this filter.</td></tr>';
   const filtered = visible.length !== compiled.variances.length;
   const roundSuggestions = (suggestions || []).filter(s => s.roundId === round.id);
   const pendingCount = roundSuggestions.filter(s => s.status === 'pending').length;
@@ -1134,7 +1140,7 @@ function renderCompiledRoundUI(round) {
     <details class="assignments-section" open>
       <summary class="card-title" style="cursor:pointer; user-select:none;">🛠️ Pending Corrections ${pendingCount > 0 ? '(' + pendingCount + ')' : ''}</summary>
       <div class="card" style="padding:8px;">
-        ${Components.suggestionQueueHTML(roundSuggestions)}
+        ${Components.suggestionQueueHTML(roundSuggestions, { products })}
       </div>
       ${approvedNotYetAppliedCount > 0 ? `<div style="font-size:11px; color:var(--grey); margin-bottom:10px;">${approvedNotYetAppliedCount} correction(s) approved but not yet in the report below — tap Recompile Round to apply ${approvedNotYetAppliedCount === 1 ? 'it' : 'them'}.</div>` : ''}
     </details>` : ''}
@@ -1523,14 +1529,16 @@ export function initEngagementPages() {
       const overlay = $('suggest-overlay');
       const content = $('suggest-content');
       if (!overlay || !content || !openRoundId) return;
-      const { compiledRounds } = Store.getState();
+      const { compiledRounds, role } = Store.getState();
       const compiled = compiledRounds.filter(c => c.roundId === openRoundId).pop();
       const row = compiled && compiled.variances.find(v => v.itemKey === el.dataset.itemKey);
       if (!compiled || !row) return;
+      const liveQty = Actions.liveQtyForRow(row);
+      const isMain = role === 'main';
       // Kept on the button's own dataset (not a module-level variable)
       // so re-opening the same modal for a different row can't leak
       // stale compiledRoundId/roundId from whichever row was open last.
-      content.innerHTML = Components.suggestCorrectionModalHTML(row);
+      content.innerHTML = Components.suggestCorrectionModalHTML(row, { liveQty, isMain });
       content.dataset.compiledRoundId = compiled.id;
       content.dataset.roundId = compiled.roundId;
       content.dataset.engagementId = compiled.engagementId;
@@ -1553,10 +1561,16 @@ export function initEngagementPages() {
       const compiled = compiledRounds.find(c => c.id === content.dataset.compiledRoundId);
       const row = compiled && compiled.variances.find(v => v.itemKey === el.dataset.itemKey);
       if (!compiled || !row) return;
-      const result = await Actions.suggestVarianceEdit(compiled, row, suggestedQty, reasonInput ? reasonInput.value.trim() : '');
+      // data-auto-approve is set by the modal itself only when it was
+      // opened with isMain (see 'open-suggest-correction' above) — Main
+      // Auditor filing their own correction applies immediately instead
+      // of going into their own Pending Corrections queue.
+      const autoApprove = el.dataset.autoApprove === '1';
+      const result = await Actions.suggestVarianceEdit(compiled, row, suggestedQty, reasonInput ? reasonInput.value.trim() : '', autoApprove);
       if (result) {
         const overlay = $('suggest-overlay');
         if (overlay) overlay.style.display = 'none';
+        if (autoApprove) renderRoundWorkspace();
       }
     },
     'approve-suggestion': async (el) => {

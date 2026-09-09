@@ -13,8 +13,32 @@ import { logAudit } from './audit-log-actions.js';
    directly, and nothing here is a shortcut around compileRound().
    ══════════════════════════════════════════════════════════════ */
 
-async function suggestVarianceEdit(compiledRound, row, suggestedQty, reason) {
-  const { sbClient, currentAuditorId, currentAuditorName } = Store.getState();
+// Live-inventory qty for a variance row — row.systemQty is the FROZEN
+// figure captured when the round was created (see item-key.js
+// snapshotScopeItems) and is never re-derived for that round's own
+// life. This looks up the CURRENT live inventory record for the same
+// company+code so the person filing/reviewing a correction can see
+// whether stock has moved since the round's cutoff. Read-only and
+// purely informational — never overwrites systemQty, never persisted,
+// just recomputed fresh every time it's asked for.
+function liveQtyForRow(row) {
+  if (!row || !row.code) return null;
+  const { products } = Store.getState();
+  const live = (products || []).find(p => p.company === row.company && p.code === row.code);
+  return live ? live.qty : null;
+}
+
+// `autoApprove`: Main Auditor is the approval authority already, so when
+// Main is the one filing the correction (not a Deputy/Sub) there's no one
+// else to send it to — this still writes the normal suggestion row (so it
+// carries the same audit trail as any other correction) but immediately
+// approves it in the same call instead of leaving it sitting in the
+// Pending Corrections queue waiting for Main to approve their own item.
+// Silently ignored (falls back to the normal pending flow) if the caller
+// isn't actually logged in as 'main' — approveSuggestion re-checks role
+// server-side-equivalent anyway, but this keeps the toast messaging honest.
+async function suggestVarianceEdit(compiledRound, row, suggestedQty, reason, autoApprove) {
+  const { sbClient, currentAuditorId, currentAuditorName, role } = Store.getState();
   if (suggestedQty === row.countedQty) {
     Bus.emit('toast', { msg: 'That matches the current count already', kind: 'error' });
     return null;
@@ -33,6 +57,10 @@ async function suggestVarianceEdit(compiledRound, row, suggestedQty, reason) {
     const suggestions = Store.getState().suggestions.concat([s]);
     Store.setState({ suggestions });
     Bus.emit('suggestions:changed', suggestions);
+    if (autoApprove && role === 'main') {
+      const approved = await approveSuggestion(s.id);
+      return approved || s;
+    }
     Bus.emit('toast', { msg: 'Correction sent to Main Auditor for approval', kind: 'success' });
     return s;
   } catch (err) {
@@ -114,5 +142,5 @@ async function rejectSuggestion(suggestionId, note) {
 
 export const VarianceEditActions = {
   suggestVarianceEdit, loadSuggestionsForRound, pendingSuggestionCount,
-  approveSuggestion, rejectSuggestion,
+  approveSuggestion, rejectSuggestion, liveQtyForRow,
 };
