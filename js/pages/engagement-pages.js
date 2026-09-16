@@ -97,6 +97,15 @@ function _renderIndividualDashboardBody(engagement, rounds, assignments, compile
 
 let currentSubView = 'list';      // 'list' | 'detail'
 let openRoundId = null;
+// 'list' | 'workspace' — which half of the Rounds swipe panel is on
+// screen. Tapping a round card used to just append its workspace BELOW
+// the full round list in the same scroll, so on an engagement with 20+
+// rounds you had to scroll past every card to reach the one you opened.
+// Now opening a round swaps the panel to a workspace-only screen (with
+// a "← All Rounds" back button), same pattern as the engagement
+// list/detail split above — see renderEngagementDetailHTML and
+// openRound/closeRoundWorkspace.
+let roundSubView = 'list';
 let selectedStaffIds = [];
 let showSubRoundPicker = false;
 let subRoundSelectedCompanies = new Set();
@@ -391,13 +400,17 @@ function renderEngagementDetailHTML(engagement) {
 
     <div class="swipe-track" id="engagement-swipe-track" data-action-scroll="team-swipe-scroll">
       <div class="swipe-panel" id="swipe-panel-rounds">
+        ${roundSubView === 'workspace' ? `
+        <button class="sort-btn" style="margin-bottom:10px;" data-action="round-back-to-list">← All Rounds</button>
+        <div id="round-workspace-holder"></div>
+        ` : `
         <div class="card-title" style="margin-top:0;">Rounds</div>
         <div id="round-list-holder"></div>
         ${hasRounds
           ? '<div style="font-size:11px; color:var(--grey); margin-bottom:14px; text-align:center;">To start Round 2+, compile the current round below, then use "Generate Next Round" — it builds the right item list for you.</div>'
           : (canManage ? '<button class="btn btn-primary btn-block" style="margin-bottom:14px;" data-action="team-create-round">➕ Create Round 1</button>' : '<div style="font-size:12px; color:var(--grey); text-align:center; padding:10px 0;">No rounds yet.</div>')}
         <div id="subround-section-holder">${hasRounds ? renderSubRoundSection(engagement) : ''}</div>
-        <div id="round-workspace-holder"></div>
+        `}
       </div>
       <div class="swipe-panel" id="swipe-panel-dashboard">
         <div class="card-title" style="margin-top:0;">Dashboard</div>
@@ -556,7 +569,11 @@ Bus.on('rounds:changed', () => { if (currentSubView === 'detail') refreshRoundLi
 // gracefully, but explicitly clearing openRoundId also stops its
 // progress-poll timer and the now-stale subround section).
 Bus.on('round:deleted', ({ roundId }) => {
-  if (openRoundId === roundId) { openRoundId = null; _stopProgressPoll(); _stopSuggestionPoll(); renderRoundWorkspace(); }
+  // Deleting a round from the list ('🗑️' on its card) fires this while
+  // still on the list screen — that path is unaffected. Only closes the
+  // workspace screen when the round deleted out from under it is the
+  // one actually open there (e.g. deleted from another device).
+  if (openRoundId === roundId) { closeRoundWorkspace(); }
   if (currentSubView === 'detail') refreshSubRoundSection();
 });
 
@@ -618,16 +635,34 @@ function _startRoundListPollIfNeeded(engagementId) {
 
 async function openRound(roundId) {
   openRoundId = roundId;
+  roundSubView = 'workspace';
   selectedStaffIds = [];
   pendingSplitPreview = null;
   pendingSplitStaffList = null;
   resetVarianceControls();
+  // Swap the panel to the workspace-only screen right away (scrolled to
+  // top, no round list above it to scroll past) rather than waiting on
+  // the loads below — renderRoundWorkspace() fills it in once the data
+  // lands, same as it always has.
+  renderTeamTab();
   await Actions.loadAssignmentsForRound(roundId);
   await Actions.noteAssignmentActivity(roundId);
   await Actions.loadSubmissionsForRound(roundId);
   await Actions.loadCompiledRoundsForEngagement(Store.getState().currentEngagementId);
   await Actions.loadSuggestionsForRound(roundId);
   renderRoundWorkspace();
+}
+
+// Back button from the round workspace screen — returns to the round
+// list without touching engagementSwipeTab (still 'rounds') or
+// currentSubView (still 'detail'), so Dashboard/Reports/Search tab
+// state and the engagement itself are untouched.
+function closeRoundWorkspace() {
+  openRoundId = null;
+  roundSubView = 'list';
+  _stopProgressPoll();
+  _stopSuggestionPoll();
+  renderTeamTab();
 }
 
 function renderRoundWorkspace() {
@@ -1326,7 +1361,7 @@ Bus.on('snapshot:generated', (snapshot) => {
 // currentSubView on 'list'.
 export async function openEngagementDetailView(engagementId) {
   await Actions.openEngagement(engagementId);
-  currentSubView = 'detail'; openRoundId = null; engagementSwipeTab = 'rounds'; productSearchQuery = '';
+  currentSubView = 'detail'; openRoundId = null; roundSubView = 'list'; engagementSwipeTab = 'rounds'; productSearchQuery = '';
 }
 
 /* ── Handler maps, consumed by pages/event-delegation.js ── */
@@ -1334,10 +1369,10 @@ export function initEngagementPages() {
   const clickHandlers = {
     'open-engagement': async (el) => {
       await Actions.openEngagement(el.dataset.engagementId);
-      currentSubView = 'detail'; openRoundId = null; engagementSwipeTab = 'rounds'; productSearchQuery = '';
+      currentSubView = 'detail'; openRoundId = null; roundSubView = 'list'; engagementSwipeTab = 'rounds'; productSearchQuery = '';
       renderTeamTab();
     },
-    'team-back-to-list': () => { Actions.closeEngagementView(); currentSubView = 'list'; openRoundId = null; dashboardOpenSections = new Set(); engagementSwipeTab = 'rounds'; productSearchQuery = ''; engagementDangerZoneOpen = false; _stopProgressPoll(); _stopSuggestionPoll(); _stopRoundListPoll(); renderTeamTab(); },
+    'team-back-to-list': () => { Actions.closeEngagementView(); currentSubView = 'list'; openRoundId = null; roundSubView = 'list'; dashboardOpenSections = new Set(); engagementSwipeTab = 'rounds'; productSearchQuery = ''; engagementDangerZoneOpen = false; _stopProgressPoll(); _stopSuggestionPoll(); _stopRoundListPoll(); renderTeamTab(); },
     'toggle-engagement-danger-zone': () => { engagementDangerZoneOpen = !engagementDangerZoneOpen; renderTeamTab(); },
     'team-swipe-tab': (el) => setEngagementSwipeTab(el.dataset.swipe),
     'toggle-dashboard-section': (el) => {
@@ -1406,7 +1441,7 @@ export function initEngagementPages() {
     'team-close-engagement': async (el) => { await Actions.closeEngagementPermanently(el.dataset.engagementId); renderTeamTab(); },
     'team-delete-engagement': async (el) => {
       const deleted = await Actions.deleteEngagementForever(el.dataset.engagementId);
-      if (deleted) { currentSubView = 'list'; openRoundId = null; }
+      if (deleted) { currentSubView = 'list'; openRoundId = null; roundSubView = 'list'; }
       renderTeamTab();
     },
     'team-create-round': async () => { const r = await Actions.createRound(); if (r) openRound(r.id); },
@@ -1523,6 +1558,7 @@ export function initEngagementPages() {
       if (round) { await openRound(round.id); } else { renderTeamTab(); }
     },
     'open-round': (el) => openRound(el.dataset.roundId),
+    'round-back-to-list': () => closeRoundWorkspace(),
     // Product Search result row tap — jump to the Rounds panel (a
     // result can point at any round in the engagement, including one
     // several rounds back, not necessarily whichever panel happens to
@@ -1714,7 +1750,7 @@ export function initEngagementPages() {
     'team-finalize-engagement': async () => {
       const { currentEngagementId } = Store.getState();
       const snapshot = await Actions.generateFinalSnapshot(currentEngagementId);
-      if (snapshot) { openRoundId = null; renderTeamTab(); return; }
+      if (snapshot) { openRoundId = null; roundSubView = 'list'; renderTeamTab(); return; }
       // generateFinalSnapshot may have loaded a DIFFERENT sibling round's
       // assignments/submissions into the Store while checking the round
       // family (see snapshot-actions.js) — if it then failed partway and
