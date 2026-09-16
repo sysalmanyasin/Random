@@ -525,7 +525,11 @@ async function refreshRoundList() {
       return map;
     }, new Map());
   }
-  sorted.forEach(r => holder.appendChild(Components.roundCard(
+  // Render newest-first while keeping `sorted` (ascending) as the
+  // shared ordering used above for latest-round detection and the
+  // individual/auditor-progress summaries, which expect ascending order.
+  const displayOrder = sorted.slice().reverse();
+  displayOrder.forEach(r => holder.appendChild(Components.roundCard(
     r,
     r.id === latest.id,
     individualSummary ? individualSummary.get(r.id) : null,
