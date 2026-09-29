@@ -54,7 +54,21 @@ class RoundsRemoteViewsFactory(private val context: android.content.Context) :
     override fun getCount(): Int = rows.size
 
     override fun getViewAt(position: Int): RemoteViews {
-        val row = rows[position]
+        val row = rows.getOrNull(position)
+            ?: return RemoteViews(context.packageName, R.layout.widget_row_item)
+        return try {
+            buildRowViews(row)
+        } catch (t: Throwable) {
+            // Never let one bad row leave the whole list stuck on "Loading...".
+            Log.e(TAG, "getViewAt($position) failed", t)
+            RemoteViews(context.packageName, R.layout.widget_row_item).apply {
+                setTextViewText(R.id.rowTitle, "R${row.roundNumber} - ${row.auditorName}")
+                setTextViewText(R.id.rowSubtitle, row.assignmentStatus)
+            }
+        }
+    }
+
+    private fun buildRowViews(row: RoundRow): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_row_item)
 
         views.setTextViewText(

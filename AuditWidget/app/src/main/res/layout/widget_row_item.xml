@@ -45,9 +45,13 @@
         android:singleLine="true"
         android:ellipsize="end" />
 
-    <View
+    <!-- RemoteViews may only inflate a whitelisted set of classes; a bare <View>
+         is not on it and makes every row fall back to "Loading...". A
+         LinearLayout with a background is allowed and looks identical. -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:background="@color/row_divider"
-        android:layout_marginTop="8dp" />
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal" />
 </LinearLayout>
