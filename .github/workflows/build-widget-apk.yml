@@ -23,8 +23,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # Android SDK is preinstalled on GitHub's ubuntu runners (ANDROID_HOME),
+      # so the android-actions/setup-android step was removed -- it started
+      # failing after GitHub forced it onto Node 24.
 
       - name: Generate Gradle wrapper
         run: gradle wrapper --gradle-version 8.9
