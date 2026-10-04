@@ -1,5 +1,6 @@
 -- ══════════════════════════════════════════════════════════════
 -- BARCODE & SCANNER SUBSYSTEM — Supabase migration
+-- APPLIED to project BTpharmacyAudit@2026 (vtcrdkqhuvxatclobsby) and role-tested.
 -- Run AFTER supabase/schema.sql, in the SQL Editor. Safe to re-run.
 --
 -- Design rules enforced HERE (not only in the UI):
@@ -70,7 +71,7 @@ create table if not exists barcode_verification_log (
   action text not null
     check (action in ('registered','verified','changed','disabled','conflict_resolved','conflict_reported')),
   performed_by uuid not null references staff(id),
-  performed_at timestamptz not null default now(),
+  performed_at timestamptz not null default clock_timestamp(),
   notes text
 );
 create index if not exists barcode_log_barcode_idx on barcode_verification_log (barcode, performed_at desc);
@@ -91,7 +92,7 @@ create table if not exists barcode_scan_events (
   result text not null check (result in ('matched','unknown','conflict','duplicate','disabled')),
   user_id uuid not null default auth.uid() references staff(id),
   scanned_at timestamptz not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default clock_timestamp()
 );
 create index if not exists barcode_scan_events_audit_idx on barcode_scan_events (engagement_id, round_id, scanned_at desc);
 create index if not exists barcode_scan_events_user_idx on barcode_scan_events (user_id, scanned_at desc);
