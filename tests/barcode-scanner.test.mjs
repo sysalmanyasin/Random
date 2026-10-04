@@ -39,3 +39,9 @@ test('wedge detector: short fast input below min length ignored', () => {
   for (const ch of '12') { d.feed(ch, ts); ts += 5; }
   assert.equal(d.feed('Enter', ts).action, 'pass');
 });
+
+test('typed scan characters are removed from the focused field, other text kept', () => {
+  assert.equal(S.stripTypedScan('milk5901234123457', '5901234123457'), 'milk');
+  assert.equal(S.stripTypedScan('5901234123457', '5901234123457'), '');
+  assert.equal(S.stripTypedScan('hello', '5901234123457'), 'hello');
+});

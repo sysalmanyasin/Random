@@ -1,4 +1,4 @@
-const CACHE_NAME = "fazal-din-audit-v8.91-combined-variance-report";
+const CACHE_NAME = "fazal-din-audit-v8.92-barcode-center";
 
 // App-shell assets we want available offline immediately after install.
 // (These are still precached, but at *runtime* they are served network-first,
@@ -9,6 +9,7 @@ const STATIC_ASSETS = [
   "./manifest.json",
   "./css/app.css",
   "./css/engagement.css",
+  "./css/barcode.css",
   "./js/repository.js",
   "./js/store.js",
   "./js/actions.js",

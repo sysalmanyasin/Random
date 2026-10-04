@@ -33,7 +33,7 @@ function toast(message, kind = 'success') { Bus.emit('toast', { msg: message, ki
 // so gating it here — rather than just hiding buttons — closes the gap
 // where a fast tap on a still-visible tile could land before any other
 // check ran.
-const SUB_AUDITOR_ALLOWED_VIEWS = new Set(['team', 'expiry']);
+const SUB_AUDITOR_ALLOWED_VIEWS = new Set(['team', 'expiry', 'barcode']);
 export function executeViewNavigation(viewIdentifierToken) {
   const { role } = Store.getState();
   if ((role === 'sub' || role === 'dep') && !SUB_AUDITOR_ALLOWED_VIEWS.has(viewIdentifierToken)) {
@@ -51,7 +51,7 @@ export function executeViewNavigation(viewIdentifierToken) {
     // its own top-level section (reached from the home screen), not a
     // Sync & Tools sub-page, so it's deliberately left out here.
     || (viewIdentifierToken === 'settings' ? $('tab-import') : null)
-    || (['staff', 'individual', 'expiry'].includes(viewIdentifierToken) ? $('tab-team') : null);
+    || (['staff', 'individual', 'expiry', 'barcode'].includes(viewIdentifierToken) ? $('tab-team') : null);
   if (tabNode) { tabNode.classList.add('active'); tabNode.setAttribute('aria-current', 'page'); }
   Bus.emit('view:activated', viewIdentifierToken);
 }

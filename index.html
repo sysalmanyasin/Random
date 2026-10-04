@@ -26,6 +26,7 @@
 <link rel="stylesheet" href="./css/engagement.css">
 <link rel="stylesheet" href="./css/desktop.css">
 <link rel="stylesheet" href="./css/design-upgrade.css">
+<link rel="stylesheet" href="./css/barcode.css">
 
 <!-- Supabase JS -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -100,6 +101,16 @@
           </div>
           <div class="section-tile-desc">Engagements · Rounds · Staff</div>
           <div class="section-tile-stat" id="home-stat-team">Loading…</div>
+        </div>
+        <div class="section-tile-chevron">›</div>
+      </button>
+
+      <!-- Barcode Center tile -->
+      <button class="section-tile section-tile--inventory" data-action="navigate" data-view="barcode">
+        <div class="section-tile-icon">📷</div>
+        <div class="section-tile-body">
+          <div class="section-tile-name">Barcode Center</div>
+          <div class="section-tile-desc">Scan · Register · Verify</div>
         </div>
         <div class="section-tile-chevron">›</div>
       </button>
@@ -222,6 +233,22 @@
     </div>
 
     <div id="expiry-tab-root"></div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════════════
+       BARCODE CENTER
+  ══════════════════════════════════════════════════════════ -->
+  <div class="page" id="page-barcode">
+    <div class="section-nav-bar">
+      <div class="section-nav-label">Barcode Center</div>
+      <div class="section-sub-tabs">
+        <button class="section-sub-tab" data-action="navigate" data-view="team">Team</button>
+        <button class="section-sub-tab" data-action="navigate" data-view="expiry">Expiry</button>
+        <button class="section-sub-tab active" data-action="navigate" data-view="barcode">Barcode</button>
+      </div>
+    </div>
+    <div id="barcode-tab-root"></div>
   </div>
 
 

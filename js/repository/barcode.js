@@ -55,6 +55,14 @@ async function fetchBarcodeHistory(client, barcode) {
   return (data || []).map(r => ({ id: r.id, barcode: r.barcode, productCode: r.product_code, action: r.action, performedBy: r.performed_by, performedAt: r.performed_at, notes: r.notes }));
 }
 
+async function fetchBarcodeStaffNames(client) {
+  const { data, error } = await client.rpc('barcode_staff_names');
+  if (error) throw error;
+  const map = {};
+  (data || []).forEach(r => { map[r.id] = r.name; });
+  return map;
+}
+
 // Idempotent: client_event_id is UNIQUE and ignoreDuplicates makes a retry
 // of an already-delivered event a silent no-op instead of an error.
 async function insertScanEvents(client, events) {
@@ -94,7 +102,7 @@ async function removeOutboxItem(id) { DbCore.remove(OUTBOX, id); }
 export const BarcodeRepo = {
   fetchBarcodes, registerBarcode, verifyBarcode, changeBarcode, disableBarcode,
   reportBarcodeConflict, resolveBarcodeConflict, fetchBarcodeHistory,
-  insertScanEvents, fetchScanEvents,
+  insertScanEvents, fetchScanEvents, fetchBarcodeStaffNames,
   loadCachedBarcodes, replaceCachedBarcodes, upsertCachedBarcode,
   loadOutbox, putOutboxItem, removeOutboxItem,
 };

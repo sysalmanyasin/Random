@@ -325,3 +325,22 @@ begin
   return new;
 end;
 $$;
+
+-- ── barcode_staff_names ────────────────────────────────────────
+-- Sub/Dep cannot read the staff table, but "Verified By" / "Scanned By"
+-- must show names. Returns ONLY id + name (never phone/role), and only for
+-- staff who actually appear in a barcode record.
+create or replace function barcode_staff_names()
+returns table (id uuid, name text)
+language sql security definer stable set search_path = public as $$
+  select s.id, s.name from staff s
+  where is_access_valid()
+    and s.id in (
+      select created_by from product_barcodes
+      union select verified_by from product_barcodes where verified_by is not null
+      union select performed_by from barcode_verification_log
+      union select user_id from barcode_scan_events
+    );
+$$;
+revoke all on function barcode_staff_names() from public, anon;
+grant execute on function barcode_staff_names() to authenticated;

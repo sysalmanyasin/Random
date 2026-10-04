@@ -66,21 +66,28 @@ function createWedgeDetector(opts) {
   };
 }
 
+// A hardware scanner "types" the code into whatever field has focus before
+// the Enter arrives. When we recognise it as a scan, take those typed
+// characters back out so they don't linger in a search/qty box.
+function stripTypedScan(value, scanned) {
+  const v = String(value == null ? '' : value);
+  return scanned && v.endsWith(scanned) ? v.slice(0, v.length - scanned.length) : v;
+}
+
 // ── Browser adapters ──────────────────────────────────────────
-function attachWedge(hub, doc) {
+// isActive(): only intercept while a scan consumer is actually listening,
+// so Enter in an unrelated form is never swallowed.
+function attachWedge(hub, doc, isActive) {
   const d = doc || document;
   const det = createWedgeDetector();
   const onKey = (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (isActive && !isActive()) { det.reset(); return; }
     const r = det.feed(e.key, e.timeStamp || Date.now());
     if (r.action === 'scan') {
       e.preventDefault(); // don't let Enter submit a form / move focus
       const t = e.target;
-      // The first (slow) char leaked into a focused text field — remove it.
-      if (t && 'value' in t && typeof t.value === 'string' && t.value.endsWith(r.value[0]) ) {
-        t.value = t.value.slice(0, t.value.length - r.value.length);
-        if (t.value.endsWith(r.value[0]) && r.value.length === 1) t.value = t.value.slice(0, -1);
-      }
+      if (t && typeof t.value === 'string') t.value = stripTypedScan(t.value, r.value);
       hub.emit(r.value, 'hardware');
     }
   };
@@ -148,6 +155,6 @@ function feedback(kind) {
 }
 
 export const BarcodeScanner = {
-  createScanHub, createWedgeDetector, attachWedge, startCamera,
+  createScanHub, createWedgeDetector, stripTypedScan, attachWedge, startCamera,
   cameraSupported, nativeDetectorSupported, feedback,
 };

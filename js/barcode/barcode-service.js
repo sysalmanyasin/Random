@@ -38,6 +38,7 @@ function createBarcodeService(deps) {
   }, deps);
 
   let index = BarcodeLookup.buildIndex([]);
+  let allRows = [];
   let flushing = null;
   let lastRefreshAt = null;
 
@@ -48,6 +49,7 @@ function createBarcodeService(deps) {
 
   async function init() {
     const cached = await d.store.loadCache();
+    allRows = cached;
     index = BarcodeLookup.buildIndex(cached);
     emit();
     return index.size;
@@ -58,6 +60,7 @@ function createBarcodeService(deps) {
     try {
       const rows = await d.remote.fetchBarcodes();
       await d.store.replaceCache(rows);
+      allRows = rows;
       index = BarcodeLookup.buildIndex(rows);
       lastRefreshAt = d.now();
       emit();
@@ -68,6 +71,7 @@ function createBarcodeService(deps) {
     }
   }
 
+  function rows() { return allRows.slice(); }
   function resolve(raw, opts) { return BarcodeLookup.resolveScan(index, raw, opts); }
   function productBarcodes(productCode) { return index.byProduct.get(productCode) || []; }
 
@@ -105,6 +109,7 @@ function createBarcodeService(deps) {
       if (!index.byProduct.has(a.productCode)) index.byProduct.set(a.productCode, []);
       index.byProduct.get(a.productCode).push(row);
       index.size++;
+      allRows = allRows.concat([row]);
       await d.store.upsertCache(row);
     }
     emit();
@@ -184,7 +189,7 @@ function createBarcodeService(deps) {
       }
   }
 
-  return { init, refresh, resolve, productBarcodes, recordScan, queueRegistration, flush, pendingCount, status };
+  return { init, refresh, rows, resolve, productBarcodes, recordScan, queueRegistration, flush, pendingCount, status };
 }
 
 export const BarcodeService = { createBarcodeService, isPermanentError };
