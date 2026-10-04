@@ -46,13 +46,13 @@ test('typed scan characters are removed from the focused field, other text kept'
   assert.equal(S.stripTypedScan('hello', '5901234123457'), 'hello');
 });
 
-test('consensus: checksummed numeric codes pass at once, others need two matching reads', () => {
+test('consensus: valid GTIN needs 2 matching reads, other codes 3, bad-checksum numbers never', () => {
   let t = 0; const c = S.createConsensus({ now: () => t });
-  assert.equal(c.accept('5901234123457'), true);
-  assert.equal(c.accept('FD-0042'), false); t += 300;
-  assert.equal(c.accept('FD-0042'), true);
-  assert.equal(c.accept('AB-1'), false); t += 300; assert.equal(c.accept('AB-2'), false); // misread differs -> restart
-  assert.equal(c.accept('AB-2'), true);
+  assert.equal(c.accept('5901234123457'), false); assert.equal(c.accept('5901234123457'), true);
+  assert.equal(c.accept('5901234123458'), false); assert.equal(c.accept('5901234123458'), false); assert.equal(c.accept('5901234123458'), false); // bad check digit: dropped forever
+  assert.equal(S.isBadGtin('5901234123458'), true); assert.equal(S.isChecksummed('5901234123457'), true);
+  assert.equal(c.accept('FD-0042'), false); assert.equal(c.accept('FD-0042'), false); assert.equal(c.accept('FD-0042'), true);
+  assert.equal(c.accept('AB-1'), false); assert.equal(c.accept('AB-2'), false); assert.equal(c.accept('AB-2'), false); assert.equal(c.accept('AB-2'), true); // a misread in between restarts the count
   assert.equal(c.accept('XY-1'), false); t += 5000; assert.equal(c.accept('XY-1'), false); // too slow -> restart
 });
 test('camera capabilities are summarised for the UI', () => {

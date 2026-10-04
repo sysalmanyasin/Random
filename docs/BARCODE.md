@@ -26,3 +26,7 @@ Setup: run `supabase/barcode-schema.sql` once (already applied to the BTpharmacy
 - **Auto-torch:** if the frame stays dark and the phone has a torch, it turns on once. Tapping the torch button yourself always overrides it.
 - **Still capture:** if live frames keep failing for ~2.5 s, it takes a full-resolution photo (`ImageCapture.takePhoto`, where supported) and decodes that — at most once every 5 s. Helps tiny/dense labels such as blister strips and GS1 DataMatrix. Some Android phones may play a shutter sound.
 - **Offline:** the engine and `.wasm` are precached and served network-first with cache fallback (`sw.js`, cache `v8.96-scanner-wasm`).
+
+## v8.97 — wrong-number fix
+
+Camera reads are now accepted only when: (1) numeric 8/12/13/14-digit codes pass the real GTIN check digit (otherwise dropped as a misread); (2) the same value is read on consecutive frames — 2× for a valid GTIN, 3× for other codes; (3) it comes from inside the laser box (whole frame only after 3 s of silence). ITF, Codabar and Code 93 were removed from the camera decoders (phantom digits from fragments of other barcodes); ZXing-C++ now needs 3 agreeing scan lines.

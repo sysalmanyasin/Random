@@ -107,22 +107,30 @@ function nativeDetectorSupported() {
 
 // ── Pure helpers (unit-tested) ────────────────────────────────
 
-// Numeric EAN/UPC/GTIN codes carry a check digit that the decoders already
-// verify, so one read is trustworthy. Everything else (Code 128/39, QR...)
-// must be seen twice in a row before we accept it — kills one-frame misreads.
-function isChecksummed(code) { return /^\d+$/.test(code) && [8, 12, 13, 14].includes(code.length); }
+// Acceptance rules, designed to stop wrong numbers:
+//  - numeric 8/12/13/14 digits must pass the real GTIN mod-10 check digit, else it is a misread and is dropped;
+//  - every accepted code must be read identically on consecutive frames
+//    (2 for a valid GTIN, 3 for anything else, e.g. Code 128/39 internal labels).
+function gtinOk(code) {
+  if (!/^\d+$/.test(code) || ![8, 12, 13, 14].includes(code.length)) return false;
+  let sum = 0;
+  for (let i = code.length - 2, w = 3; i >= 0; i--, w = 4 - w) sum += Number(code[i]) * w;
+  return (10 - (sum % 10)) % 10 === Number(code[code.length - 1]);
+}
+function isChecksummed(code) { return gtinOk(code); }
+function isBadGtin(code) { return /^\d+$/.test(code) && [8, 12, 13, 14].includes(code.length) && !gtinOk(code); }
 
 function createConsensus(opts) {
-  const o = Object.assign({ needed: 2, windowMs: 1200, now: () => Date.now() }, opts);
+  const o = Object.assign({ windowMs: 1500, now: () => Date.now() }, opts);
   let lastCode = null, count = 0, firstTs = 0;
   return {
     accept(code) {
-      if (!code) return false;
-      if (isChecksummed(code)) return true;
+      if (!code || isBadGtin(code)) return false;
+      const needed = o.needed || (isChecksummed(code) ? 2 : 3);
       const t = o.now();
       if (code === lastCode && t - firstTs <= o.windowMs) count++;
       else { lastCode = code; count = 1; firstTs = t; }
-      if (count >= o.needed) { lastCode = null; count = 0; return true; }
+      if (count >= needed) { lastCode = null; count = 0; return true; }
       return false;
     },
     reset() { lastCode = null; count = 0; },
@@ -155,7 +163,8 @@ function clampZoom(zoom, v) {
   return Math.min(zoom.max, Math.max(zoom.min, v));
 }
 
-const NATIVE_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'code_93', 'codabar', 'itf', 'data_matrix', 'qr_code'];
+// ITF / Codabar / Code 93 are deliberately NOT listed: they are the usual source of phantom digits read from fragments of other barcodes.
+const NATIVE_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'data_matrix', 'qr_code'];
 
 // ── Camera adapter (browser only) ─────────────────────────────
 let current = null; // the one running camera: { track, caps, torchOn, zoomValue, videoEl, ... }
@@ -217,14 +226,16 @@ async function startCamera(hub, videoEl, opts) {
   let tick = 0;
   let nativeDecode = null;
   if (detector) {
-    nativeDecode = async () => {
-      // Alternate: laser-box strip (fast, ignores busy shelves) / whole frame (catches off-centre codes).
+    nativeDecode = async (quietMs) => {
+      // Only what is inside the laser box counts (packs often carry several barcodes). The whole frame is
+      // searched only after a long quiet spell.
       let r;
-      if (tick++ % 2 === 0 && typeof createImageBitmap === 'function' && videoEl.videoWidth) {
+      if (typeof createImageBitmap === 'function' && videoEl.videoWidth) {
         const rc = roiRect(videoEl.videoWidth, videoEl.videoHeight, videoEl.clientWidth, videoEl.clientHeight);
         const bm = await createImageBitmap(videoEl, rc.x, rc.y, rc.w, rc.h);
         try { r = await detector.detect(bm); } finally { if (bm.close) bm.close(); }
         if (r && r[0]) return r[0].rawValue;
+        if (quietMs < 3000) return null;
       }
       r = await detector.detect(videoEl);
       return r && r[0] ? r[0].rawValue : null;
@@ -305,10 +316,10 @@ async function startCamera(hub, videoEl, opts) {
         const quiet = t0 - lastReadAt;
         let v = null;
         if (nativeDecode) {
-          v = await nativeDecode();
-          if (!v && quiet > 1500) { try { await ensureEngine(); } catch (_) {} if (engine) v = await engine(videoEl); }
+          v = await nativeDecode(quiet);
+          if (!v && quiet > 1500) { try { await ensureEngine(); } catch (_) {} if (engine) v = await engine(videoEl, quiet); }
         } else {
-          v = await engine(videoEl);
+          v = await engine(videoEl, quiet);
         }
         if (!v && quiet > 2500 && t0 - lastStillAt > 5000) v = await tryStill();
         if (v && consensus.accept(v)) {
@@ -435,5 +446,5 @@ function feedback(kind) {
 export const BarcodeScanner = {
   createScanHub, createWedgeDetector, stripTypedScan, attachWedge, startCamera,
   cameraSupported, nativeDetectorSupported, feedback,
-  createConsensus, isChecksummed, summarizeCaps, defaultZoom, clampZoom, cameraControls, activeCamera,
+  createConsensus, isChecksummed, isBadGtin, summarizeCaps, defaultZoom, clampZoom, cameraControls, activeCamera,
 };

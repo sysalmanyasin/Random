@@ -20,8 +20,9 @@ export const ZXING_SRC = './js/vendor/zxing-library.min.js';
 // blur / rotation / low contrast / damaged codes than the JS port above, which stays as the fallback.
 export const ZXING_WASM_SRC = './js/vendor/zxing-wasm-reader.iife.js';
 export const ZXING_WASM_BIN = './js/vendor/zxing_reader.wasm';
-export const WASM_FORMATS = ['EAN13', 'EAN8', 'UPCA', 'UPCE', 'Code128', 'Code39', 'Code93', 'Codabar', 'ITF', 'DataMatrix', 'QRCode'];
-export const WASM_OPTIONS = { formats: WASM_FORMATS, tryHarder: true, tryRotate: true, tryInvert: true, tryDownscale: true, maxNumberOfSymbols: 1 };
+// No ITF / Codabar / Code93: they produce phantom digit strings from fragments of other barcodes.
+export const WASM_FORMATS = ['EAN13', 'EAN8', 'UPCA', 'UPCE', 'Code128', 'Code39', 'DataMatrix', 'QRCode'];
+export const WASM_OPTIONS = { formats: WASM_FORMATS, tryHarder: true, tryRotate: true, tryInvert: true, tryDownscale: true, maxNumberOfSymbols: 1, minLineCount: 3 };
 
 // Fractions of the VISIBLE video area covered by the on-screen laser box
 // (keep in sync with .bc-reticle in css/barcode.css).
@@ -75,8 +76,7 @@ function getReader(ZX) {
   const hints = new Map();
   hints.set(ZX.DecodeHintType.POSSIBLE_FORMATS, [
     ZX.BarcodeFormat.EAN_13, ZX.BarcodeFormat.EAN_8, ZX.BarcodeFormat.UPC_A, ZX.BarcodeFormat.UPC_E,
-    ZX.BarcodeFormat.CODE_128, ZX.BarcodeFormat.CODE_39, ZX.BarcodeFormat.CODE_93, ZX.BarcodeFormat.CODABAR,
-    ZX.BarcodeFormat.ITF, ZX.BarcodeFormat.DATA_MATRIX, ZX.BarcodeFormat.QR_CODE,
+    ZX.BarcodeFormat.CODE_128, ZX.BarcodeFormat.CODE_39, ZX.BarcodeFormat.DATA_MATRIX, ZX.BarcodeFormat.QR_CODE,
   ]);
   hints.set(ZX.DecodeHintType.TRY_HARDER, true);
   r = new ZX.MultiFormatReader();
@@ -178,17 +178,19 @@ export async function createVideoDecoder() {
     return decodeRGBA(ZX, cw, ch, img.data, { invert });
   };
 
-  const fn = async (video) => {
+  const fn = async (video, quietMs) => {
     const vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh) return null;
     const roi = roiRect(vw, vh, video.clientWidth, video.clientHeight);
     const t = tick++;
-    // WASM already tries rotation itself; we add the whole frame every other tick and a manual inverted strip every third.
+    // Only the laser-box strip is read normally (so a second barcode elsewhere on the pack is ignored);
+    // the whole frame is tried only after 3 s of silence. A manual inverted strip runs every third tick.
     const passes = Z
       ? [{ region: roi, maxW: 1280 }]
-          .concat(t % 2 === 1 ? [{ region: { x: 0, y: 0, w: vw, h: vh }, maxW: 1280 }] : [])
           .concat(t % 3 === 2 ? [{ region: roi, maxW: 1280, invert: true }] : [])
-      : planPasses(t).map(p => ({ region: p.region === 'roi' ? roi : { x: 0, y: 0, w: vw, h: vh }, maxW: p.maxW, invert: p.invert }));
+          .concat((quietMs || 0) > 3000 && t % 2 === 1 ? [{ region: { x: 0, y: 0, w: vw, h: vh }, maxW: 1280 }] : [])
+      : planPasses(t).filter(p => p.region === 'roi' || (quietMs || 0) > 3000)
+          .map(p => ({ region: p.region === 'roi' ? roi : { x: 0, y: 0, w: vw, h: vh }, maxW: p.maxW, invert: p.invert }));
     for (const p of passes) {
       const text = await decodeRegion(video, p.region, p.maxW, p.invert);
       if (text) return text;
