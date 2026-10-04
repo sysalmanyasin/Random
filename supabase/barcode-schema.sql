@@ -294,18 +294,16 @@ grant execute on function disable_barcode(text,text) to authenticated;
 grant execute on function report_barcode_conflict(text,text,text) to authenticated;
 grant execute on function resolve_barcode_conflict(text,text,text) to authenticated;
 
--- ── Counting method / blind count (audit configuration) ────────
+-- ── Counting method (audit configuration) ────────
 -- On engagements (Main Auditor config) AND copied onto each assignment,
 -- because Sub-Auditors can read their own assignment but not engagements.
 alter table engagements add column if not exists counting_method text not null default 'hybrid'
   check (counting_method in ('manual','barcode','hybrid'));
-alter table engagements add column if not exists blind_count boolean not null default false;
 alter table assignments add column if not exists counting_method text not null default 'hybrid'
   check (counting_method in ('manual','barcode','hybrid'));
-alter table assignments add column if not exists blind_count boolean not null default false;
 
--- Re-declare the Sub-Auditor guard so the two new columns are Main-only
--- (otherwise a Sub could switch off blind counting on their own row).
+-- Re-declare the Sub-Auditor guard so counting_method is Main-only
+-- (otherwise a Sub could change the method on their own row).
 create or replace function restrict_subauditor_assignment_updates()
 returns trigger language plpgsql security definer as $$
 begin
@@ -318,8 +316,7 @@ begin
      or new.method is distinct from old.method
      or new.auditor_id is distinct from old.auditor_id
      or new.round_id is distinct from old.round_id
-     or new.counting_method is distinct from old.counting_method
-     or new.blind_count is distinct from old.blind_count then
+     or new.counting_method is distinct from old.counting_method then
     raise exception 'Sub-Auditors may only update the status field on their own assignment';
   end if;
   if old.status = 'submitted' then

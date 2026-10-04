@@ -15,6 +15,7 @@ import { TemplatesRepo } from './repository/templates.js';
 import { LS, SS } from './repository/storage.js';
 import { SupabaseRepo } from './repository/supabase.js';
 import { ExpiryRepo } from './repository/expiry.js';
+import { BarcodeRepo } from './repository/barcode.js';
 
 export const Repo = {
   // db lifecycle
@@ -38,4 +39,7 @@ export const Repo = {
 
   // Expiry Tracking module (racks, monthly rack assignments, expiry log)
   ...ExpiryRepo,
+
+  // Barcode master + offline mirror/outbox
+  ...BarcodeRepo,
 };

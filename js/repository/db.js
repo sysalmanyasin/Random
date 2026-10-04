@@ -14,7 +14,10 @@ export const DB_NAME = 'FazalDinPharmaPlus_AuditEngine';
 // v4 → v5: added `templates` (Inventory tab — saved random-audit
 // code lists). Local-first, same as products; best-effort synced to
 // Supabase's audit_templates table by repository/supabase.js.
-export const DB_VERSION = 5;
+// v5 → v6: barcodeCache (offline mirror of product_barcodes) and
+// barcodeOutbox (scan events / registrations waiting to sync). Additive
+// only — existing stores are untouched.
+export const DB_VERSION = 6;
 
 let db = null;
 
@@ -32,6 +35,8 @@ function openDB() {
         hs.createIndex('byCompany', 'company', { unique: false });
       }
       if (!d.objectStoreNames.contains('templates')) d.createObjectStore('templates', { keyPath: 'id' });
+      if (!d.objectStoreNames.contains('barcodeCache')) d.createObjectStore('barcodeCache', { keyPath: 'barcode' });
+      if (!d.objectStoreNames.contains('barcodeOutbox')) d.createObjectStore('barcodeOutbox', { keyPath: 'id' });
     };
   });
 }
