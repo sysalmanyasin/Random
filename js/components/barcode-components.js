@@ -22,6 +22,7 @@ export function barcodeSubnavHTML({ view, canRegister, conflictCount, unverified
     ['scan', '📷 Scan'], ['master', '📚 Master'],
     ...(canRegister ? [['register', '➕ Register'], ['queue', '✅ Queue' + (unverifiedCount ? ' (' + unverifiedCount + ')' : '')]] : []),
     ['conflicts', '⚠️ Conflicts' + (conflictCount ? ' (' + conflictCount + ')' : '')], ['history', '🕘 Scans'],
+    ...(canRegister ? [['reports', '📊 Reports']] : []),
   ];
   return `<div style="display:flex; gap:8px; margin:10px 0; overflow-x:auto; padding-bottom:4px;">` +
     tabs.map(([v, l]) => `<button class="filter-btn ${view === v ? 'filter-btn-active' : ''}" style="white-space:nowrap; min-height:44px;" data-action="barcode-set-subview" data-subview="${v}">${esc(l)}</button>`).join('') + `</div>`;
@@ -38,7 +39,8 @@ export function barcodeStatusBarHTML({ online, syncing, pending, size }) {
   return `<div class="bc-status">${pills.join('')}</div>`;
 }
 
-export function barcodeScannerBoxHTML({ cameraOn, cameraSupported, hint }) {
+export function barcodeScannerBoxHTML({ cameraOn, cameraSupported, hint, camPrefix }) {
+  const cp = camPrefix || 'barcode';
   return `
     <div class="bc-scanner" id="bc-scanner-box">
       <video id="bc-video" playsinline muted ${cameraOn ? '' : 'style="display:none;"'}></video>
@@ -46,7 +48,7 @@ export function barcodeScannerBoxHTML({ cameraOn, cameraSupported, hint }) {
         <div class="bc-scanner-idle">
           <div style="font-size:34px;">📷</div>
           <div>${cameraSupported ? 'Tap to start the camera' : 'No camera available — use a scanner or type the code'}</div>
-          ${cameraSupported ? '<button class="bc-btn bc-btn--gold" style="width:auto;" data-action="barcode-camera-start">Start camera</button>' : ''}
+          ${cameraSupported ? '<button class="bc-btn bc-btn--gold" style="width:auto;" data-action="${cp}-camera-start">Start camera</button>' : ''}
         </div>`}
     </div>
     <div style="font-size:11px; color:var(--grey); font-weight:700; margin-top:6px; text-align:center;">${esc(hint || 'USB / Bluetooth scanners work here too — just scan.')}</div>
@@ -54,7 +56,7 @@ export function barcodeScannerBoxHTML({ cameraOn, cameraSupported, hint }) {
       <input type="text" inputmode="numeric" autocomplete="off" id="bc-manual-input" class="bc-field" placeholder="Type or paste barcode" aria-label="Barcode" data-keydown-action="barcode-manual-key">
       <button class="bc-btn bc-btn--primary" style="flex:0 0 96px;" data-action="barcode-manual-submit">Go</button>
     </div>
-    ${cameraOn ? '<button class="bc-btn bc-btn--ghost" style="margin-top:8px; min-height:44px;" data-action="barcode-camera-stop">Stop camera</button>' : ''}`;
+    ${cameraOn ? '<button class="bc-btn bc-btn--ghost" style="margin-top:8px; min-height:44px;" data-action="${cp}-camera-stop">Stop camera</button>' : ''}`;
 }
 
 // The five result states. `r` = BarcodeActions.processScan() result.
@@ -203,4 +205,65 @@ export function barcodeScanHistoryHTML({ events, nameFor, productName }) {
       <div style="font-weight:800; color:var(--navy); font-size:13px;">${esc(e.productCode ? productName(e.productCode) : '—')}</div>
       <div class="bc-sub">${esc(nameFor(e.userId))} · ${esc(e.scanType)} · ${esc(fmtDate(e.scannedAt))}</div></div>
       <span class="bc-pill bc-pill--${RESULT_PILL[e.result] || 'info'}">${esc(e.result)}</span></div>`).join('')}</div>`;
+}
+
+const METHODS = [
+  ['manual', 'Manual', 'Search and type counts (unchanged).'],
+  ['barcode', 'Barcode', 'Scan each product, then enter the count.'],
+  ['hybrid', 'Hybrid', 'Scan or search — auditor chooses. Default.'],
+];
+export function countingMethodCardHTML(engagement) {
+  const cur = engagement.countingMethod || 'hybrid';
+  return `<div class="card" style="margin-top:14px;">
+    <div class="card-title" style="margin-top:0;">Counting Method</div>
+    <div style="font-size:11px; color:var(--grey); margin:-4px 0 8px;">Applies to every assignment in this audit, including recounts.</div>
+    ${METHODS.map(([v, l, d]) => `<label style="display:flex; gap:10px; align-items:flex-start; padding:10px 4px; min-height:44px; cursor:pointer;">
+        <input type="radio" name="counting-method" value="${v}" ${cur === v ? 'checked' : ''} data-change-action="set-counting-method" data-engagement-id="${esc(engagement.id)}" style="margin-top:3px;">
+        <span><span style="font-weight:800; color:var(--navy);">${l}</span><br><span style="font-size:11px; color:var(--grey);">${d}</span></span></label>`).join('')}
+  </div>`;
+}
+
+// Scan bar shown above the counting table. method: manual | barcode | hybrid
+export function countingScanBarHTML(method, locked) {
+  if (method === 'manual' || locked) return '';
+  return `<button class="bc-btn bc-btn--primary" style="margin:0 0 10px; min-height:56px; font-size:17px;" data-action="barcode-count-open">📷 Scan to count</button>`;
+}
+
+// Full-screen scan-to-count overlay body.
+//   state: scanning | count | choose | message
+export function countingOverlayHTML(o) {
+  const head = `<div style="display:flex; align-items:center; gap:8px; padding:10px 12px; background:var(--navy); color:#fff;">
+      <div style="flex:1; font-weight:800; font-size:14px;">${o.recount ? 'Recount scan' : 'Scan to count'} · ${esc(o.counted)} / ${esc(o.total)} counted</div>
+      <button class="bc-btn" style="width:auto; min-height:44px; font-size:14px; background:#fff; color:var(--navy);" data-action="barcode-count-close">Done</button></div>`;
+  let body = '';
+  if (o.state === 'count') {
+    body = `<div class="bc-card bc-card--matched" style="margin:12px;">
+        ${o.duplicate ? '<div class="bc-pill bc-pill--warn" style="margin-bottom:8px;">ALREADY COUNTED — you can update it</div>' : '<span class="bc-pill bc-pill--ok">✓ MATCHED</span>'}
+        <div class="bc-big" style="margin-top:8px;">${esc(o.item.name)}</div>
+        <div class="bc-sub">Code: ${esc(o.item.code || '—')}${o.item.company ? ' · ' + esc(o.item.company) : ''}</div>
+        <div class="bc-label">System Qty</div><div class="bc-big">${esc(o.item.qty)}</div>
+        <div class="bc-label">Physical Qty</div>
+        <input type="number" inputmode="numeric" min="0" step="1" id="bc-count-qty" class="bc-field" style="font-size:28px; font-weight:900; text-align:center;" value="${o.current === undefined ? '' : esc(o.current)}" placeholder="0" data-keydown-action="barcode-count-key" aria-label="Physical quantity for ${esc(o.item.name)}">
+        <button class="bc-btn bc-btn--green" style="margin-top:12px; min-height:60px; font-size:19px;" data-action="barcode-count-confirm" data-item-key="${esc(o.item.itemKey)}">CONFIRM</button>
+        <button class="bc-btn bc-btn--ghost" style="margin-top:8px; min-height:44px;" data-action="barcode-count-skip">Cancel — scan another</button>
+      </div>`;
+  } else if (o.state === 'choose') {
+    body = `<div class="bc-card" style="margin:12px;"><div class="bc-big">${esc(o.name)}</div>
+        <div class="bc-sub">This product code appears under more than one company in this assignment. Which one did you scan?</div>
+        ${o.candidates.map(c => `<button class="bc-btn bc-btn--ghost" style="margin-top:8px;" data-action="barcode-count-pick" data-item-key="${esc(c.itemKey)}">${esc(c.company || 'Company')} — System ${esc(c.qty)}</button>`).join('')}
+        <button class="bc-btn bc-btn--ghost" style="margin-top:8px; min-height:44px;" data-action="barcode-count-skip">Cancel</button></div>`;
+  } else {
+    body = `<div id="bc-count-scanwrap" style="padding:12px;">${o.scannerHTML}</div>${o.message ? `<div style="padding:0 12px;">${o.message}</div>` : ''}`;
+  }
+  return head + `<div style="flex:1; overflow:auto;">${body}</div>`;
+}
+
+export function barcodeReportsHTML() {
+  const b = (k, icon, t, d) => `<button class="bc-btn bc-btn--ghost" style="text-align:left; margin-top:10px;" data-action="barcode-export" data-kind="${k}">${icon} ${t}<br><span style="font-size:12px; font-weight:600; color:var(--grey);">${d}</span></button>`;
+  return `<div class="bc-label">Export to Excel</div>` +
+    b('master', '📚', 'Barcode Master Report', 'Every registered barcode, its product and status') +
+    b('verification', '✅', 'Barcode Verification Report', 'Unverified and verified mappings') +
+    b('conflicts', '⚠️', 'Barcode Conflict Report', 'Open conflicts and their resolution history') +
+    b('scans', '🕘', 'Barcode Scan History', 'Who scanned what, when, in which audit and round') +
+    `<div class="bc-sub" style="margin-top:12px;">Needs a connection. Barcodes also appear as the last column of the Variance and Final Audit exports. Barcode actions are in the Audit Trail.</div>`;
 }

@@ -20,6 +20,7 @@ let wedgeAttached = false;
 let consumer = null;          // fn({raw, source}) while a screen wants scans
 let camera = null;            // { stop() } while the camera is running
 let cameraOn = false;
+let externalSession = false;  // a counting screen owns the scanner; Barcode Center must not tear it down
 
 // UI-only state for this screen
 const ui = {
@@ -44,13 +45,14 @@ function ensureWedge() {
    needs an explicit user tap (browser rule). */
 export function openScannerSession(onScan) {
   ensureWedge();
+  externalSession = true;
   consumer = onScan;
   hub.onScan((s) => { if (consumer) consumer(s); });
   hub.resume();
   return {
     async startCamera(videoEl) { await _startCamera(videoEl); },
     stopCamera: _stopCamera,
-    close() { _stopCamera(); consumer = null; hub.pause(); },
+    close() { _stopCamera(); consumer = null; externalSession = false; hub.pause(); },
   };
 }
 async function _startCamera(videoEl) {
@@ -113,6 +115,7 @@ function renderBody() {
     else if (v === 'queue') renderQueue();
     else if (v === 'conflicts') renderConflicts();
     else if (v === 'history') renderHistory();
+    else if (v === 'reports') { const e = $('bc-body'); if (e) e.innerHTML = Components.barcodeReportsHTML(); }
     else if (v === 'detail') renderDetail();
   }
 }
@@ -230,7 +233,7 @@ async function submitManual() {
 export function initBarcodePages() {
   Bus.on('view:activated', (page) => {
     if (page === 'barcode') { ensureWedge(); ui.view = ui.view === 'detail' ? 'master' : ui.view; renderShell(); }
-    else { _stopCamera(); if (consumer) { consumer = null; hub.pause(); } }
+    else if (!externalSession) { _stopCamera(); if (consumer) { consumer = null; hub.pause(); } }
   });
   Bus.on('barcode:status', () => { if (pageActive()) renderStatus(); });
   Bus.on('barcode:synced', (s) => {
@@ -248,6 +251,20 @@ export function initBarcodePages() {
   const clickHandlers = {
     'barcode-set-subview': (el) => setView(el.dataset.subview),
     'barcode-sync-now': () => Actions.syncBarcodesNow(),
+    'barcode-export': async (el) => {
+      if (!Actions.barcodeCanRegister()) return;
+      const kind = el.dataset.kind;
+      const { engagements, rounds } = Store.getState();
+      const ctx = {
+        nameFor: _nameFor, productName: (c) => { const p = Actions.productByCode(c); return p ? p.name : ''; },
+        auditName: (id) => { const e = (engagements || []).find(x => x.id === id); return e ? e.name : ''; },
+        roundLabel: (id) => { const r = (rounds || []).find(x => x.id === id); return r ? 'Round ' + r.roundNumber + (r.roundSuffix || '') : ''; },
+      };
+      const data = { rows: Actions.barcodeRows(), ctx };
+      if (kind === 'conflicts') data.history = await Actions.loadBarcodeHistory();
+      if (kind === 'scans') data.events = await Actions.loadScanHistory({ limit: 5000 });
+      Actions.exportBarcodeReportXLSX(kind, data);
+    },
     'barcode-camera-start': async () => {
       if (!$('bc-scanner-wrap')) return;
       try {

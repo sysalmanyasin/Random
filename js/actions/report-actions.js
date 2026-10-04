@@ -2,6 +2,8 @@ import { Bus } from './bus.js';
 import { logAudit } from './audit-log-actions.js';
 import { DashboardActions } from './dashboard-actions.js';
 import { Store } from '../store.js';
+import { BarcodeActions } from './barcode-actions.js';
+import * as BarcodeReports from '../barcode/barcode-reports.js';
 const _fmtDuration = DashboardActions.formatDuration;
 
 /* ══════════════════════════════════════════════════════════════
@@ -21,6 +23,12 @@ function _downloadWorkbook(rowsBySheet, filename) {
   XLSX.writeFile(wb, filename);
 }
 
+// Barcode(s) registered for a product code — shown as the LAST column of the
+// existing reports so no existing column moves.
+function _barcodeCell(code) {
+  try { return code ? BarcodeReports.barcodeCellFor(BarcodeActions.barcodesForProduct(code)) : ''; } catch (_) { return ''; }
+}
+
 function exportFinalAuditReportXLSX(snapshot, engagementName) {
   const rows = [['Final Audit Report — ' + engagementName]];
   rows.push(['Generated', new Date(snapshot.generatedAt).toLocaleString('en-PK')]);
@@ -32,10 +40,10 @@ function exportFinalAuditReportXLSX(snapshot, engagementName) {
   rows.push(['Total Items In Scope', snapshot.report.totalItems]);
   rows.push(['Net Variance Value (Rs)', Number(snapshot.report.totalVarianceValue.toFixed(2))]);
 
-  const invRows = [['Company', 'Code', 'Name', 'Book Qty', 'Final Qty', 'Variance', 'Price', 'Variance Value (Rs)']];
+  const invRows = [['Company', 'Code', 'Name', 'Book Qty', 'Final Qty', 'Variance', 'Price', 'Variance Value (Rs)', 'Barcode(s)']];
   snapshot.finalInventory.forEach(p => {
     const variance = p.qty - (p.systemQty !== undefined ? p.systemQty : p.qty);
-    invRows.push([p.company, p.code || '', p.name, p.systemQty !== undefined ? p.systemQty : p.qty, p.qty, variance, p.price, Number((variance * p.price).toFixed(2))]);
+    invRows.push([p.company, p.code || '', p.name, p.systemQty !== undefined ? p.systemQty : p.qty, p.qty, variance, p.price, Number((variance * p.price).toFixed(2)), _barcodeCell(p.code)]);
   });
 
   _downloadWorkbook({ 'Final Report': rows, 'Final Inventory': invRows }, 'FinalAuditReport_' + engagementName.replace(/\s+/g, '_') + '.xlsx');
@@ -80,10 +88,10 @@ function exportVarianceReportXLSX(compiledRound, roundLabel, meta) {
   if (meta.mainAuditorName) rows.push(['Main Auditor', meta.mainAuditorName]);
   if (meta.branchName) rows.push(['Branch', meta.branchName]);
   rows.push([]);
-  rows.push(['Product Code', 'Product Name', 'Company', 'Unit Price (Rs)', 'System Quantity', 'Physical Quantity', 'Variance', 'Variance Amount (Rs)', 'Sub Auditor', 'Verified', 'Confirmed Same', 'Cross-Round Conflict']);
+  rows.push(['Product Code', 'Product Name', 'Company', 'Unit Price (Rs)', 'System Quantity', 'Physical Quantity', 'Variance', 'Variance Amount (Rs)', 'Sub Auditor', 'Verified', 'Confirmed Same', 'Cross-Round Conflict', 'Barcode(s)']);
   let grandQtyVar = 0, grandValueVar = 0;
   varianceRows.forEach(r => {
-    rows.push([r.code, r.name, r.company, r.price, r.systemQty, r.countedQty, r.variance, r.valueVariance, r.auditorName, r.verified, r.confirmedSame ? 'Yes' : '', r.conflictMarker]);
+    rows.push([r.code, r.name, r.company, r.price, r.systemQty, r.countedQty, r.variance, r.valueVariance, r.auditorName, r.verified, r.confirmedSame ? 'Yes' : '', r.conflictMarker, _barcodeCell(r.code)]);
     grandQtyVar += r.variance;
     grandValueVar += r.valueVariance;
   });
@@ -174,10 +182,10 @@ function exportCombinedVarianceReportXLSX(roundsWithCompiled, meta) {
   if (meta.mainAuditorName) rows.push(['Main Auditor', meta.mainAuditorName]);
   if (meta.branchName) rows.push(['Branch', meta.branchName]);
   rows.push([]);
-  rows.push(['Product Code', 'Product Name', 'Company', 'Unit Price (Rs)', 'System Quantity', 'Physical Quantity', 'Variance', 'Variance Amount (Rs)', 'Round', 'Duplicate (recounted item)', 'Verified', 'Cross-Round Conflict']);
+  rows.push(['Product Code', 'Product Name', 'Company', 'Unit Price (Rs)', 'System Quantity', 'Physical Quantity', 'Variance', 'Variance Amount (Rs)', 'Round', 'Duplicate (recounted item)', 'Verified', 'Cross-Round Conflict', 'Barcode(s)']);
   let grandQtyVar = 0, grandValueVar = 0;
   combinedRows.forEach(r => {
-    rows.push([r.code, r.name, r.company, r.price, r.systemQty, r.countedQty, r.variance, r.valueVariance, r.roundAndAuditor, r.isDuplicate ? 'Yes' : '', r.verified, r.conflictMarker]);
+    rows.push([r.code, r.name, r.company, r.price, r.systemQty, r.countedQty, r.variance, r.valueVariance, r.roundAndAuditor, r.isDuplicate ? 'Yes' : '', r.verified, r.conflictMarker, _barcodeCell(r.code)]);
     grandQtyVar += r.variance;
     grandValueVar += r.valueVariance;
   });
@@ -277,7 +285,24 @@ function exportAuditTrailXLSX(engagement, auditLog) {
   logAudit('report:auditTrailExported', { engagementId: engagement.id });
 }
 
+// kind: master | verification | conflicts | scans.  data comes from the Barcode Center.
+function exportBarcodeReportXLSX(kind, data) {
+  const ctx = data.ctx || {};
+  const builders = {
+    master: () => ['Barcode Master', BarcodeReports.buildBarcodeMasterRows(data.rows, ctx), 'BarcodeMasterReport'],
+    verification: () => ['Barcode Verification', BarcodeReports.buildBarcodeVerificationRows(data.rows, ctx), 'BarcodeVerificationReport'],
+    conflicts: () => ['Barcode Conflicts', BarcodeReports.buildBarcodeConflictRows(data.rows, data.history, ctx), 'BarcodeConflictReport'],
+    scans: () => ['Barcode Scan History', BarcodeReports.buildBarcodeScanHistoryRows(data.events || [], ctx), 'BarcodeScanHistory'],
+  };
+  if (!builders[kind]) return;
+  const [sheet, rows, file] = builders[kind]();
+  _downloadWorkbook({ [sheet]: rows }, file + '_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+  logAudit('report:barcode' + kind[0].toUpperCase() + kind.slice(1) + 'Exported', { rows: rows.length });
+  Bus.emit('toast', { msg: sheet + ' report exported', kind: 'success' });
+}
+
 export const ReportActions = {
+  exportBarcodeReportXLSX,
   exportFinalAuditReportXLSX, exportVarianceReportXLSX, buildVarianceReportRows,
   buildCombinedVarianceReportRows, exportCombinedVarianceReportXLSX,
   exportRoundHistoryXLSX, exportSubmissionHistoryXLSX, exportAuditTrailXLSX,

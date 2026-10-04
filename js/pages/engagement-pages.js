@@ -431,6 +431,8 @@ function renderEngagementDetailHTML(engagement) {
       </div>
     </div>
 
+    ${canManage ? Components.countingMethodCardHTML(engagement) : ''}
+
     ${canManage ? `
     <div class="history-header" data-action="toggle-engagement-danger-zone" role="button" tabindex="0" aria-expanded="${engagementDangerZoneOpen}" style="margin-top:18px;">
       <span style="font-size:11px; font-weight:700; color:var(--grey);">⚠️ Advanced — close or delete this engagement</span>
@@ -1814,6 +1816,11 @@ export function initEngagementPages() {
   };
 
   const changeHandlers = {
+    'set-counting-method': async (el) => {
+      const r = await Actions.setCountingMethod(el.dataset.engagementId, el.value);
+      if (r.ok) Bus.emit('toast', { msg: 'Counting method updated', kind: 'success' });
+      renderTeamTab(); // reflects the saved value (or snaps back if it failed)
+    },
     'scope-type-changed': () => {
       const type = $('new-engagement-scope-type').value;
       const wrap = $('scope-picker-wrap');

@@ -156,6 +156,22 @@ const changeBarcode = (barcode, productCode, notes) => _admin('Changing', () => 
 const reportBarcodeConflict = (barcode, productCode, notes) => _admin('Reporting', () => Repo.reportBarcodeConflict(_client(), { barcode, productCode, notes }), 'barcode:conflictReported', { barcode, productCode });
 const resolveBarcodeConflict = (barcode, resolution, notes) => _admin('Resolving', () => Repo.resolveBarcodeConflict(_client(), { barcode, resolution, notes }), 'barcode:conflictResolved', { barcode, resolution });
 
+// Main only (enforced by the database too). Updates the open engagement in Store.
+async function setCountingMethod(engagementId, method) {
+  if (!canAdminister()) return { ok: false };
+  if (!_needOnline('Changing the counting method')) return { ok: false };
+  try {
+    await Repo.setEngagementCountingMethod(_client(), engagementId, method);
+    const { engagements, myAssignments } = Store.getState();
+    Store.setState({
+      engagements: (engagements || []).map(e => e.id === engagementId ? Object.assign({}, e, { countingMethod: method }) : e),
+      myAssignments: (myAssignments || []).map(a => a.engagementId === engagementId ? Object.assign({}, a, { countingMethod: method }) : a),
+    });
+    logAudit('engagement:countingMethod', { engagementId, method });
+    return { ok: true };
+  } catch (err) { return _fail(err); }
+}
+
 async function loadBarcodeHistory(barcode) {
   if (!isOnline()) return [];
   try { return await Repo.fetchBarcodeHistory(_client(), barcode); } catch (err) { _fail(err); return []; }
@@ -181,7 +197,7 @@ export const BarcodeActions = {
   initBarcodes, refreshBarcodes, barcodeRows, barcodeStatus, barcodePendingCount, syncBarcodesNow,
   processScan, productByCode, searchProducts, searchMaster, barcodesForProduct,
   registerBarcode, verifyBarcode, disableBarcode, changeBarcode, reportBarcodeConflict, resolveBarcodeConflict,
-  loadBarcodeHistory, loadScanHistory,
+  loadBarcodeHistory, loadScanHistory, setCountingMethod,
   barcodeStaffName: staffName,
   barcodeCanRegister: canRegister, barcodeCanAdminister: canAdminister, barcodeIsOnline: isOnline,
 };

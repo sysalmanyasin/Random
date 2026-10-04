@@ -1,6 +1,7 @@
 import { Store } from '../store.js';
 import { Actions, Bus } from '../actions.js';
 import { Components } from '../components.js';
+import { initBarcodeCounting } from './barcode-counting-pages.js';
 
 /* ══════════════════════════════════════════════════════════════
    FLOOR 5 — PAGES / sub-pages.js
@@ -68,8 +69,9 @@ export function renderTeamTabForSubAuditor() {
         oninput="this.style.height='auto'; this.style.height=this.scrollHeight+'px';"
         ${isLocked ? 'disabled' : ''}>${Components.esc(myExtraNote || '')}</textarea>
     </div>` : ''}
-    <input type="text" id="sub-counting-search-input" class="settings-input" placeholder="🔍 Search items…" aria-label="Search items in this assignment"
-      data-input-action="filter-counting-items" style="margin-bottom:10px;">
+    ${Components.countingScanBarHTML(assignment.countingMethod || 'hybrid', isLocked)}
+    ${(assignment.countingMethod === 'barcode' && !isLocked) ? '' : `<input type="text" id="sub-counting-search-input" class="settings-input" placeholder="🔍 Search items…" aria-label="Search items in this assignment"
+      data-input-action="filter-counting-items" style="margin-bottom:10px;">`}
     <div style="background:white; border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden;">
       <table class="audit-table">
         <thead><tr>
@@ -411,6 +413,11 @@ Bus.on('counting:sameApplied', () => { renderCountingRows(); refreshDashboardCar
 Bus.on('counting:countChanged', refreshDashboardCard);
 
 export function initSubPages() {
+  // Scan-to-count reuses the existing Actions.recordMyCount; when it saves a
+  // count we just repaint the same rows/dashboard the manual input repaints.
+  const barcodeCounting = initBarcodeCounting({
+    onCounted: (item) => { renderCountingRows(); refreshDashboardCard(); if (item) _refreshGroupHeaderImpact(item.company); },
+  });
   const clickHandlers = {
     'sub-open-assignment': async (el) => {
       collapsedCompanyGroups = new Set();
@@ -606,5 +613,7 @@ export function initSubPages() {
     },
   };
 
+  Object.assign(clickHandlers, barcodeCounting.clickHandlers);
+  Object.assign(keydownHandlers, barcodeCounting.keydownHandlers);
   return { clickHandlers, inputHandlers, keydownHandlers, changeHandlers: {} };
 }

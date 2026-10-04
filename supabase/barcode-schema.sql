@@ -344,3 +344,35 @@ language sql security definer stable set search_path = public as $$
 $$;
 revoke all on function barcode_staff_names() from public, anon;
 grant execute on function barcode_staff_names() to authenticated;
+
+-- ── Counting method inheritance + setter ───────────────────────
+-- Every NEW assignment (company split, item split, self-pick, recount)
+-- copies counting_method from its audit at insert time, so no client
+-- creation path needs to know about it, and a Sub cannot choose their own.
+create or replace function assignments_inherit_counting_method()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare v text;
+begin
+  select e.counting_method into v
+    from rounds r join engagements e on e.id = r.engagement_id
+   where r.id = new.round_id;
+  if v is not null then new.counting_method := v; end if;
+  return new;
+end $$;
+drop trigger if exists assignments_inherit_counting_method_trg on assignments;
+create trigger assignments_inherit_counting_method_trg
+  before insert on assignments for each row execute function assignments_inherit_counting_method();
+
+-- Main only: changes the audit's method and pushes it to existing assignments.
+create or replace function set_engagement_counting_method(p_engagement_id uuid, p_method text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not is_main_valid() then raise exception 'Only a Main Auditor can change the counting method'; end if;
+  if p_method not in ('manual','barcode','hybrid') then raise exception 'Invalid counting method'; end if;
+  update engagements set counting_method = p_method where id = p_engagement_id;
+  if not found then raise exception 'Engagement not found'; end if;
+  update assignments set counting_method = p_method
+   where round_id in (select id from rounds where engagement_id = p_engagement_id);
+end $$;
+revoke all on function set_engagement_counting_method(uuid,text) from public, anon;
+grant execute on function set_engagement_counting_method(uuid,text) to authenticated;

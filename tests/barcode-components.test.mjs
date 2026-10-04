@@ -64,3 +64,29 @@ test('master list, detail, queue, history, status bar render', () => {
   assert.ok(off.includes('Offline') && off.includes('3 waiting'));
   assert.ok(C.barcodeStatusBarHTML({ online: true, syncing: true, pending: 0, size: 1 }).includes('Syncing'));
 });
+
+test('counting overlay: count state shows system qty, physical input and CONFIRM wired to the item', () => {
+  const html = C.countingOverlayHTML({ state: 'count', item: { itemKey: 'A::3', name: 'Lays 50g', code: 'P1', company: 'PepsiCo', qty: 24 }, counted: 3, total: 40, recount: false, duplicate: false, current: undefined });
+  assert.ok(html.includes('System Qty') && html.includes('24') && html.includes('bc-count-qty'));
+  assert.ok(html.includes('barcode-count-confirm') && html.includes('data-item-key="A::3"'));
+  assert.ok(html.includes('3 / 40'));
+});
+test('counting overlay: duplicate warns and pre-fills existing count; recount is labelled', () => {
+  const html = C.countingOverlayHTML({ state: 'count', item: { itemKey: 'k', name: 'X', qty: 5 }, counted: 1, total: 2, recount: true, duplicate: true, current: 7 });
+  assert.ok(html.includes('ALREADY COUNTED') && html.includes('value="7"') && html.includes('Recount scan'));
+});
+test('counting overlay: same code under two companies asks which one', () => {
+  const html = C.countingOverlayHTML({ state: 'choose', name: 'Panadol', candidates: [{ itemKey: 'a', company: 'GSK', qty: 1 }, { itemKey: 'b', company: 'Haleon', qty: 2 }], counted: 0, total: 2 });
+  assert.ok(html.includes('barcode-count-pick') && html.includes('GSK') && html.includes('Haleon'));
+});
+test('scan bar: hidden for Manual and when submitted; shown for Barcode and Hybrid', () => {
+  assert.equal(C.countingScanBarHTML('manual', false), '');
+  assert.equal(C.countingScanBarHTML('hybrid', true), '');
+  assert.ok(C.countingScanBarHTML('barcode', false).includes('barcode-count-open'));
+  assert.ok(C.countingScanBarHTML('hybrid', false).includes('barcode-count-open'));
+});
+test('counting method card marks the current choice and offers all three', () => {
+  const html = C.countingMethodCardHTML({ id: 'e1', countingMethod: 'barcode' });
+  assert.ok(/value="barcode" checked/.test(html) && html.includes('value="manual"') && html.includes('value="hybrid"'));
+  assert.ok(/value="hybrid" checked/.test(C.countingMethodCardHTML({ id: 'e1' })), 'hybrid is the default');
+});

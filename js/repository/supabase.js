@@ -86,6 +86,7 @@ function _rowToEngagement(row) {
     // company-based UI keeps working untouched. scope.month only set
     // when scope.type === 'individual' — see individual-actions.js.
     scope: { type: row.scope_type, companies: row.scope_companies || [], codes: row.scope_codes || [], month: row.scope_month || null },
+    countingMethod: row.counting_method || 'hybrid',
     createdAt: row.created_at,
   };
 }
@@ -96,6 +97,12 @@ async function insertEngagement(client, e) {
   }).select().single();
   if (error) throw error;
   return _rowToEngagement(data);
+}
+// Main-only RPC (checked in the database): sets the audit's counting method
+// and pushes it to the audit's existing assignments.
+async function setEngagementCountingMethod(client, id, method) {
+  const { error } = await client.rpc('set_engagement_counting_method', { p_engagement_id: id, p_method: method });
+  if (error) throw error;
 }
 async function updateEngagementStatus(client, id, status) {
   const { error } = await client.from('engagements').update({ status }).eq('id', id);
@@ -198,6 +205,7 @@ function _rowToAssignment(row) {
     method: row.method, status: row.status, progressCount: row.progress_count || 0,
     liveSnapshot: row.live_snapshot || {}, createdAt: row.created_at, startedAt: row.started_at || null,
     templateName: row.template_name || null,
+    countingMethod: row.counting_method || 'hybrid',
   };
 }
 async function insertAssignments(client, list) {
@@ -548,7 +556,7 @@ async function applyRoundCorrection(client, roundId, itemKey, correction) {
 export const SupabaseRepo = {
   buildSupabaseClient, signInWithPhonePin, signOut, getSession, onAuthStateChange, callAdminAction,
   fetchMyStaffProfile, fetchAllStaff, setStaffAccessExpiry,
-  insertEngagement, updateEngagementStatus, updateEngagementScope, deleteEngagement, fetchEngagements,
+  insertEngagement, setEngagementCountingMethod, updateEngagementStatus, updateEngagementScope, deleteEngagement, fetchEngagements,
   insertRound, updateRound, deleteRound, fetchRoundsByEngagement, fetchRoundById, fetchOpenRoundsAcrossEngagements,
   insertAssignments, updateAssignment, fetchAssignmentsByRound, fetchAssignmentProgressByRound, fetchAssignmentById, fetchMyAssignments,
   upsertSubmission, fetchSubmissionsByRound, fetchMySubmission,
