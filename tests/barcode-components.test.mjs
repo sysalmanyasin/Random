@@ -90,3 +90,32 @@ test('counting method card marks the current choice and offers all three', () =>
   assert.ok(/value="barcode" checked/.test(html) && html.includes('value="manual"') && html.includes('value="hybrid"'));
   assert.ok(/value="hybrid" checked/.test(C.countingMethodCardHTML({ id: 'e1' })), 'hybrid is the default');
 });
+
+test('REGRESSION: scanner box has real action names (no unrendered ${...} placeholders)', () => {
+  for (const camPrefix of [undefined, 'barcode', 'barcode-count']) {
+    const idle = C.barcodeScannerBoxHTML({ cameraOn: false, cameraSupported: true, camPrefix });
+    const on = C.barcodeScannerBoxHTML({ cameraOn: true, cameraSupported: true, camPrefix });
+    const pre = camPrefix || 'barcode';
+    assert.ok(idle.includes(`data-action="${pre}-camera-start"`), 'start: ' + camPrefix);
+    assert.ok(on.includes(`data-action="${pre}-camera-stop"`), 'stop: ' + camPrefix);
+    assert.ok(!idle.includes('${') && !on.includes('${'), 'unrendered placeholder in HTML');
+  }
+});
+test('every data-action emitted by every screen is a real, rendered name', () => {
+  const p = { code: 'P1', name: 'Lays', company: 'C' };
+  const row = { barcode: '5901234123457', productCode: 'P1', productName: 'Lays', status: 'conflict', conflictWithProductCode: 'P2' };
+  const all = [
+    C.barcodeSubnavHTML({ view: 'scan', canRegister: true, conflictCount: 1, unverifiedCount: 1 }),
+    C.barcodeStatusBarHTML({ online: true, syncing: false, pending: 2, size: 3 }),
+    C.barcodeScannerBoxHTML({ cameraOn: true, cameraSupported: true }),
+    C.barcodeResultCardHTML({ result: 'unknown', barcode: row.barcode }, { canRegister: true }),
+    C.barcodeRegisterHTML({ picked: p, query: '', results: [p], detected: row.barcode, detectedState: { kind: 'new' }, scannerHTML: '' }),
+    C.barcodeMasterHTML({ rows: [row], query: '', status: '', cap: 5 }),
+    C.barcodeConflictsHTML({ rows: [row], canAdminister: true, nameOf: x => x }),
+    C.barcodeReportsHTML(), C.barcodeReasonPromptHTML({ title: 't', confirmAction: 'x', barcode: 'b' }),
+    C.countingOverlayHTML({ state: 'count', item: { itemKey: 'k', name: 'n', qty: 1 }, counted: 0, total: 1 }),
+    C.countingMethodCardHTML({ id: 'e' }),
+  ].join('\n');
+  assert.ok(!all.includes('${'), 'unrendered ${ found in generated HTML');
+  assert.ok(!all.includes('undefined') && !all.includes('[object Object]'));
+});

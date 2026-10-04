@@ -1,4 +1,4 @@
-const CACHE_NAME = "fazal-din-audit-v8.93-barcode-iphone";
+const CACHE_NAME = "fazal-din-audit-v8.94-camera-fix";
 
 // App-shell assets we want available offline immediately after install.
 // (These are still precached, but at *runtime* they are served network-first,

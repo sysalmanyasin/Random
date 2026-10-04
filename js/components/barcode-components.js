@@ -48,7 +48,7 @@ export function barcodeScannerBoxHTML({ cameraOn, cameraSupported, hint, camPref
         <div class="bc-scanner-idle">
           <div style="font-size:34px;">📷</div>
           <div>${cameraSupported ? 'Tap to start the camera' : 'No camera available — use a scanner or type the code'}</div>
-          ${cameraSupported ? '<button class="bc-btn bc-btn--gold" style="width:auto;" data-action="${cp}-camera-start">Start camera</button>' : ''}
+          ${cameraSupported ? `<button class="bc-btn bc-btn--gold" style="width:auto;" data-action="${cp}-camera-start">Start camera</button>` : ''}
         </div>`}
     </div>
     <div style="font-size:11px; color:var(--grey); font-weight:700; margin-top:6px; text-align:center;">${esc(hint || 'USB / Bluetooth scanners work here too — just scan.')}</div>
@@ -56,7 +56,7 @@ export function barcodeScannerBoxHTML({ cameraOn, cameraSupported, hint, camPref
       <input type="text" inputmode="numeric" autocomplete="off" id="bc-manual-input" class="bc-field" placeholder="Type or paste barcode" aria-label="Barcode" data-keydown-action="barcode-manual-key">
       <button class="bc-btn bc-btn--primary" style="flex:0 0 96px;" data-action="barcode-manual-submit">Go</button>
     </div>
-    ${cameraOn ? '<button class="bc-btn bc-btn--ghost" style="margin-top:8px; min-height:44px;" data-action="${cp}-camera-stop">Stop camera</button>' : ''}`;
+    ${cameraOn ? `<button class="bc-btn bc-btn--ghost" style="margin-top:8px; min-height:44px;" data-action="${cp}-camera-stop">Stop camera</button>` : ''}`;
 }
 
 // The five result states. `r` = BarcodeActions.processScan() result.
