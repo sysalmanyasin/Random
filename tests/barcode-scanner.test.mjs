@@ -45,3 +45,20 @@ test('typed scan characters are removed from the focused field, other text kept'
   assert.equal(S.stripTypedScan('5901234123457', '5901234123457'), '');
   assert.equal(S.stripTypedScan('hello', '5901234123457'), 'hello');
 });
+
+test('consensus: checksummed numeric codes pass at once, others need two matching reads', () => {
+  let t = 0; const c = S.createConsensus({ now: () => t });
+  assert.equal(c.accept('5901234123457'), true);
+  assert.equal(c.accept('FD-0042'), false); t += 300;
+  assert.equal(c.accept('FD-0042'), true);
+  assert.equal(c.accept('AB-1'), false); t += 300; assert.equal(c.accept('AB-2'), false); // misread differs -> restart
+  assert.equal(c.accept('AB-2'), true);
+  assert.equal(c.accept('XY-1'), false); t += 5000; assert.equal(c.accept('XY-1'), false); // too slow -> restart
+});
+test('camera capabilities are summarised for the UI', () => {
+  const s = S.summarizeCaps({ torch: true, zoom: { min: 1, max: 8, step: 0.1 }, focusMode: ['manual', 'continuous'] }, { zoom: 1 });
+  assert.equal(s.torch, true); assert.equal(s.continuousFocus, true); assert.equal(s.singleShotFocus, false);
+  assert.deepEqual(s.zoom, { min: 1, max: 8, step: 0.1, value: 1 });
+  assert.equal(S.summarizeCaps({}, {}).zoom, null);
+  assert.equal(S.defaultZoom(s.zoom), 1.5); assert.equal(S.clampZoom(s.zoom, 99), 8);
+});

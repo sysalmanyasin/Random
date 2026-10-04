@@ -41,7 +41,7 @@ function isRecount(a) { return !!a && (a.items || []).some(it => it.prevVariance
 function counted(a) { const { myCounts } = Store.getState(); return (a.items || []).filter(it => (myCounts || {})[it.itemKey] !== undefined).length; }
 
 function scannerHTML() {
-  return Components.barcodeScannerBoxHTML({ cameraOn: !!(st && st.cameraOn), cameraSupported: BarcodeScanner.cameraSupported(), hint: 'Scan a product — hardware scanners work too.', camPrefix: 'barcode-count' });
+  return Components.barcodeScannerBoxHTML({ cameraOn: !!(st && st.cameraOn), cameraSupported: BarcodeScanner.cameraSupported(), hint: 'Scan a product — hardware scanners work too.', camPrefix: 'barcode-count', controls: BarcodeScanner.cameraControls() });
 }
 function paint() {
   if (!overlay) return;
@@ -127,7 +127,7 @@ export function openBarcodeCounting() {
   overlay.id = 'bc-count-overlay';
   overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', 'Scan to count');
   overlay.style.cssText = 'position:fixed; inset:0; z-index:9000; background:var(--page-bg,#E7ECF2); display:flex; flex-direction:column;';
-  document.body.appendChild(overlay);
+  (document.getElementById('app') || document.body).appendChild(overlay); // inside #app so the delegated click/input listeners reach it
   videoEl = document.createElement('video'); videoEl.setAttribute('playsinline', 'true'); videoEl.muted = true;
   st = { state: 'scanning', item: null, candidates: [], message: '', cameraOn: false, duplicate: false, readyAt: 0 };
   session = openScannerSession(onScan);

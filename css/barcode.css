@@ -8,7 +8,28 @@
 .bc-scanner { position:relative; background:#0B1220; border-radius:14px; overflow:hidden; aspect-ratio:4/3; max-height:42vh; width:100%; }
 .bc-scanner video { width:100%; height:100%; object-fit:cover; display:block; }
 .bc-scanner-idle { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:#CBD5E1; font-size:13px; font-weight:700; text-align:center; padding:16px; }
-.bc-reticle { position:absolute; left:12%; right:12%; top:34%; bottom:34%; border:3px solid rgba(245,158,11,.9); border-radius:10px; pointer-events:none; }
+.bc-reticle { position:absolute; left:6%; right:6%; top:26%; bottom:26%; border-radius:10px; pointer-events:none; box-shadow:0 0 0 100vmax rgba(5,10,20,.45); z-index:1; }
+.bc-corner { position:absolute; width:26px; height:26px; border:0 solid #F59E0B; }
+.bc-corner--tl { left:-2px; top:-2px; border-left-width:4px; border-top-width:4px; border-top-left-radius:10px; }
+.bc-corner--tr { right:-2px; top:-2px; border-right-width:4px; border-top-width:4px; border-top-right-radius:10px; }
+.bc-corner--bl { left:-2px; bottom:-2px; border-left-width:4px; border-bottom-width:4px; border-bottom-left-radius:10px; }
+.bc-corner--br { right:-2px; bottom:-2px; border-right-width:4px; border-bottom-width:4px; border-bottom-right-radius:10px; }
+.bc-laser { position:absolute; left:4%; right:4%; top:6%; height:2px; background:#FF2D2D; border-radius:2px; box-shadow:0 0 8px 2px rgba(255,45,45,.75), 0 0 22px 6px rgba(255,45,45,.35); animation:bc-sweep 1.6s ease-in-out infinite alternate; }
+@keyframes bc-sweep { from { top:6%; } to { top:94%; } }
+.bc-scanner.bc-hit .bc-corner { border-color:#22C55E; }
+.bc-scanner.bc-hit .bc-laser { background:#22C55E; box-shadow:0 0 10px 3px rgba(34,197,94,.8); animation-play-state:paused; }
+.bc-scanner.bc-hit::after { content:''; position:absolute; inset:0; background:rgba(34,197,94,.22); z-index:2; pointer-events:none; }
+.bc-tap { position:absolute; inset:0; z-index:2; }
+.bc-focus-ring { position:absolute; left:50%; top:50%; width:64px; height:64px; margin:-32px 0 0 -32px; border:2px solid #fff; border-radius:50%; opacity:0; pointer-events:none; z-index:2; }
+.bc-focus-ring--on { animation:bc-focus .7s ease-out; }
+@keyframes bc-focus { 0% { opacity:1; transform:scale(1.6); } 60% { opacity:1; transform:scale(1); } 100% { opacity:0; transform:scale(1); } }
+.bc-ctl { position:absolute; z-index:3; background:rgba(15,23,42,.65); color:#fff; border:0; border-radius:99px; backdrop-filter:blur(4px); }
+.bc-ctl[hidden] { display:none; }
+.bc-ctl--torch { right:10px; top:10px; width:44px; height:44px; font-size:20px; cursor:pointer; }
+.bc-ctl--torch[aria-pressed="true"] { background:#F59E0B; }
+.bc-ctl--zoom { left:10px; right:64px; bottom:10px; display:flex; align-items:center; gap:8px; padding:6px 14px; font-weight:900; }
+.bc-ctl--zoom input { flex:1; min-width:0; accent-color:#F59E0B; }
+@media (prefers-reduced-motion:reduce) { .bc-laser { animation:none; top:50%; } .bc-focus-ring--on { animation:none; opacity:.8; } }
 .bc-btn { display:block; width:100%; min-height:52px; font-size:16px; font-weight:800; border-radius:12px; border:0; cursor:pointer; padding:12px 14px; }
 .bc-btn--primary { background:var(--navy); color:#fff; }
 .bc-btn--green { background:var(--green); color:#fff; }

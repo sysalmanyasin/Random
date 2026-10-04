@@ -36,3 +36,33 @@ test('decoded EAN-13 and UPC-A pass the app\'s own validation and canonical form
   assert.equal(n.ok, true); assert.equal(n.barcode, '5901234123457');
   assert.equal(V.normalizeBarcode(run('upca')).barcode, '0036000291452');
 });
+
+import { roiRect, visibleRegion, planPasses, stretchLuma } from '../js/barcode/barcode-zxing.js';
+const rgbaOf = (name, f) => {
+  const m = meta[name]; const gray = zlib.gunzipSync(fs.readFileSync(`${DIR}${name}.gray.gz`));
+  const rgba = new Uint8ClampedArray(m.w * m.h * 4);
+  for (let i = 0; i < gray.length; i++) { const v = f ? f(gray[i]) : gray[i]; rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = v; rgba[i * 4 + 3] = 255; }
+  return { m, rgba };
+};
+test('inverted (light-on-dark) label decodes with the invert pass', () => {
+  const { m, rgba } = rgbaOf('ean13', v => 255 - v);
+  assert.equal(decodeRGBA(ZX, m.w, m.h, rgba, { invert: true }), m.expect);
+});
+test('low-contrast / washed-out label decodes thanks to contrast stretch', () => {
+  const { m, rgba } = rgbaOf('ean13', v => 110 + (v >> 3)); // squeezed into ~110..141
+  assert.equal(decodeRGBA(ZX, m.w, m.h, rgba), m.expect);
+});
+test('stretchLuma leaves flat frames alone', () => {
+  const a = new Uint8ClampedArray(100).fill(120); stretchLuma(a); assert.ok(a.every(v => v === 120));
+});
+test('laser-box region maps onto the visible (object-fit:cover) part of the frame', () => {
+  const v = visibleRegion(1920, 1080, 400, 300); // 4:3 box over 16:9 video
+  assert.deepEqual(v, { x: 240, y: 0, w: 1440, h: 1080 });
+  const r = roiRect(1920, 1080, 400, 300);
+  assert.ok(r.x >= v.x && r.x + r.w <= v.x + v.w && r.y >= 0 && r.y + r.h <= 1080);
+});
+test('pass plan: strip every tick, full frame and inverted on rotating ticks', () => {
+  assert.equal(planPasses(0).length, 1);
+  assert.ok(planPasses(1).some(p => p.region === 'full'));
+  assert.ok(planPasses(2).some(p => p.invert));
+});

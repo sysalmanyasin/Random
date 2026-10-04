@@ -95,7 +95,7 @@ async function renderStatus() {
 }
 
 function scannerHTML(hint) {
-  return Components.barcodeScannerBoxHTML({ cameraOn, cameraSupported: BarcodeScanner.cameraSupported(), hint });
+  return Components.barcodeScannerBoxHTML({ cameraOn, cameraSupported: BarcodeScanner.cameraSupported(), hint, controls: BarcodeScanner.cameraControls() });
 }
 
 function renderBody() {
@@ -276,6 +276,14 @@ export function initBarcodePages() {
       }
     },
     'barcode-camera-stop': () => { _stopCamera(); refreshScannerBox(); },
+    // Shared by the Barcode Center and the counting overlay (handler maps are merged globally).
+    'barcode-focus': () => { const c = BarcodeScanner.activeCamera(); if (c) c.refocus(); },
+    'barcode-torch': async (el) => {
+      const c = BarcodeScanner.activeCamera(); if (!c) return;
+      const ok = await c.setTorch(!c.torchOn);
+      if (ok) el.setAttribute('aria-pressed', String(c.torchOn));
+      else Bus.emit('toast', { msg: 'Torch not available on this camera', kind: 'error' });
+    },
     'barcode-manual-submit': () => submitManual(),
 
     'barcode-unknown-search': () => { ui.regPicked = null; ui.regQuery = ''; ui.regDetected = ui.lastResult.barcode; ui.regState = { kind: 'new' }; ui.regFromUnknown = true; setView('register'); },
@@ -330,6 +338,7 @@ export function initBarcodePages() {
 
   let masterDebounce = null; let regDebounce = null;
   const inputHandlers = {
+    'barcode-zoom': (el) => { const c = BarcodeScanner.activeCamera(); if (c) c.setZoom(parseFloat(el.value)); },
     'barcode-master-search': (el) => { ui.masterQuery = el.value; clearTimeout(masterDebounce); masterDebounce = setTimeout(updateMasterList, 120); },
     'barcode-register-search': (el) => {
       ui.regQuery = el.value; clearTimeout(regDebounce);
