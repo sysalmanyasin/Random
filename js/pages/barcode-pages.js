@@ -56,13 +56,14 @@ export function openScannerSession(onScan) {
     close() { _stopCamera(); consumer = null; externalSession = false; hub.pause(); },
   };
 }
-// Native (Android APK) scan: true = handled (read or cancelled), false = use the web camera.
+// Native (Android APK) scan. Returns 'ok' | 'cancelled' | 'error' when handled natively,
+// or false when the web camera should be used instead.
 async function tryNativeScan() {
   if (!BarcodeScanner.nativeScannerAvailable()) return false;
   const r = await BarcodeScanner.scanNative(hub);
   if (r.status === 'unavailable') return false;
   if (r.status === 'error') Bus.emit('toast', { msg: r.error || 'Scanner failed', kind: 'error' });
-  return true;
+  return r.status;
 }
 async function _startCamera(videoEl) {
   if (camera) { try { camera.stop(); } catch (_) {} camera = null; }

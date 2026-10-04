@@ -7,7 +7,10 @@ The website, Supabase data, logins and PWA are untouched — the APK is just ano
 - **Native barcode scanning** through Google ML Kit (`@capacitor-mlkit/barcode-scanning`): real autofocus,
   auto-zoom and fast reads. In the APK, the **Scan / Start camera** buttons open Google's scanner;
   in a normal browser (and on iPhone) the existing web camera is used, unchanged.
-- One scan per tap. After a read the result appears as usual; tap the camera button for the next item.
+- **Barcode Center:** one scan per tap — the result stays on screen.
+- **Counting screen (continuous):** tap the camera once. After each product is read you enter the quantity and CONFIRM
+  (or Cancel); the scanner then **reopens by itself**. Close the scanner (back / ✕) to stop continuous mode. Unknown, invalid or
+  disputed barcodes show their message and pause continuous mode until you tap the camera again, so you can read the warning.
   If the Google scanner can't be used on a phone (no Google Play Services, module download fails), the
   web camera is used automatically.
 

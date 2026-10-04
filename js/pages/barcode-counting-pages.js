@@ -41,7 +41,7 @@ function isRecount(a) { return !!a && (a.items || []).some(it => it.prevVariance
 function counted(a) { const { myCounts } = Store.getState(); return (a.items || []).filter(it => (myCounts || {})[it.itemKey] !== undefined).length; }
 
 function scannerHTML() {
-  return Components.barcodeScannerBoxHTML({ cameraOn: !!(st && st.cameraOn), cameraSupported: BarcodeScanner.cameraSupported(), hint: 'Scan a product — hardware scanners work too.', camPrefix: 'barcode-count', controls: BarcodeScanner.cameraControls() });
+  return Components.barcodeScannerBoxHTML({ cameraOn: !!(st && st.cameraOn), cameraSupported: BarcodeScanner.cameraSupported(), hint: BarcodeScanner.nativeScannerAvailable() ? 'Tap to scan. The scanner reopens after each item — close the scanner to stop.' : 'Scan a product — hardware scanners work too.', camPrefix: 'barcode-count', controls: BarcodeScanner.cameraControls() });
 }
 function paint() {
   if (!overlay) return;
@@ -60,10 +60,21 @@ function paint() {
 }
 async function startCameraNow() {
   if (!session || !st) return;
-  if (await session.tryNativeScan()) return;   // Android APK: native ML Kit scanner (no <video> box needed)
+  // Android APK: native ML Kit scanner (no <video> box needed). After a successful read it stays
+  // "continuous": the scanner reopens by itself once the item is confirmed/cancelled (see scheduleNext).
+  const ns = await session.tryNativeScan();
+  if (ns) { if (st) st.auto = ns === 'ok'; return; }
   st.cameraOn = true; paint();                       // puts the persistent <video> in the box
   try { await session.startCamera(videoEl); }
   catch (err) { st.cameraOn = false; paint(); Bus.emit('toast', { msg: err.message || 'Could not start the camera', kind: 'error' }); }
+}
+
+// Continuous counting in the native app: reopen the scanner a moment after an item is saved/cancelled.
+// Stops as soon as the user closes the scanner, hits Done, or leaves the scanning state.
+function scheduleNext() {
+  if (!st || !st.auto || !BarcodeScanner.nativeScannerAvailable()) return;
+  clearTimeout(st.nextTimer);
+  st.nextTimer = setTimeout(() => { if (overlay && st && st.auto && st.state === 'scanning') startCameraNow(); }, 900);
 }
 
 function msg(kind, title, detail) {
@@ -118,6 +129,7 @@ function confirmCount(itemKey) {
   st.state = 'scanning'; st.item = null; st.duplicate = false; st.readyAt = Date.now() + 1500;
   st.message = msg('matched', '✓ SAVED', `${Components.esc(item.name)} = ${Components.esc(raw)}`);
   paint();                                       // straight back to scanning
+  scheduleNext();
 }
 
 export function openBarcodeCounting() {
@@ -135,6 +147,7 @@ export function openBarcodeCounting() {
   paint();
 }
 function close() {
+  if (st) { st.auto = false; clearTimeout(st.nextTimer); }
   if (session) session.close(); session = null; videoEl = null;
   if (overlay) overlay.remove(); overlay = null; st = null;
   hooks.onCounted(null);
@@ -147,7 +160,7 @@ export function initBarcodeCounting(h) {
     'barcode-count-open': () => openBarcodeCounting(),
     'barcode-count-close': () => close(),
     'barcode-count-confirm': (el) => confirmCount(el.dataset.itemKey),
-    'barcode-count-skip': () => { st.state = 'scanning'; st.item = null; st.message = ''; st.readyAt = Date.now() + 1000; paint(); },
+    'barcode-count-skip': () => { st.state = 'scanning'; st.item = null; st.message = ''; st.readyAt = Date.now() + 1000; paint(); scheduleNext(); },
     'barcode-count-pick': (el) => { const a = activeAssignment(); const it = a && a.items.find(x => x.itemKey === el.dataset.itemKey); if (it) { st.item = it; st.state = 'count'; paint(); } },
     'barcode-count-camera-start': () => startCameraNow(),
     'barcode-count-camera-stop': () => { if (!overlay || !st) return; session.stopCamera(); st.cameraOn = false; paint(); },
