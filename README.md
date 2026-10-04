@@ -1,51 +1,16 @@
 # Fazal Din Pharma Plus — Audit Hub
 
-A pharmacy stock-audit platform for inventory verification, multi-user stock counting, variance investigation, barcode-assisted counting, near-expiry tracking, and final audit sign-off.
+Fazal Din Pharma Plus — Audit Hub is an internal pharmacy stock-audit platform for controlled inventory verification, multi-user counting, variance investigation, barcode-assisted auditing, near-expiry tracking, and final audit sign-off.
 
-The system is built as an installable Progressive Web App (PWA) and supports:
-
-- Shared inventory
-- Team-based audits
-- Individual/self-service audits
-- Offline-capable counting
-- Multi-round recounts
-- Variance correction workflows
-- Barcode registration and scanning
-- Near-expiry tracking
-- Excel reporting
-- Supabase-backed authentication and RLS
-- A native Android shell with Google ML Kit barcode scanning
-- An Android home-screen widget for Individual Assignments
+It is built around a Progressive Web App (PWA) backed by Supabase, with offline-capable counting and barcode workflows. The repository also contains a Capacitor Android application with native Google ML Kit barcode scanning and a separate Android home-screen widget for monitoring Individual Audit assignments.
 
 **Live application:** <https://random.duapharma.com>
 
-The web application uses plain ES modules with no frontend framework and no web bundler. It can be served from a static host. The Android projects have their own native build tooling.
-
 ---
 
-## 1. What the App Does
+## Overview
 
-| Area | Capabilities |
-|---|---|
-| Inventory | Shared inventory synchronized from Dropbox, with CSV fallback. Search by product code, name, generic, company or supplier. Group by company/supplier, select products, create reusable Templates and launch audits. |
-| Team Audit | Main Auditor creates engagements, rounds and assignments; work can be automatically split by company or item volume; rounds can be locked, counted, compiled and recounted. |
-| Individual Audit | Sub-Auditors can independently select a company or Template and start an audit without waiting for a Main Auditor to create an engagement. Individual work is organized into rolling monthly engagements. |
-| Staff Management | Main Auditor can create staff accounts, reset PINs, block/unblock accounts, manage roles and configure access expiry. |
-| Barcode Center | Scan, search, register, verify and manage product barcodes. Includes conflict detection, verification history, scan history and barcode reports. |
-| Barcode Counting | Audits can use Manual, Barcode, or Hybrid counting. Barcode scans resolve products into the existing counting workflow without changing the underlying variance calculations. |
-| Expiry Tracking | Shared near-expiry inventory log with monthly rack assignments, staff responsibility, search, locking and Main Auditor-controlled corrections. |
-| Verify Stock — Legacy | Original single-user stock verification workflow with history and export functionality. |
-| Reports | Final Audit Report, Variance Report, Combined Variance Report, Round History, Submission History, Audit Trail and Inventory Report. |
-| Counting Calculator | Floating calculator for expressions such as "6 boxes × 10 + 4 loose", inserting the calculated quantity into the active count field. |
-| PWA | Installable web application with service-worker caching and offline-capable counting workflows. |
-| Android App | Capacitor Android shell around the live application with native Google ML Kit barcode scanning. |
-| Android Widget | Home-screen widget showing open Individual Assignment rounds, assignee and progress for the Main Auditor. |
-
----
-
-## 2. Audit Model
-
-The system is designed around a controlled audit lifecycle:
+Audit Hub covers the complete stock-audit lifecycle:
 
 ```
 Inventory
@@ -67,275 +32,454 @@ Variance Review
 Recount / Correction
    ↓
 Final Snapshot
+   ↓
+Reports
 ```
 
-An audit can therefore move from a broad initial count to increasingly focused verification instead of repeatedly recounting the entire inventory.
+The system is designed to make stock discrepancies progressively easier to investigate. Instead of repeatedly recounting the entire inventory, later rounds can focus on differences, specific companies, or random spot checks.
+
+### Core capabilities
+
+- Shared inventory management, with Dropbox-backed synchronization and CSV/manual fallback
+- Product search and reusable Templates
+- Team-based stock audits and Individual/self-service audits
+- Multi-round recounts
+- Manual, Barcode and Hybrid counting
+- Offline-capable counting, with live assignment progress
+- Variance compilation and cross-round conflict detection
+- Controlled variance corrections
+- Final audit snapshots and a complete audit trail
+- Excel reporting
+- Barcode registration, verification and conflict management
+- Advanced camera barcode scanning, with an offline barcode cache and scan outbox
+- Near-expiry stock tracking
+- Supabase Authentication and PostgreSQL Row Level Security
+- Capacitor Android application with Google ML Kit native barcode scanning
+- Android Individual Assignments widget
+- Automated Android builds through GitHub Actions
 
 ---
 
-## 3. Counting and Variance Rules
+## 1. Product Areas
 
-### Uncounted items
+| Area | Description |
+|---|---|
+| Inventory | Shared inventory synchronized from Dropbox or imported through CSV. Search by product code, name, generic, company or supplier. Group by company/supplier. |
+| Templates | Save commonly audited product/company selections and reuse them for future audits. |
+| Team Audit | Main Auditor creates engagements, rounds and assignments, monitors progress, compiles submissions and performs recounts. |
+| Individual Audit | Sub-Auditors can independently start audits without waiting for a Main Auditor to create a team engagement. |
+| Staff Management | Manage staff accounts, roles, PINs, blocking and access expiry. |
+| Barcode Center | Register, verify, search, audit and resolve product barcodes. |
+| Barcode Counting | Use Manual, Barcode or Hybrid counting within an audit. |
+| Expiry Tracking | Maintain a shared near-expiry stock register with monthly rack/staff assignment. |
+| Reports | Generate Excel audit, variance, history, submission, inventory and audit-trail reports. |
+| Verify Stock | Legacy single-user stock verification workflow retained for compatibility. |
+| Counting Calculator | Quantity calculator for expressions such as "6 boxes × 10 + 4 loose". |
+| PWA | Installable browser application with service-worker caching and offline fallback. |
+| Android App | Capacitor Android shell around the live web application with native ML Kit scanning. |
+| Android Widget | Separate Kotlin widget showing Individual Assignment progress. |
 
-An item that was never entered by the auditor is treated as **zero counted quantity**.
+---
 
-This intentionally makes an uncounted item visible as a shortage instead of silently removing it from the result.
+## 2. Audit Model
 
-The sanctioned override is the **Mark Remaining as Match / Force Submit** match mode. Automatically matched rows are marked as `auto_matched` so the override remains visible in reporting.
+An audit is divided into several controlled stages.
 
-### Fresh inventory cutoff
+### Engagement
 
-Each round uses an inventory snapshot taken when the round is generated.
+An Engagement defines the overall audit scope.
 
-Later rounds re-base against the current inventory and can therefore pick up newly introduced SKUs.
+Supported scopes:
+
+- Full Inventory
+- Selected Companies
+- Single Company
+
+An Engagement can contain multiple rounds.
+
+### Round
+
+A Round represents one counting pass over a frozen inventory snapshot.
+
+A round moves through these states:
+
+```
+draft → locked → counting → compiled → final
+```
+
+Each new round gets its own inventory snapshot so that a later Dropbox/CSV synchronization cannot unexpectedly change the items being counted in an active round.
+
+### Assignment
+
+An Assignment divides the work among auditors.
+
+Assignments can be split by:
+
+- Company count
+- Item volume
+
+Company-level assignments keep a company together rather than distributing its products across multiple auditors.
+
+### Submission
+
+Each auditor submits their completed counts. A submission contains:
+
+- Counted quantities
+- Notes
+- Confirmation state
+- Auditor identity
+- Submission timestamp
 
 ### Compilation
 
-Submissions are merged using the application's item identity rules, including Company + Item ID where applicable.
+The Main Auditor compiles submitted assignments into a consolidated round result.
+
+Compilation can detect:
+
+- Missing submissions
+- Quantity differences
+- Financial variance
+- Cross-round conflicts
+- Incomplete assignments
+
+### Final Snapshot
+
+Once the audit has been sufficiently verified, the Main Auditor can generate a Final Snapshot containing the final audit state and associated audit history.
+
+---
+
+## 3. Counting Rules
+
+### Uncounted items
+
+An item that is never entered by the auditor is treated as:
+
+```
+Counted quantity = 0
+```
+
+This is intentional. An uncounted product remains visible as a potential shortage rather than silently disappearing from the audit.
+
+The controlled exception is the **Mark Remaining as Match / Force Submit** workflow. Rows automatically matched through that process are marked `auto_matched`, so the override remains visible in reporting.
+
+### Inventory snapshots
+
+Each round freezes its own inventory snapshot when the round is generated.
+
+```
+Live Inventory
+      ↓
+Round Created
+      ↓
+Frozen Round Snapshot
+      ↓
+Assignments
+      ↓
+Counting
+      ↓
+Submission
+      ↓
+Compilation
+```
+
+A later inventory synchronization cannot silently move products underneath an active round. A new round receives a fresh snapshot and can therefore incorporate legitimate inventory changes, including newly introduced SKUs.
+
+### Compilation rules
 
 Compilation:
 
-- Detects missing submissions.
-- Can block when assignments are incomplete.
-- Supports Compile Anyway where permitted.
+- Checks whether required assignments have submitted.
+- Can block incomplete compilation.
+- Supports "Compile Anyway" where permitted.
+- Merges assignment results using the application's item identity rules (including Company + Item ID where applicable).
 - Detects cross-round conflicts.
-- Does not silently auto-resolve conflicting counts.
+- Does not silently resolve conflicting counts.
 
-### Recount modes
-
-The system supports focused next-round strategies including:
-
-- Differences Only
-- Full Company Recount
-- Random Spot-Check
-
-### Variance corrections
-
-A Deputy or Sub-Auditor can propose a corrected count with a reason.
-
-The Main Auditor approves or rejects the proposal.
-
-The original count is preserved rather than silently overwritten.
+Conflicts remain visible for Main Auditor review.
 
 ### Time tracking
 
-Assignments record start time and per-row counting time, with row-level caps to prevent long breaks from being attributed to a single product.
-
-### Live progress
-
-Main Auditor views show assignment progress so management can see who has started, who is counting and who has submitted.
+Assignments record start time and per-row counting time, with row-level caps so a long break is not attributed to a single product.
 
 ---
 
-## 4. Roles
+## 4. Recount Strategies
+
+The system supports focused recounts instead of forcing a complete inventory recount.
+
+| Strategy | Behaviour |
+|---|---|
+| Differences Only | Only products with relevant discrepancies are carried into the next round. |
+| Full Company Recount | The selected companies are counted again in full. |
+| Random Spot-Check | A random subset is selected for verification. |
+
+This allows the audit to progressively narrow its attention.
+
+---
+
+## 5. Variance Corrections
+
+A variance correction does not overwrite the original evidence.
+
+```
+Original Count
+     ↓
+Correction Proposal
+     ↓
+Reason Recorded
+     ↓
+Main Auditor Review
+     ↓
+Approve / Reject
+```
+
+The original count remains recoverable. An audit system should preserve evidence rather than silently rewrite history.
+
+---
+
+## 6. Roles
 
 | Role | Access |
 |---|---|
-| Main Auditor (`main`) | Full system access: inventory, engagements, rounds, assignments, compilation, snapshots, staff, reports, settings, barcode administration and audit logs. |
-| Deputy Auditor (`dep`) | Read access to team audit information and ability to propose variance corrections; can also perform permitted barcode registration/verification/conflict reporting. |
-| Sub-Auditor (`sub`) | Own assignments, Individual Audits and shared expiry workflows. Barcode reading/scanning is available according to RLS permissions, while administrative barcode operations remain restricted. |
+| Main Auditor (`main`) | Full access to inventory, engagements, rounds, assignments, compilation, snapshots, staff, reports, settings, barcode administration and audit logs. |
+| Deputy Auditor (`dep`) | Read access to team-audit information, plus the ability to propose variance corrections and perform permitted barcode registration/verification/conflict reporting. |
+| Sub-Auditor (`sub`) | Own assignments, Individual Audits, counting, shared expiry workflows and permitted barcode scanning. Barcode administration remains restricted. |
 
-Authentication uses **Phone + PIN**.
-
-The phone number is mapped to an internal Supabase Auth email in the form:
+Authentication uses **Phone + PIN**. The application maps the phone number to an internal Supabase Auth email:
 
 ```
-<digits>@staff.internal
+<phone-digits>@staff.internal
 ```
 
-There is no separate client-side "admin mode". The authenticated staff record's role controls the application experience, while the database independently enforces authorization.
+There is no separate client-side "admin mode". Authorization is not based only on the UI: Supabase RLS and server-side functions enforce access at the database/backend layer.
 
 ---
 
-## 5. Team Audit Workflow
+## 7. Team Audit Workflow
 
-### Main Auditor
+A typical Main Auditor workflow:
 
-1. Synchronize inventory from Dropbox or upload/import the available inventory.
-2. Create staff accounts.
+1. Synchronize or import inventory.
+2. Create/manage staff accounts.
 3. Create an Engagement.
-4. Choose the engagement scope:
-   - Full Inventory
-   - Selected Companies
-   - Single Company
-5. Configure the counting method:
-   - Manual
-   - Barcode
-   - Hybrid
+4. Select the audit scope.
+5. Select the counting method.
 6. Create Round 1.
-7. Automatically split work by:
-   - Company count
-   - Item volume
+7. Automatically split assignments.
 8. Review the assignment preview.
 9. Lock the round.
-10. Staff count their assignments.
-11. Staff submit their assignments.
+10. Staff perform their counts.
+11. Staff submit.
 12. Main Auditor compiles the round.
-13. Review financial and quantity variances.
-14. Resolve or review conflicts.
-15. Either:
-    - Generate the Final Snapshot, or
-    - Generate another focused round.
-16. Export the required reports.
+13. Review quantity and financial variances.
+14. Review conflicts and corrections.
+15. Generate a Final Snapshot or another recount round.
+16. Export reports.
 
-A company assignment is kept together when using company-level splitting.
+### Counting methods
 
----
-
-## 6. Individual Audits
-
-Individual Audits allow a Sub-Auditor to start counting without waiting for a Main Auditor to create a dedicated engagement.
-
-A Sub-Auditor can select:
-
-- A saved Template
-- A company
-- Other available individual-audit scopes
-
-The system places Individual Assignments into a rolling monthly engagement.
-
-This allows frequent spot checks without creating unnecessary management overhead.
+Each audit can use **Manual**, **Barcode** or **Hybrid** counting. The selected method is copied to assignments so Sub-Auditors can operate without requiring access to the parent Engagement.
 
 ---
 
-## 7. Barcode Center
+## 8. Individual Audits
 
-The Barcode Center is a complete barcode identification and verification subsystem.
+Individual Audits allow a Sub-Auditor to perform an audit without waiting for a Main Auditor to create a dedicated team engagement.
 
-It provides:
+Available scopes:
 
-- Barcode scanning
-- Barcode search
-- Product lookup
+- Saved Templates
+- Company-based selections
+- Other configured individual-audit scopes
+
+Individual work is organized into rolling monthly engagements. This suits:
+
+- Spot checks
+- Frequent company checks
+- Random verification
+- Staff-initiated audits
+- Small tasks that do not justify a full team engagement
+
+---
+
+## 9. Barcode System
+
+Barcode functionality is a dedicated identification layer on top of the existing counting system. It does not create a second inventory or variance engine.
+
+```
+Barcode
+   ↓
+Resolve Product
+   ↓
+Existing Assignment Item
+   ↓
+Existing Counting Logic
+   ↓
+Existing Variance Logic
+```
+
+### Barcode Center
+
+The Barcode Center provides:
+
+- Scan
 - Barcode Master
-- Barcode registration
-- Verification
-- Verification queue
-- Conflict management
-- Scan history
-- Barcode reports
+- Register
+- Verification Queue
+- Conflicts
+- Scan History
+- Reports
 
 ### Barcode lifecycle
 
+Normal lifecycle:
+
 ```
-Unknown
-   ↓
-Registered
-   ↓
-Verified
+Unknown → Registered → Verified
 ```
 
-Potential problems can move a barcode into:
+Problem states:
 
 ```
 Conflict
 Disabled
 ```
 
-A conflicting barcode is **never silently reassigned**.
-
-The Main Auditor explicitly resolves conflicts using a controlled resolution such as:
+A conflicting barcode is **never silently reassigned**. The Main Auditor resolves conflicts explicitly:
 
 - Keep existing mapping
 - Reassign
 - Disable
 
-Administrative changes require a reason where required.
+Administrative conflict resolution records a reason.
 
-### Barcode counting
+---
 
-Every engagement can use one of three methods:
+## 10. Barcode Counting
 
-- **Manual** — traditional product-by-product counting.
-- **Barcode** — products are identified through barcode scanning.
-- **Hybrid** — the auditor can use both manual product selection and barcode scanning.
+Three counting methods are available:
 
-The barcode layer is intentionally separate from the counting/variance engine.
+| Method | Description |
+|---|---|
+| Manual | Traditional product-by-product counting. |
+| Barcode | Products are identified through barcode scanning. |
+| Hybrid | The auditor combines manual product selection and barcode scanning. |
 
-A successful barcode resolution supplies the correct product/assignment item to the existing counting workflow. It does not duplicate or replace the application's quantity and variance calculations.
+The barcode subsystem resolves the product and then passes it into the normal counting workflow. Quantity calculations, variance calculations and submission logic remain centralized.
 
-### Camera scanning
+---
 
-The web scanner supports multiple decoding paths depending on the device/browser.
+## 11. Camera Scanner
 
-**Android / Chrome** — uses the browser's native `BarcodeDetector` where available.
+The web scanner supports multiple decoding strategies depending on the device.
 
-**iPhone / iPad** — uses the vendored ZXing implementation and ZXing-C++ WebAssembly engine where required.
+| Device | Decoder |
+|---|---|
+| Chrome / Android | The browser's native `BarcodeDetector`, where available. |
+| iPhone / iPad | Vendored ZXing, because Safari lacks native `BarcodeDetector` support. |
+| Difficult labels | ZXing-C++ WebAssembly engine. |
 
-**WASM scanner** — the ZXing-C++ WebAssembly engine improves recognition of:
+The WASM engine ships as:
+
+```
+js/vendor/zxing-wasm-reader.iife.js
+js/vendor/zxing_reader.wasm
+```
+
+and improves recognition of:
 
 - Blur
 - Rotation
 - Low contrast
-- Damaged barcodes
-- Difficult labels
+- Damaged labels
+- Small/dense labels
 
-The previous JavaScript ZXing implementation remains available as a fallback.
-
-**Scanner assistance** — supported devices can provide:
-
-- Rear-camera selection
-- Autofocus
-- Exposure/white-balance controls where available
-- Torch
-- Zoom
-- Refocus by tapping the viewfinder
-- Scan guidance
-- Automatic torch assistance
-- Still-image capture fallback
-- Success flash
-- Beep/vibration
-- Screen wake-lock
-
-**Validation** — numeric GTIN/EAN/UPC-style results are validated using the appropriate check-digit rules. Repeated reads are required for less reliable barcode types to reduce false positives.
+The older JavaScript ZXing implementation remains available as a fallback.
 
 ---
 
-## 8. Offline Barcode Support
+## 12. Scanner Quality Controls
 
-Barcode functionality has its own local mirror and outbox.
+The scanner includes several safeguards against false reads.
 
-The browser stores:
+**Camera** — where supported, it requests the rear camera, higher-resolution capture, continuous autofocus, and exposure/white-balance control. The user can tap the viewfinder to refocus.
+
+**Controls** — supported devices may expose torch, zoom, camera controls, refocus and screen wake-lock.
+
+**Guidance** — the scanner can detect:
+
+- Too dark
+- Glare
+- Low contrast
+- Excessive distance
+- Camera movement
+
+**Auto-torch** — when a frame stays dark and the hardware supports a torch, the scanner can switch it on automatically.
+
+**Still-image fallback** — if live decoding keeps failing, supported devices can capture a full-resolution still image and attempt decoding from it.
+
+**Feedback** — success flash, beep and vibration.
+
+---
+
+## 13. Barcode Validation
+
+Numeric EAN/UPC/GTIN-style results are validated using their check digit.
+
+The scanner also uses repeated-read confirmation to reduce false positives:
+
+```
+Reliable GTIN        → fewer confirmations required
+Other barcode types  → stronger repeated-read confirmation
+```
+
+Full-frame acceptance is limited so that unrelated barcode fragments are less likely to become false product numbers.
+
+---
+
+## 14. Offline Barcode Support
+
+Barcode data has its own local IndexedDB cache and outbox:
 
 ```
 barcodeCache
 barcodeOutbox
 ```
 
-Scan events can be queued while offline and synchronized when connectivity returns.
+Scan events receive client-side identifiers, so duplicate submissions can be ignored server-side.
 
-Client-side scan IDs allow the server to ignore duplicate submissions.
-
-The barcode subsystem therefore works with the application's broader offline-first counting philosophy instead of requiring a permanent network connection for every scan.
+```
+Scan online  OR  Scan offline
+          ↓
+     Local queue
+          ↓
+ Connectivity returns
+          ↓
+   Synchronization
+```
 
 ---
 
-## 9. Expiry Tracking
+## 15. Expiry Tracking
 
-The Expiry module provides a shared near-expiry stock register.
+The Expiry module maintains a shared near-expiry stock register.
 
-It records information such as:
+Records can contain:
 
 - Product
 - Quantity
 - Expiry month
 - Rack
 - Status
-- Responsible staff member
+- Assigned staff member
 
-The Main Auditor can configure racks and assign racks to staff by month.
-
-Staff can enter expiry observations, while saved records are protected from unauthorized modification.
-
-Only the Main Auditor can reopen, edit or delete locked entries.
-
-The expiry register also supports universal product search.
+The system supports monthly rack-to-staff assignment and universal product search. Saved entries can be locked; only the Main Auditor can reopen, edit or delete locked entries.
 
 ---
 
-## 10. Reports
+## 16. Reports
 
-The team-audit reporting system produces Excel workbooks (`.xlsx`) including:
+The system generates Excel workbooks (`.xlsx`) covering the major audit stages:
 
 - Final Audit Report
 - Variance Report
@@ -347,384 +491,294 @@ The team-audit reporting system produces Excel workbooks (`.xlsx`) including:
 - Audit Trail
 - Inventory Report
 
-The legacy Verify Stock workflow also provides its own historical/export functionality.
+The legacy Verify Stock workflow also retains its own historical/export capabilities.
 
 ---
 
-## 11. Architecture
+## 17. Architecture
 
-The web application follows a layered five-floor architecture:
+The web application follows a five-layer ("five-floor") architecture:
 
 ```
-┌──────────────────────────────────────────┐
-│ FLOOR 5 — PAGES                          │
-│ DOM rendering + event delegation         │
-├──────────────────────────────────────────┤
-│ FLOOR 4 — COMPONENTS                     │
-│ Pure render functions                    │
-├──────────────────────────────────────────┤
-│ FLOOR 3 — ACTIONS                        │
-│ Business logic + state-changing actions  │
-├──────────────────────────────────────────┤
-│ FLOOR 2 — STORE                          │
-│ Central in-memory application state      │
-├──────────────────────────────────────────┤
-│ FLOOR 1 — REPOSITORY                     │
-│ Supabase / IndexedDB / local storage     │
-│ Dropbox / persistence                    │
-└──────────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│ FLOOR 5 — PAGES                             │
+│ DOM rendering + event delegation            │
+├─────────────────────────────────────────────┤
+│ FLOOR 4 — COMPONENTS                        │
+│ Presentation / pure render functions        │
+├─────────────────────────────────────────────┤
+│ FLOOR 3 — ACTIONS                           │
+│ Business logic + state-changing operations  │
+├─────────────────────────────────────────────┤
+│ FLOOR 2 — STORE                             │
+│ Central in-memory application state         │
+├─────────────────────────────────────────────┤
+│ FLOOR 1 — REPOSITORY                        │
+│ Supabase / IndexedDB / localStorage /       │
+│ Dropbox / persistence                       │
+└─────────────────────────────────────────────┘
 ```
 
-### Architecture rules
+### Architectural rules
 
-- Storage/network access belongs in the Repository layer.
-- State changes are performed through Actions.
-- Components remain presentation-focused.
-- Pages handle navigation and DOM composition.
-- Event delegation centralizes application event handling.
-- Global `window` application state is avoided.
-- Actions communicate UI changes through the event Bus.
-- Barcode functionality is integrated as an identification layer rather than duplicating counting logic.
+- Repository owns persistence and external data access.
+- Actions own business operations and state changes.
+- Store owns application state.
+- Components focus on rendering.
+- Pages handle page-level composition.
+- Event delegation centralizes DOM events.
+- Global application state is avoided.
+- Actions communicate UI changes through the application Bus.
+- Barcode identification remains separate from counting and variance calculation.
 
 ---
 
-## 12. Repository Structure
+## 18. Repository Structure
 
 ```
-index.html
-manifest.json
-sw.js
-CNAME
-package.json
-
-css/
-  app.css
-  barcode.css
-  desktop.css
-  design-upgrade.css
-  engagement.css
-
-js/
-  main.js
-
-  # Top-level barrels (re-export each floor's index)
-  store.js
-  repository.js
-  actions.js
-  components.js
-  pages.js
-  home-stats.js
-
-  store/
-    initial-state.js
-    store.js
-
-  repository/
-    barcode.js
-    db.js
-    dropbox.js
-    expiry.js
-    legacy.js
-    storage.js
-    supabase.js
-    templates.js
-
-  actions/
-    index.js
-    bus.js
-    item-key.js
-    assignment-actions.js
-    audit-log-actions.js
-    auth-actions.js
-    barcode-actions.js
-    calculator-actions.js
-    compile-actions.js
-    counting-actions.js
-    dashboard-actions.js
-    difference-actions.js
-    engagement-actions.js
-    expiry-actions.js
-    individual-actions.js
-    inventory-actions.js
-    legacy-actions.js
-    report-actions.js
-    round-actions.js
-    snapshot-actions.js
-    staff-actions.js
-    variance-edit-actions.js
-
-  barcode/
-    barcode-lookup.js
-    barcode-quality.js
-    barcode-reports.js
-    barcode-scanner.js
-    barcode-service.js
-    barcode-validation.js
-    barcode-zxing.js
-
-  components/
-    index.js
-    dom-utils.js
-    assignment-components.js
-    barcode-components.js
-    compile-components.js
-    counting-components.js
-    dashboard-components.js
-    engagement-components.js
-    expiry-components.js
-    inventory-components.js
-    legacy-components.js
-    login-components.js
-    report-components.js
-    staff-components.js
-    round-components.js
-
-  pages/
-    auth-pages.js
-    barcode-counting-pages.js
-    barcode-pages.js
-    calculator-pages.js
-    engagement-pages.js
-    event-delegation.js
-    expiry-pages.js
-    home-stats-page.js
-    inventory-pages.js
-    legacy-pages.js
-    staff-pages.js
-    sub-pages.js
-
-  vendor/
-    zxing-library.min.js
-    zxing-wasm-reader.iife.js
-    zxing_reader.wasm
-    ZXING-LICENSE.txt
-    ZXING-WASM-LICENSE.txt
-
-supabase/
-  schema.sql
-  barcode-schema.sql
-  admin-actions/
-    index.ts
-
-tests/
-  *.test.mjs
-  fixtures/
-
-docs/
-  ANDROID_APP.md
-  BARCODE.md
-
-AndroidApp/
-  Capacitor Android application
-  Google ML Kit scanner
-
-AuditWidget/
-  Android home-screen widget
-
-.github/
-  workflows/
-    build-android-app.yml
-    build-widget-apk.yml
-
-BLUEPRINT_v1_original.md
+.
+├── index.html
+├── manifest.json
+├── sw.js
+├── package.json
+├── CNAME
+│
+├── css/
+│   ├── app.css
+│   ├── barcode.css
+│   ├── desktop.css
+│   ├── design-upgrade.css
+│   └── engagement.css
+│
+├── js/
+│   ├── main.js
+│   ├── actions.js          # barrels: re-export each floor's index
+│   ├── components.js
+│   ├── pages.js
+│   ├── repository.js
+│   ├── store.js
+│   ├── home-stats.js
+│   │
+│   ├── actions/            # incl. index.js, bus.js, item-key.js
+│   ├── barcode/
+│   ├── components/         # incl. index.js, dom-utils.js
+│   ├── pages/
+│   ├── repository/
+│   ├── store/
+│   └── vendor/             # ZXing + ZXing-C++ WASM (+ licences)
+│
+├── supabase/
+│   ├── schema.sql
+│   ├── barcode-schema.sql
+│   └── admin-actions/
+│       └── index.ts
+│
+├── tests/
+│   ├── *.test.mjs
+│   └── fixtures/
+│
+├── docs/
+│   ├── ANDROID_APP.md
+│   └── BARCODE.md
+│
+├── AndroidApp/             # Capacitor Android application
+├── AuditWidget/            # Kotlin Android widget
+├── .github/workflows/
+└── BLUEPRINT_v1_original.md
 ```
 
 ---
 
-## 13. Data and Persistence
+## 19. Data and Persistence
 
-The application uses several persistence layers for different responsibilities.
+Audit Hub uses different persistence layers for different responsibilities.
 
 ### Supabase
 
-Used for:
+The shared backend stores and controls:
 
 - Authentication
 - Staff
-- Engagements
-- Rounds
-- Assignments
-- Submissions
-- Compiled rounds
+- Engagements, rounds and assignments
+- Submissions and compiled rounds
 - Final snapshots
 - Audit logs
 - Templates
 - Expiry data
 - Barcode data
-- Shared inventory
-- Server-side authorization
+- Shared inventory (`inventory_products`)
 
 ### IndexedDB
 
-Used for local/offline application data including:
+Local/offline data:
 
-- Inventory/cache data
+- Inventory/cache information
 - Counting checkpoints
-- Barcode mirror
-- Barcode outbox
-- Other local application state
+- Barcode cache and outbox
+- Other offline application data
 
 ### localStorage
 
-Used for lightweight local settings and persistence.
+Lightweight local preferences and settings.
 
 ### Dropbox
 
-Dropbox is the upstream inventory source.
+Dropbox is the upstream inventory source. The browser does not maintain an independent authoritative Dropbox copy: inventory synchronization populates the shared Supabase inventory dataset so multiple devices operate against the same data.
 
-The current architecture performs inventory synchronization server-side and stores the synchronized inventory in Supabase so multiple devices work from the same inventory dataset.
-
----
-
-## 14. Security Model
-
-Security is enforced primarily at the database level rather than relying only on UI restrictions.
-
-- **Supabase Auth** — every staff member has a real Supabase Auth account.
-- **Row Level Security** — Supabase RLS policies use the authenticated user's identity and role to restrict access. A client cannot bypass authorization simply by modifying JavaScript or making a different API request.
-- **Access expiry** — staff access validity is checked server-side.
-- **Assignment protection** — Sub-Auditors cannot modify protected assignment scope, ownership or configuration fields.
-- **Engagement protection** — database functions prevent counting/submission activity where the engagement is not in an appropriate state.
-- **Barcode protection** — barcode administrative operations are protected by RLS and security-definer functions.
-- **Service-role key** — kept exclusively inside the privileged Edge Function. It is never intended to be shipped to the browser.
-- **Audit logging** — significant actions are recorded in the audit log. Offline-capable logging can queue events locally and retry synchronization when connectivity returns.
-
----
-
-## 15. Supabase Setup
-
-### Main database
-
-Run `supabase/schema.sql` in the target Supabase project's SQL Editor.
-
-The schema is designed to be safely re-runnable through its use of appropriate `IF EXISTS` / `IF NOT EXISTS` patterns where applicable.
-
-### Barcode subsystem
-
-Run `supabase/barcode-schema.sql` after the main schema when setting up barcode functionality.
-
-This creates the barcode tables, policies, functions and related database logic.
-
-### Admin Edge Function
-
-Deploy `supabase/admin-actions/index.ts` as `admin-actions`.
-
-Using the Supabase CLI:
-
-```bash
-supabase functions deploy admin-actions
-```
-
-The Edge Function uses the Supabase service-role key for privileged staff-account operations. That key must remain server-side.
-
----
-
-## 16. Inventory Synchronization
-
-The application uses a shared server-side inventory synchronization model.
-
-The browser reads from `inventory_products` rather than each device independently maintaining its own Dropbox copy.
-
-The inventory sync process is responsible for pulling the source inventory into Supabase.
-
-The repository references a separate `sync-inventory-from-dropbox` Supabase Edge Function for the actual Dropbox synchronization.
-
-> **Note:** that function is not contained in this repository and must be deployed separately if Dropbox synchronization is required.
+> **Note:** the repository references a separate `sync-inventory-from-dropbox` Supabase Edge Function. It is **not contained in this repository** and must be deployed separately if server-side Dropbox synchronization is required.
 
 CSV/manual import remains available as a fallback.
 
 ---
 
-## 17. First Main Auditor
+## 20. Supabase Security Model
+
+Authorization is enforced at the database/backend level rather than relying only on client-side UI restrictions.
+
+- **Supabase Auth** — each staff member has a real authenticated Supabase identity.
+- **Row Level Security** — RLS policies restrict access by the authenticated user and their staff role. A client cannot bypass authorization by modifying JavaScript or calling a different API.
+- **Access expiry** — staff access can have an expiration timestamp, checked server-side.
+- **Assignment protection** — Sub-Auditors cannot modify protected assignment configuration or ownership fields.
+- **Engagement protection** — database functions prevent counting/submission activity against inappropriate engagement states.
+- **Barcode protection** — barcode administration uses protected (security-definer) database operations and role checks.
+- **Service-role key** — remains exclusively inside the privileged `admin-actions` Edge Function and must never be shipped to the browser.
+- **Audit logging** — important operations are recorded in the audit log. Offline-capable logging can queue events locally and synchronize them when connectivity returns.
+
+---
+
+## 21. Supabase Setup
+
+### Main schema
+
+Run `supabase/schema.sql` in the target Supabase project's SQL Editor. The schema is re-runnable through `IF EXISTS` / `IF NOT EXISTS` and related migration-safe patterns.
+
+### Barcode schema
+
+After the main schema, run `supabase/barcode-schema.sql`. It creates the barcode subsystem's tables, policies and functions.
+
+### Admin Edge Function
+
+Deploy `supabase/admin-actions/index.ts` as `admin-actions`:
+
+```bash
+supabase functions deploy admin-actions
+```
+
+The function requires the Supabase service-role key through the Edge Function environment.
+
+---
+
+## 22. Creating the First Main Auditor
 
 For a fresh Supabase project:
 
 1. Create a Supabase Auth user.
-2. Use the internal email convention `<phone digits>@staff.internal`.
-3. Set the user's password to the chosen PIN.
-4. Auto-confirm the user.
-5. Insert the corresponding record into the `staff` table.
+2. Use the internal email format `<phone-digits>@staff.internal`.
+3. Set the password to the selected PIN.
+4. Confirm the account.
+5. Create the corresponding `staff` record.
 6. Set `role = main`.
 7. Open the application.
 8. Sign in using phone + PIN.
 
-After the first Main Auditor exists, normal staff management can be performed from the application.
+After the first Main Auditor exists, staff administration can be performed from the application.
 
 ---
 
-## 18. Android App
+## 23. Android Application
 
-`AndroidApp/` is a Capacitor-based Android shell around the live web application.
+`AndroidApp/` is a Capacitor 8 Android shell around the live application. It loads <https://random.duapharma.com>.
 
-It does not replace the web application or create a separate data layer.
+The web application remains the primary system. The Android app does not create a second database or second audit engine.
 
-It loads <https://random.duapharma.com>.
+**Android adds:**
 
-The existing Supabase backend, authentication, PWA, database, web UI and audit workflows remain unchanged.
+- Native Android shell
+- Google ML Kit barcode scanner
+- Native camera autofocus
+- Automatic scanner zoom
+- Fast native scanning
+- Continuous barcode-counting integration
 
-### Native barcode scanning
+---
 
-The Android application adds Google ML Kit barcode scanning.
+## 24. Android Barcode Flow
 
-On supported Android devices:
+In the native application:
 
 ```
 Tap Scan
    ↓
-Google ML Kit scanner
+Google ML Kit
    ↓
 Barcode result
    ↓
-Existing web Barcode/Counting workflow
+Existing web barcode workflow
 ```
 
-For continuous barcode counting:
+For continuous counting:
 
 ```
 Open scanner
    ↓
-Read product
+Scan product
    ↓
 Enter quantity
    ↓
-Confirm
+Confirm / Cancel
    ↓
 Scanner reopens
    ↓
-Read next product
+Scan next product
 ```
 
-If native Google scanning cannot be used, the web scanner is used as the fallback.
-
-### Android updates
-
-- **Web changes** arrive automatically because the APK loads the live website.
-- **Native Android changes** require a new APK build and installation.
-
-### Android build
-
-The GitHub Actions workflow `.github/workflows/build-android-app.yml` builds the Android application when `AndroidApp/**` changes.
-
-It:
-
-1. Installs Node dependencies.
-2. Uses JDK 21.
-3. Runs Capacitor synchronization.
-4. Builds the debug APK.
-5. Uploads the APK artifact.
-6. Publishes/refreshes the `android-latest` GitHub Release.
-
-The current APK is debug-signed.
+If native ML Kit scanning cannot be used, the application falls back to the existing web scanner.
 
 ---
 
-## 19. Android Individual Assignments Widget
+## 25. Android Updates
 
-`AuditWidget/` is a separate Android companion application.
+| Change location | Effect |
+|---|---|
+| Outside `AndroidApp/` (web) | Appears automatically after the live website updates. |
+| Inside `AndroidApp/` (native) | Requires a new APK build and installation. |
 
-Its purpose is to show the Main Auditor:
+Native changes include Capacitor dependencies, ML Kit integration, native permissions, Android configuration, native icons and Android code.
 
-- Open Individual Assignment rounds
+---
+
+## 26. Android CI/CD
+
+Workflow: `.github/workflows/build-android-app.yml`
+
+It runs when:
+
+- `AndroidApp/**` changes on `main`
+- The workflow is manually dispatched
+
+The build uses Node.js 22, JDK 21, Capacitor and the Android Gradle tooling.
+
+It:
+
+1. Checks out the repository.
+2. Installs Node dependencies.
+3. Synchronizes Capacitor.
+4. Builds the debug APK.
+5. Uploads the APK as a GitHub Actions artifact.
+6. Refreshes the `android-latest` GitHub Release.
+
+The generated APK is `PharmacyAuditHub.apk`.
+
+> **Important:** the current Android build is **debug-signed**. A production release should use a dedicated release keystore.
+
+---
+
+## 27. Android Individual Assignments Widget
+
+`AuditWidget/` is a separate Kotlin Android application that gives the Main Auditor a quick view of open Individual Assignment rounds.
+
+The widget can display:
+
 - Round number
 - Engagement
 - Assignee
@@ -732,52 +786,67 @@ Its purpose is to show the Main Auditor:
 - Counting progress
 - Assignment status
 
-It authenticates using the same Supabase staff credentials.
+It uses the same Supabase backend and authenticated staff identity. The session is stored in Android-side protected storage. The widget refreshes periodically through WorkManager and can be refreshed manually. It remains subject to Supabase RLS and does not contain a service-role key.
 
-The session is stored using Android encrypted storage.
+### Widget architecture
 
-The widget periodically refreshes using WorkManager and can also be manually refreshed.
+```
+LoginActivity
+SupabaseAuth
+TokenStore
+RoundsRepository
+WidgetUpdateWorker
+IndividualRoundsWidgetProvider
+WidgetRemoteViewsService
+```
 
-### Widget security
-
-The widget uses the authenticated session token and therefore remains subject to Supabase RLS.
-
-It does not contain a service-role key.
-
-The widget is intended primarily for Main Auditor accounts.
-
-### Widget build
-
-The GitHub Actions workflow `.github/workflows/build-widget-apk.yml` produces `audit-rounds-widget-debug-apk` as a GitHub Actions artifact.
-
-The widget APK is currently debug-signed.
+See `AuditWidget/README.md` for installation and usage.
 
 ---
 
-## 20. Progressive Web App
+## 28. Widget CI
 
-The web application is installable as a PWA.
+Workflow: `.github/workflows/build-widget-apk.yml`
 
-It includes:
+It:
+
+1. Checks out the repository.
+2. Installs JDK 17.
+3. Generates the Gradle wrapper.
+4. Builds the debug APK.
+5. Uploads it as the `audit-rounds-widget-debug-apk` GitHub Actions artifact.
+
+The current widget APK is debug-signed.
+
+---
+
+## 29. Progressive Web App
+
+The web application is an installable PWA providing:
 
 - Web App Manifest
 - Service Worker
 - Offline asset caching
-- Install prompt
+- Installable standalone mode
 - Home-screen shortcuts
-- Standalone display mode
-- Mobile-oriented UI
-- Desktop layout support
+- Mobile-oriented interface
+- Desktop support
 
-The service worker uses a cache version (`CACHE_NAME` in `sw.js`) that should be updated when important cached application assets change.
+### Service worker
 
-Serve the application over HTTPS for the full PWA experience.
+- The cache version is the `CACHE_NAME` constant at the top of `sw.js`.
+- At install, the service worker precaches the application shell, CSS, favicons and icons, the **complete ES-module graph of `js/main.js`**, the ZXing/WASM scanner assets, and the CDN libraries (SheetJS and the Supabase client). A freshly installed app can therefore start offline.
+- At runtime, app code (HTML/JS/CSS/JSON/WASM and the CDN libraries) is **network-first with cached fallback**; icons and favicons are cache-first.
+
+> **Keep in sync:** the precache list in `sw.js` is maintained manually. When you add or remove a JS module, update `STATIC_ASSETS` too, or the offline-start guarantee quietly breaks.
+
+For the complete PWA experience, serve the application over HTTPS.
 
 ---
 
-## 21. Development
+## 30. Development
 
-The web application has no frontend build step.
+The web application deliberately has no frontend bundler or framework build step. It uses native ES modules.
 
 Install Node.js and run:
 
@@ -785,214 +854,224 @@ Install Node.js and run:
 npm test
 ```
 
-The repository currently contains 22 Node test files covering areas including:
+This runs `node --test tests/*.test.mjs`.
 
-- Barcode components
-- Barcode lookup
+---
+
+## 31. Test Suite
+
+The repository currently contains 22 Node test files covering:
+
+- Barcode components, lookup, service and validation
 - Native barcode integration
-- Scanner quality
+- Scanner quality and scanner behaviour
 - Barcode reports
-- Barcode scanner behavior
-- Barcode service
-- Barcode validation
-- WASM barcode processing
-- ZXing behavior
+- WASM barcode processing and ZXing behaviour
 - Compilation
-- Force submit
-- Individual assignments
+- Force Submit
+- Individual Assignments
 - Item identity
 - Live snapshots
 - Product search
-- Round deletion/renumbering
-- Round overlap
+- Round deletion/renumbering and round overlap
 - Row timing
 - Uncounted-item rules
 - Variance corrections
 - Extra notes
 
-Tests use Node's built-in test runner.
+Tests use Node's built-in test runner. Barcode image fixtures live in `tests/fixtures/barcodes/`.
 
 ---
 
-## 22. Testing Philosophy
+## 32. Testing Philosophy
 
-The test suite focuses heavily on business rules rather than only UI rendering.
-
-Important invariants include:
+The test suite focuses heavily on business invariants:
 
 ```
-Uncounted item → counted quantity 0
+Uncounted item → Counted quantity = 0
 
-Barcode → product identification
-        → existing count flow
-        → existing variance logic
+Barcode → Product identification
+        → Existing count workflow
+        → Existing variance logic
 
-Conflicting barcode → explicit conflict
-                    → no silent reassignment
+Conflicting barcode → Explicit conflict
+                    → No silent reassignment
 
-Variance correction → proposal
+Variance correction → Proposal
+                    → Reason
                     → Main Auditor review
-                    → original count preserved
+                    → Original count preserved
 
-Round → snapshot
-      → assignments
-      → submissions
-      → compilation
-      → variance review
-      → recount/final snapshot
+Round → Snapshot
+      → Assignments
+      → Submissions
+      → Compilation
+      → Variance review
+      → Recount / Final Snapshot
 ```
 
 ---
 
-## 23. Deployment
+## 33. Deployment
 
-The web application can be deployed to any static HTTPS host capable of serving ES modules and the required assets.
+The web application is a static ES-module application and can be served from any static HTTPS host. The repository includes a `CNAME` for the production domain `random.duapharma.com` (currently served via GitHub Pages).
 
-The current deployment uses GitHub Pages with `CNAME` pointing to `random.duapharma.com`.
+### Web deployment checklist
 
-There is no web bundling/build pipeline required.
+1. Verify the website loads.
+2. Verify authentication.
+3. Verify inventory loading.
+4. Verify Templates.
+5. Verify Team Audit creation.
+6. Verify assignment generation.
+7. Verify counting.
+8. Verify submission.
+9. Verify compilation.
+10. Verify variance review.
+11. Verify barcode scanning.
+12. Verify offline behaviour.
+13. Verify Supabase connectivity.
+14. Verify PWA installation.
+15. Verify Android behaviour if the web changes affect native integration.
 
-When deploying a new version:
+### Service-worker changes
 
-1. Push the web changes.
-2. Verify the GitHub Pages deployment.
-3. Update the service-worker cache version when appropriate.
-4. Test login.
-5. Test inventory loading.
-6. Test counting.
-7. Test submission/compilation.
-8. Test barcode scanning.
-9. Test offline behavior.
-10. Verify Supabase connectivity.
-
----
-
-## 24. Documentation
-
-Detailed subsystem documentation is available in:
-
-### Barcode — `docs/BARCODE.md`
-
-- Barcode architecture
-- Scanner behavior
-- Camera requirements
-- Offline barcode operation
-- Decoder strategy
-- Barcode roles
-- Scanner quality improvements
-
-### Android — `docs/ANDROID_APP.md`
-
-- Capacitor Android shell
-- Google ML Kit scanner
-- APK builds
-- Updates
-- Offline behavior
-- Local development
-
-### Widget — `AuditWidget/README.md`
-
-- Widget architecture
-- Login
-- Supabase session handling
-- Widget refresh
-- Installation
-- Debug APK usage
+When important cached assets change, bump `CACHE_NAME` in `sw.js`. This retires old caches during service-worker activation. If you added or removed a JS module, update `STATIC_ASSETS` as well.
 
 ---
 
-## 25. Current Scope
+## 34. Documentation
 
-### Implemented
-
-- Inventory management
-- Dropbox-backed inventory synchronization
-- CSV fallback
-- Product search
-- Templates
-- Team engagements
-- Multi-round auditing
-- Assignment splitting
-- Individual Audits
-- Staff management
-- Supabase authentication
-- RLS authorization
-- Offline-capable counting
-- Counting calculator
-- Variance compilation
-- Cross-round conflict detection
-- Variance correction proposals
-- Final snapshots
-- Audit trail
-- Excel reporting
-- Expiry tracking
-- Barcode Center
-- Barcode registration/verification
-- Barcode conflict handling
-- Barcode counting
-- Web camera scanning
-- ZXing/WASM fallback
-- Android ML Kit scanning
-- Capacitor Android shell
-- Individual Assignments Android widget
-- Automated Android builds
+| Document | Covers |
+|---|---|
+| [`docs/BARCODE.md`](docs/BARCODE.md) | Barcode architecture, counting methods, scanner behaviour, camera requirements, offline operation, decoder strategy, roles, scanner quality improvements. |
+| [`docs/ANDROID_APP.md`](docs/ANDROID_APP.md) | Capacitor Android shell, Google ML Kit, APK builds, updates, offline behaviour, local development. |
+| [`AuditWidget/README.md`](AuditWidget/README.md) | Widget architecture, authentication, Supabase session handling, refresh, installation, debug APK usage. |
 
 ---
 
-## 26. Remaining Gaps / Future Improvements
+## 35. Known Gaps and Recommended Future Work
 
-The application is already substantially beyond the original Audit Hub design, but the following areas remain potential future work:
+The system is already a substantial production-oriented internal audit platform. These improvements would make it stronger.
+
+### High priority
+
+1. **Production Android signing** — replace debug signing with a protected release keystore.
+2. **Automated end-to-end testing** — test against a disposable/staging Supabase environment instead of relying primarily on unit/business-rule tests. This would also cover untested auth edge cases, such as session validity at the exact moment an account is blocked.
+3. **Deployment diagnostics** — a visible diagnostic showing web version, service-worker version, backend environment, last inventory synchronization, offline queue state and build timestamp.
+4. **Better offline reconciliation** — extend the queue/retry architecture into a consistent conflict-resolution model for every offline-capable operation.
+5. **Database migrations** — as the schema grows, move from one large re-runnable SQL file toward explicit versioned migrations.
+6. **Service-worker precache guard** — a test that fails when `STATIC_ASSETS` drifts from the real module graph.
+
+### Medium priority
+
+- Multi-branch audit management
+- Scheduled and recurring audits / reusable assignment templates
+- Push notifications
+- Drag-and-drop assignment balancing (currently a tap-based "Move to…" picker)
+- Advanced analytics: historical variance trends, auditor productivity, richer management dashboards
+- Automated inventory-sync monitoring
+- Centralized Android release management
+- Automated smoke tests after deployment
+
+### Longer-term
 
 - Direct POS integration
-- Multi-branch audit management
-- Push notifications
-- Scheduled/recurring audits
-- Advanced analytics dashboards
-- AI-assisted variance analysis
-- Regulatory/compliance dashboard
-- Drag-and-drop assignment balancing
-- Reusable engagement assignment templates
-- Production-signed Android releases
-- Broader automated end-to-end testing against a real Supabase project
-- More sophisticated offline conflict reconciliation
-- Centralized deployment/version diagnostics
+- AI-assisted variance investigation
+- Predictive discrepancy and anomaly detection
+- Regulatory/compliance dashboards
+- Intelligent audit sampling
+- Cross-branch benchmarking
 
 ---
 
-## 27. Design Principles
+## 36. Design Principles
 
-1. **Never silently lose an audit item** — an uncounted item should become visible as a discrepancy rather than disappearing from the result.
-2. **Never silently overwrite evidence** — original counts and audit history should remain recoverable.
-3. **Database authorization is authoritative** — UI restrictions are useful for UX, but Supabase RLS and server-side functions are the actual security boundary.
-4. **Barcode is an input layer** — barcode identification should improve counting speed without creating a second independent inventory/variance engine.
-5. **Offline should be deliberate** — local persistence, queues and retry mechanisms should make temporary connectivity loss survivable.
-6. **Recounts should become more focused** — the audit process should progressively narrow attention to disagreements instead of repeatedly recounting everything.
-7. **Management should see progress** — the Main Auditor should always be able to understand assignment status, submissions, conflicts and outstanding work.
+1. **Never silently lose an audit item** — an uncounted item should remain visible as a discrepancy.
+2. **Never silently overwrite evidence** — original counts, corrections and audit history should remain traceable.
+3. **Database authorization is authoritative** — UI restrictions improve user experience, but Supabase RLS and server-side functions provide the actual security boundary.
+4. **Barcode is an input layer** — scanning should make counting faster without creating a second independent inventory or variance system.
+5. **Offline operation should be deliberate** — temporary connectivity loss should not destroy work.
+6. **Recounts should become progressively focused** — later rounds should concentrate on disagreement rather than repeating the entire audit.
+7. **Management should always understand progress** — the Main Auditor should see:
+   - Who is assigned
+   - Who has started
+   - How much has been counted
+   - Who has submitted
+   - What differs
+   - What conflicts remain
+   - What requires correction
 
 ---
 
-## 28. Project Status
+## 37. Technology Summary
 
-Fazal Din Pharma Plus — Audit Hub is an actively developed internal pharmacy stock-audit platform combining:
+| Layer | Technology |
+|---|---|
+| Web UI | HTML / CSS / native ES modules |
+| Frontend framework | None |
+| Build system | None for web |
+| Backend | Supabase |
+| Database | PostgreSQL |
+| Authentication | Supabase Auth |
+| Authorization | PostgreSQL RLS + server-side functions |
+| Local database | IndexedDB |
+| Lightweight storage | localStorage |
+| Inventory source | Dropbox + CSV fallback |
+| PWA | Web App Manifest + Service Worker |
+| Barcode (web) | BarcodeDetector + ZXing + ZXing-C++ WASM |
+| Android shell | Capacitor 8 |
+| Native Android scanner | Google ML Kit |
+| Android widget | Kotlin, WorkManager |
+| Android build | Gradle |
+| CI | GitHub Actions |
+| Testing | Node.js built-in test runner |
+| Reports | XLSX generation (SheetJS) |
+
+---
+
+## 38. Project Status
+
+Fazal Din Pharma Plus — Audit Hub is an actively developed internal pharmacy stock-audit platform. Its current architecture combines:
 
 ```
-Inventory
-   +
+Shared Inventory
+      +
 Team Auditing
-   +
+      +
 Individual Auditing
-   +
+      +
 Offline Counting
-   +
+      +
 Barcode Intelligence
-   +
+      +
 Expiry Tracking
-   +
-Supabase Security
-   +
+      +
+Supabase Authorization
+      +
+Audit History
+      +
 Excel Reporting
-   +
-Android Integration
+      +
+PWA
+      +
+Native Android Scanning
+      +
+Android Management Widget
 ```
 
-The web application remains the primary system of record and user interface, while the Android application and widget provide specialized mobile capabilities around the same backend and workflows.
+The web application remains the primary audit platform and system of record. The Android application provides a specialized native scanning experience around the same web system, while the Android widget provides a lightweight management view for Individual Assignments.
+
+---
+
+## Repository
+
+- **GitHub:** <https://github.com/sysalmanyasin/Random>
+- **Live application:** <https://random.duapharma.com>
+- **Primary branch:** `main`
+
+## License / Internal Use
+
+This repository is maintained for the operational use of Fazal Din Pharma Plus.
+
+Refer to the repository configuration and organizational policies before redistributing or deploying the application outside its intended environment.
