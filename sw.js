@@ -1,4 +1,4 @@
-const CACHE_NAME = "fazal-din-audit-v8.92-barcode-center";
+const CACHE_NAME = "fazal-din-audit-v8.93-barcode-iphone";
 
 // App-shell assets we want available offline immediately after install.
 // (These are still precached, but at *runtime* they are served network-first,
@@ -10,6 +10,7 @@ const STATIC_ASSETS = [
   "./css/app.css",
   "./css/engagement.css",
   "./css/barcode.css",
+  "./js/vendor/zxing-library.min.js",
   "./js/repository.js",
   "./js/store.js",
   "./js/actions.js",

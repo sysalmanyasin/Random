@@ -8,4 +8,4 @@ Setup: run `supabase/barcode-schema.sql` once (already applied to the BTpharmacy
 - Recount: the assignment's own item list is the allowlist, so a Difference-Only recount rejects any product that is not in it.
 - Offline: barcode mirror + outbox live in IndexedDB v6 (`barcodeCache`, `barcodeOutbox`). Scan events carry a client id; the server ignores repeats.
 - Roles (enforced by RLS / SECURITY DEFINER functions): Sub reads verified barcodes and logs own scans; Deputy also registers/verifies/flags conflicts; Main also changes, disables and resolves conflicts and sees full history.
-- Camera scanning needs HTTPS, a user tap, and a browser with BarcodeDetector (Chrome/Android). Hardware (keyboard-wedge) scanners work everywhere.
+- Camera scanning needs HTTPS and a user tap. Chrome/Android uses the browser's built-in BarcodeDetector. iPhone/iPad Safari has none, so a vendored ZXing decoder (`js/vendor/zxing-library.min.js`, Apache-2.0) is loaded on demand. Hardware (keyboard-wedge) scanners and typing work everywhere.

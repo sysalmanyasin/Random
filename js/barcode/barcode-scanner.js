@@ -104,8 +104,8 @@ function nativeDetectorSupported() {
 
 // Starts the rear camera into <video>; resolves {stop}. Uses the native
 // BarcodeDetector where it exists (Chrome/Android). Where it doesn't
-// (iOS Safari), a fallback decoder must be supplied via opts.fallbackDecode
-// (async (video) => string|null) — see README note; none is bundled.
+// (iOS Safari) the vendored ZXing decoder is loaded on demand
+// (barcode-zxing.js); opts.fallbackDecode can still override it.
 async function startCamera(hub, videoEl, opts) {
   const o = opts || {};
   if (!cameraSupported()) throw new Error('Camera not available on this device/browser');
@@ -120,10 +120,20 @@ async function startCamera(hub, videoEl, opts) {
   if (nativeDetectorSupported()) {
     detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'data_matrix', 'qr_code'] });
   }
-  const decode = detector
+  let decode = detector
     ? async () => { const r = await detector.detect(videoEl); return r && r[0] ? r[0].rawValue : null; }
     : o.fallbackDecode ? () => o.fallbackDecode(videoEl) : null;
-  if (!decode) { stream.getTracks().forEach(t => t.stop()); throw new Error('This browser has no built-in barcode detection. Use a hardware scanner or Chrome on Android.'); }
+  if (!decode) {
+    // iPhone/iPad Safari etc.: no BarcodeDetector -> lazy-load the vendored ZXing decoder.
+    try {
+      const { createVideoDecoder } = await import('./barcode-zxing.js');
+      const fb = await createVideoDecoder();
+      decode = () => fb(videoEl);
+    } catch (err) {
+      stream.getTracks().forEach(t => t.stop());
+      throw err;
+    }
+  }
 
   let stopped = false;
   let busy = false;
