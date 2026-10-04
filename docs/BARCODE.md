@@ -17,3 +17,12 @@ Setup: run `supabase/barcode-schema.sql` once (already applied to the BTpharmacy
 - **Decoding:** native `BarcodeDetector` (Chrome/Android) on the laser-box strip + full frame; ZXing fallback (iOS Safari) runs strip → full frame → inverted strip, each with auto contrast stretch.
 - **Accuracy:** EAN/UPC/GTIN accepted on one read (check digit verified); Code 128/39/QR etc. need two matching reads.
 - **UX:** red laser sweep, dimmed surround, green flash + beep/vibration on success, screen kept awake while scanning.
+
+## Camera scanner v8.96 — WASM engine, guidance, auto-torch, still capture
+
+- **Engine:** ZXing-C++ compiled to WebAssembly (`js/vendor/zxing-wasm-reader.iife.js` + `zxing_reader.wasm`, MIT, see `ZXING-WASM-LICENSE.txt`). It handles blur, rotation, low contrast and damaged codes far better than the old JS port, which stays as an automatic fallback if WASM can't load. iPhone/iPad use it from the first frame; Chrome/Android keep the native detector and load WASM as a second opinion after ~1.5 s with no read.
+- **Light-on-dark labels:** ZXing-C++ does not self-invert EAN/UPC, so every third frame also runs a manual inverted strip.
+- **Guidance (`barcode-quality.js`):** after ~2 s with no read the viewfinder says "Too dark", "Glare", "Hold steady — move back a little" or "Low contrast". Silent during normal scans.
+- **Auto-torch:** if the frame stays dark and the phone has a torch, it turns on once. Tapping the torch button yourself always overrides it.
+- **Still capture:** if live frames keep failing for ~2.5 s, it takes a full-resolution photo (`ImageCapture.takePhoto`, where supported) and decodes that — at most once every 5 s. Helps tiny/dense labels such as blister strips and GS1 DataMatrix. Some Android phones may play a shutter sound.
+- **Offline:** the engine and `.wasm` are precached and served network-first with cache fallback (`sw.js`, cache `v8.96-scanner-wasm`).

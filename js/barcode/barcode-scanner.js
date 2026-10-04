@@ -10,6 +10,7 @@
    ══════════════════════════════════════════════════════════════ */
 
 import { roiRect } from './barcode-zxing.js';
+import { analyzeGray, rgbaToGray, createGuide } from './barcode-quality.js';
 
 // Same code repeated inside this window is treated as one physical scan
 // (a camera sees the same label on many frames).
@@ -214,9 +215,9 @@ async function startCamera(hub, videoEl, opts) {
     } catch (_) { detector = null; }
   }
   let tick = 0;
-  let decode = null;
+  let nativeDecode = null;
   if (detector) {
-    decode = async () => {
+    nativeDecode = async () => {
       // Alternate: laser-box strip (fast, ignores busy shelves) / whole frame (catches off-centre codes).
       let r;
       if (tick++ % 2 === 0 && typeof createImageBitmap === 'function' && videoEl.videoWidth) {
@@ -228,14 +229,22 @@ async function startCamera(hub, videoEl, opts) {
       r = await detector.detect(videoEl);
       return r && r[0] ? r[0].rawValue : null;
     };
-  } else if (o.fallbackDecode) {
-    decode = () => o.fallbackDecode(videoEl);
-  } else {
-    try {
-      const { createVideoDecoder } = await import('./barcode-zxing.js');
-      const fb = await createVideoDecoder();
-      decode = () => fb(videoEl);
-    } catch (err) {
+  }
+  // Software engine (ZXing-C++ WASM, JS fallback). Mandatory where there is no native detector;
+  // on Chrome/Android it is loaded lazily as a 2nd opinion once the native one has been quiet for a while.
+  let engine = null, engineLoading = null;
+  const ensureEngine = () => {
+    if (!engineLoading) {
+      engineLoading = (o.fallbackDecode
+        ? Promise.resolve(Object.assign((v) => o.fallbackDecode(v), { engine: 'custom' }))
+        : import('./barcode-zxing.js').then(m => m.createVideoDecoder()))
+        .then(d => { engine = d; return d; })
+        .catch((err) => { engineLoading = null; throw err; });
+    }
+    return engineLoading;
+  };
+  if (!nativeDecode) {
+    try { await ensureEngine(); } catch (err) {
       stream.getTracks().forEach(t => t.stop());
       videoEl.srcObject = null;
       throw err;
@@ -247,15 +256,66 @@ async function startCamera(hub, videoEl, opts) {
   try { if (navigator.wakeLock) wake = await navigator.wakeLock.request('screen'); } catch (_) { wake = null; }
 
   const consensus = createConsensus();
+  const guide = createGuide();
+  const thumb = document.createElement('canvas');
+  const thumbCtx = thumb.getContext('2d', { willReadFrequently: true });
+  const startedAt = Date.now();
+  let lastReadAt = startedAt, lastStillAt = 0, loops = 0, stillBusy = false;
   let stopped = false;
   let timer = null;
+  let handle = null;
+
+  // Small ROI thumbnail -> brightness / sharpness -> guidance text + auto-torch.
+  const assess = () => {
+    const vw = videoEl.videoWidth, vh = videoEl.videoHeight; if (!vw || !vh) return;
+    const rc = roiRect(vw, vh, videoEl.clientWidth, videoEl.clientHeight);
+    const tw = 192, th = Math.max(16, Math.round(tw * rc.h / rc.w));
+    thumb.width = tw; thumb.height = th;
+    thumbCtx.drawImage(videoEl, rc.x, rc.y, rc.w, rc.h, 0, 0, tw, th);
+    const stats = analyzeGray(rgbaToGray(thumbCtx.getImageData(0, 0, tw, th).data, tw, th), tw, th);
+    const g = guide.feed(stats, Date.now() - lastReadAt);
+    showGuide(videoEl, g.message, g.kind);
+    if (g.wantTorch && handle && caps.torch && !handle.torchOn && !handle.userTorch && !handle.autoTorched) {
+      handle.autoTorched = true;
+      handle.setTorch(true, true).then(() => syncControls(videoEl));
+    }
+  };
+
+  // Last resort for tiny / dense labels: shoot a full-resolution photo and decode that.
+  const tryStill = async () => {
+    if (stillBusy || typeof ImageCapture === 'undefined' || !track) return null;
+    stillBusy = true; lastStillAt = Date.now();
+    try {
+      const blob = await new ImageCapture(track).takePhoto();
+      const bm = await createImageBitmap(blob);
+      try {
+        if (!engine) { try { await ensureEngine(); } catch (_) { /* native only */ } }
+        let v = engine && engine.decodeStill ? await engine.decodeStill(bm) : null;
+        if (!v && detector) { const r = await detector.detect(bm); v = r && r[0] ? r[0].rawValue : null; }
+        return v;
+      } finally { if (bm.close) bm.close(); }
+    } catch (_) { return null; } finally { stillBusy = false; }
+  };
+
   const loop = async () => {
     if (stopped) return;
     const t0 = Date.now();
     if (!hub.isPaused() && videoEl.readyState >= 2) {
       try {
-        const v = await decode();
-        if (v && consensus.accept(v) && hub.emit(v, 'camera')) flashHit(videoEl);
+        const quiet = t0 - lastReadAt;
+        let v = null;
+        if (nativeDecode) {
+          v = await nativeDecode();
+          if (!v && quiet > 1500) { try { await ensureEngine(); } catch (_) {} if (engine) v = await engine(videoEl); }
+        } else {
+          v = await engine(videoEl);
+        }
+        if (!v && quiet > 2500 && t0 - lastStillAt > 5000) v = await tryStill();
+        if (v && consensus.accept(v)) {
+          lastReadAt = Date.now(); guide.reset(); showGuide(videoEl, '', 'ok');
+          if (hub.emit(v, 'camera')) flashHit(videoEl);
+        }
+        if (!(loops++ % 4)) assess();
       } catch (_) { /* transient frame error */ }
     }
     if (stopped) return;
@@ -263,8 +323,11 @@ async function startCamera(hub, videoEl, opts) {
   };
   loop();
 
-  const handle = {
+  handle = {
     caps,
+    userTorch: false,
+    autoTorched: false,
+    engine() { return engine ? engine.engine : (nativeDecode ? 'native' : 'none'); },
     videoEl,
     torchOn: false,
     zoomValue: caps.zoom ? caps.zoom.value : null,
@@ -275,8 +338,9 @@ async function startCamera(hub, videoEl, opts) {
       videoEl.srcObject = null;
       if (current === handle) current = null;
     },
-    async setTorch(on) {
+    async setTorch(on, auto) {
       if (!caps.torch || !track) return false;
+      if (!auto) handle.userTorch = true; // a manual choice always beats auto-torch
       const ok = await applyAdvanced(track, { torch: !!on });
       if (ok) handle.torchOn = !!on;
       return ok;
@@ -335,6 +399,13 @@ function flashHit(videoEl) {
     const box = videoEl.parentElement; if (!box) return;
     box.classList.remove('bc-hit'); void box.offsetWidth; box.classList.add('bc-hit');
     setTimeout(() => box.classList.remove('bc-hit'), 450);
+  } catch (_) {}
+}
+function showGuide(videoEl, message, kind) {
+  try {
+    const box = videoEl.parentElement; if (!box) return;
+    const el = box.querySelector('[data-bc-guide]'); if (!el) return;
+    el.textContent = message || ''; el.hidden = !message; el.dataset.kind = kind || 'ok';
   } catch (_) {}
 }
 function showFocusRing(videoEl) {

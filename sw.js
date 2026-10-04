@@ -1,4 +1,4 @@
-const CACHE_NAME = "fazal-din-audit-v8.95-scanner-laser";
+const CACHE_NAME = "fazal-din-audit-v8.96-scanner-wasm";
 
 // App-shell assets we want available offline immediately after install.
 // (These are still precached, but at *runtime* they are served network-first,
@@ -11,6 +11,8 @@ const STATIC_ASSETS = [
   "./css/engagement.css",
   "./css/barcode.css",
   "./js/vendor/zxing-library.min.js",
+  "./js/vendor/zxing-wasm-reader.iife.js",
+  "./js/vendor/zxing_reader.wasm",
   "./js/repository.js",
   "./js/store.js",
   "./js/actions.js",
@@ -96,6 +98,7 @@ self.addEventListener("fetch", (event) => {
       (url.pathname.endsWith(".js") ||
        url.pathname.endsWith(".css") ||
        url.pathname.endsWith(".json") ||
+       url.pathname.endsWith(".wasm") ||
        url.pathname === "/" ||
        url.pathname.endsWith("index.html"))) ||
     CDN_ASSETS.some(cdn => event.request.url === cdn);

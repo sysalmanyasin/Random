@@ -16,6 +16,12 @@
    ══════════════════════════════════════════════════════════════ */
 
 export const ZXING_SRC = './js/vendor/zxing-library.min.js';
+// Preferred engine: ZXing-C++ compiled to WebAssembly (MIT). Much faster and far better on
+// blur / rotation / low contrast / damaged codes than the JS port above, which stays as the fallback.
+export const ZXING_WASM_SRC = './js/vendor/zxing-wasm-reader.iife.js';
+export const ZXING_WASM_BIN = './js/vendor/zxing_reader.wasm';
+export const WASM_FORMATS = ['EAN13', 'EAN8', 'UPCA', 'UPCE', 'Code128', 'Code39', 'Code93', 'Codabar', 'ITF', 'DataMatrix', 'QRCode'];
+export const WASM_OPTIONS = { formats: WASM_FORMATS, tryHarder: true, tryRotate: true, tryInvert: true, tryDownscale: true, maxNumberOfSymbols: 1 };
 
 // Fractions of the VISIBLE video area covered by the on-screen laser box
 // (keep in sync with .bc-reticle in css/barcode.css).
@@ -110,27 +116,92 @@ export function loadZXing() {
   return loading;
 }
 
-// -> async (videoEl) => string|null. Runs the rotating pass plan above.
+// In-place RGB inversion (alpha untouched). ZXing-C++'s own tryInvert does not cover EAN/UPC,
+// so light-on-dark retail labels need this manual pass.
+export function invertRGBA(data) {
+  for (let i = 0; i < data.length; i += 4) { data[i] = 255 - data[i]; data[i + 1] = 255 - data[i + 1]; data[i + 2] = 255 - data[i + 2]; }
+  return data;
+}
+
+// Reads one frame with ZXing-C++. rgba: ImageData-like {data,width,height}. -> string|null
+export async function decodeWasm(Z, width, height, rgba, extra) {
+  try {
+    const r = await Z.readBarcodes({ data: rgba, width, height, colorSpace: 'srgb' }, Object.assign({}, WASM_OPTIONS, extra));
+    const hit = (r || []).find(x => x && x.isValid !== false && x.text);
+    return hit ? hit.text : null;
+  } catch (e) { return null; }
+}
+
+let wasmLoading = null;
+export function loadZXingWasm(srcOverride, binOverride) {
+  if (typeof window !== 'undefined' && window.__zxingWasmReady) return Promise.resolve(window.ZXingWASM);
+  if (wasmLoading) return wasmLoading;
+  wasmLoading = new Promise((resolve, reject) => {
+    if (typeof WebAssembly === 'undefined') return reject(new Error('WebAssembly not supported'));
+    const done = () => {
+      if (!window.ZXingWASM) return reject(new Error('ZXing WASM failed to initialise'));
+      const bin = binOverride || ZXING_WASM_BIN;
+      window.ZXingWASM.prepareZXingModule({
+        overrides: { locateFile: (p, prefix) => (p.endsWith('.wasm') ? bin : prefix + p) },
+        fireImmediately: true,
+      }).then(() => { window.__zxingWasmReady = true; resolve(window.ZXingWASM); }, reject);
+    };
+    if (window.ZXingWASM) return done();
+    const s = document.createElement('script');
+    s.src = srcOverride || ZXING_WASM_SRC; s.async = true; s.onload = done;
+    s.onerror = () => reject(new Error('Could not load the WASM barcode engine'));
+    document.head.appendChild(s);
+  }).catch((err) => { wasmLoading = null; throw err; });
+  return wasmLoading;
+}
+
+// -> async (videoEl) => string|null, with .decodeStill(bitmap) for full-resolution photos
+//    and .engine = 'wasm' | 'js'. WASM first; falls back to the JS decoder if it can't load.
 export async function createVideoDecoder() {
-  const ZX = await loadZXing();
+  let Z = null, ZX = null;
+  try { Z = await loadZXingWasm(); } catch (_) { Z = null; }
+  if (!Z) ZX = await loadZXing();
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   let tick = 0;
-  return async (video) => {
+
+  const grab = (source, sx, sy, sw, sh, maxW) => {
+    const scale = Math.min(1, maxW / sw);
+    const cw = Math.max(1, Math.round(sw * scale)), ch = Math.max(1, Math.round(sh * scale));
+    canvas.width = cw; canvas.height = ch;
+    ctx.drawImage(source, sx, sy, sw, sh, 0, 0, cw, ch);
+    return { cw, ch, img: ctx.getImageData(0, 0, cw, ch) };
+  };
+  const decodeRegion = async (source, region, maxW, invert) => {
+    const { cw, ch, img } = grab(source, region.x, region.y, region.w, region.h, maxW);
+    if (Z) return decodeWasm(Z, cw, ch, invert ? invertRGBA(img.data) : img.data);
+    return decodeRGBA(ZX, cw, ch, img.data, { invert });
+  };
+
+  const fn = async (video) => {
     const vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh) return null;
     const roi = roiRect(vw, vh, video.clientWidth, video.clientHeight);
-    const passes = planPasses(tick++);
+    const t = tick++;
+    // WASM already tries rotation itself; we add the whole frame every other tick and a manual inverted strip every third.
+    const passes = Z
+      ? [{ region: roi, maxW: 1280 }]
+          .concat(t % 2 === 1 ? [{ region: { x: 0, y: 0, w: vw, h: vh }, maxW: 1280 }] : [])
+          .concat(t % 3 === 2 ? [{ region: roi, maxW: 1280, invert: true }] : [])
+      : planPasses(t).map(p => ({ region: p.region === 'roi' ? roi : { x: 0, y: 0, w: vw, h: vh }, maxW: p.maxW, invert: p.invert }));
     for (const p of passes) {
-      const src = p.region === 'roi' ? roi : { x: 0, y: 0, w: vw, h: vh };
-      const scale = Math.min(1, p.maxW / src.w);
-      const cw = Math.max(1, Math.round(src.w * scale)), ch = Math.max(1, Math.round(src.h * scale));
-      canvas.width = cw; canvas.height = ch;
-      ctx.drawImage(video, src.x, src.y, src.w, src.h, 0, 0, cw, ch);
-      const img = ctx.getImageData(0, 0, cw, ch);
-      const text = decodeRGBA(ZX, cw, ch, img.data, { invert: p.invert });
+      const text = await decodeRegion(video, p.region, p.maxW, p.invert);
       if (text) return text;
     }
     return null;
   };
+  // Full-resolution still (ImageBitmap/Image): whole picture, then centre half, up to 2400px wide.
+  fn.decodeStill = async (bitmap) => {
+    const w = bitmap.width, h = bitmap.height;
+    const full = await decodeRegion(bitmap, { x: 0, y: 0, w, h }, 2400, false);
+    if (full) return full;
+    return decodeRegion(bitmap, { x: Math.round(w * 0.2), y: Math.round(h * 0.2), w: Math.round(w * 0.6), h: Math.round(h * 0.6) }, 2400, true);
+  };
+  fn.engine = Z ? 'wasm' : 'js';
+  return fn;
 }
