@@ -1,0 +1,14 @@
+{
+  "name": "pharmacy-audit-hub-android",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Capacitor Android shell for the live Pharmacy Audit Hub web app (adds native Google ML Kit barcode scanning).",
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor-mlkit/barcode-scanning": "^8.2.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2"
+  }
+}

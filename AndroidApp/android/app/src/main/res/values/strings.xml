@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Audit Hub</string>
+    <string name="title_activity_main">Pharmacy Audit Hub</string>
+    <string name="package_name">com.duapharma.audithub</string>
+    <string name="custom_url_scheme">com.duapharma.audithub</string>
+</resources>

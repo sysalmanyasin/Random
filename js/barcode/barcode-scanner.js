@@ -427,6 +427,62 @@ function showFocusRing(videoEl) {
   } catch (_) {}
 }
 
+// ── Native Android scanner (Capacitor + Google ML Kit) ────────
+// Inside the Android APK (see AndroidApp/) the Capacitor bridge exposes the ML Kit plugin.
+// Its scan() opens Google's full-screen scanner: real autofocus, auto-zoom, very fast reads.
+// In a normal browser none of this exists and the web camera path above is used unchanged.
+const NATIVE_ML_FORMATS = ['EAN_13', 'EAN_8', 'UPC_A', 'UPC_E', 'CODE_128', 'CODE_39', 'DATA_MATRIX', 'QR_CODE'];
+
+function nativePlugin() {
+  try {
+    const C = typeof window !== 'undefined' ? window.Capacitor : null;
+    if (C && typeof C.isNativePlatform === 'function' && C.isNativePlatform() && C.Plugins && C.Plugins.BarcodeScanner) return C.Plugins.BarcodeScanner;
+  } catch (_) {}
+  return null;
+}
+function nativeScannerAvailable() { return !!nativePlugin(); }
+
+// Google's scanner module normally arrives with the APK install; if not, download it once.
+async function ensureGoogleModule(P, timeoutMs) {
+  const r = await P.isGoogleBarcodeScannerModuleAvailable();
+  if (r && r.available) return true;
+  return new Promise((resolve, reject) => {
+    let sub = null, done = false;
+    const finish = (err) => { if (done) return; done = true; clearTimeout(timer); if (sub && sub.remove) sub.remove(); err ? reject(err) : resolve(true); };
+    const timer = setTimeout(() => finish(new Error('Scanner module download timed out')), timeoutMs || 60000);
+    Promise.resolve(P.addListener('googleBarcodeScannerModuleInstallProgress', (ev) => {
+      if (ev && ev.state === 4) finish();                          // COMPLETED
+      else if (ev && (ev.state === 3 || ev.state === 5)) finish(new Error('Scanner module download failed')); // CANCELED / FAILED
+    })).then((h) => { sub = h; if (done && h && h.remove) h.remove(); });
+    P.installGoogleBarcodeScannerModule().catch((e) => finish(e));
+  });
+}
+
+// One scan through the native scanner. Resolves { status, code?, error? }:
+//   'ok'          a code was read and handed to the hub
+//   'cancelled'   the user closed the scanner
+//   'unavailable' native scanning can't be used here -> caller falls back to the web camera
+//   'error'       something failed (message in .error)
+async function scanNative(hub, opts) {
+  const P = nativePlugin();
+  if (!P) return { status: 'unavailable' };
+  const o = opts || {};
+  try {
+    if (P.isSupported) { const sup = await P.isSupported(); if (sup && sup.supported === false) return { status: 'unavailable' }; }
+    try { await ensureGoogleModule(P, o.moduleTimeoutMs); } catch (e) { return { status: 'unavailable', error: e && e.message }; }
+    const res = await P.scan({ formats: NATIVE_ML_FORMATS, autoZoom: true });
+    const b = res && res.barcodes && res.barcodes[0];
+    const code = b && (b.rawValue || b.displayValue);
+    if (!code) return { status: 'cancelled' };
+    hub.emit(code, 'camera');
+    return { status: 'ok', code };
+  } catch (err) {
+    const m = String((err && (err.message || err.errorMessage)) || err || '');
+    if (/cancel/i.test(m)) return { status: 'cancelled' };
+    return { status: 'error', error: m || 'Scanner failed' };
+  }
+}
+
 // Vibration / beep feedback, best-effort.
 function feedback(kind) {
   try {
@@ -446,5 +502,5 @@ function feedback(kind) {
 export const BarcodeScanner = {
   createScanHub, createWedgeDetector, stripTypedScan, attachWedge, startCamera,
   cameraSupported, nativeDetectorSupported, feedback,
-  createConsensus, isChecksummed, isBadGtin, summarizeCaps, defaultZoom, clampZoom, cameraControls, activeCamera,
+  nativeScannerAvailable, scanNative, createConsensus, isChecksummed, isBadGtin, summarizeCaps, defaultZoom, clampZoom, cameraControls, activeCamera,
 };

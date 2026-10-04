@@ -60,6 +60,7 @@ function paint() {
 }
 async function startCameraNow() {
   if (!session || !st) return;
+  if (await session.tryNativeScan()) return;   // Android APK: native ML Kit scanner (no <video> box needed)
   st.cameraOn = true; paint();                       // puts the persistent <video> in the box
   try { await session.startCamera(videoEl); }
   catch (err) { st.cameraOn = false; paint(); Bus.emit('toast', { msg: err.message || 'Could not start the camera', kind: 'error' }); }

@@ -1,0 +1,65 @@
+name: Build Android App (Capacitor + ML Kit scanner)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'AndroidApp/**'
+      - '.github/workflows/build-android-app.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # lets the job publish the APK as a GitHub Release (stable download link)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: AndroidApp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: AndroidApp/package-lock.json
+
+      # Capacitor 8 needs JDK 21 (the widget workflow's JDK 17 is not enough here).
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Sync Capacitor (copies config + registers the ML Kit plugin)
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: AndroidApp/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Name the APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk PharmacyAuditHub.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pharmacy-audit-hub-apk
+          path: AndroidApp/PharmacyAuditHub.apk
+          if-no-files-found: error
+
+      # Stable link: https://github.com/<owner>/<repo>/releases/tag/android-latest
+      - name: Publish / refresh the 'android-latest' release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete android-latest --yes --cleanup-tag || true
+          gh release create android-latest PharmacyAuditHub.apk \
+            --title "Pharmacy Audit Hub — Android app" \
+            --notes "Install on an Android phone (allow 'Install unknown apps' once). The app loads the live site, so web updates arrive automatically — you only reinstall when this APK is rebuilt." \
+            --target "${{ github.sha }}"

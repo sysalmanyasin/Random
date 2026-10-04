@@ -1,0 +1,14 @@
+{
+  "appId": "com.duapharma.audithub",
+  "appName": "Pharmacy Audit Hub",
+  "webDir": "www",
+  "server": {
+    "url": "https://random.duapharma.com",
+    "androidScheme": "https",
+    "errorPath": "index.html",
+    "allowNavigation": ["random.duapharma.com", "*.supabase.co"]
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

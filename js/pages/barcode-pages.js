@@ -51,9 +51,18 @@ export function openScannerSession(onScan) {
   hub.resume();
   return {
     async startCamera(videoEl) { await _startCamera(videoEl); },
+    tryNativeScan,
     stopCamera: _stopCamera,
     close() { _stopCamera(); consumer = null; externalSession = false; hub.pause(); },
   };
+}
+// Native (Android APK) scan: true = handled (read or cancelled), false = use the web camera.
+async function tryNativeScan() {
+  if (!BarcodeScanner.nativeScannerAvailable()) return false;
+  const r = await BarcodeScanner.scanNative(hub);
+  if (r.status === 'unavailable') return false;
+  if (r.status === 'error') Bus.emit('toast', { msg: r.error || 'Scanner failed', kind: 'error' });
+  return true;
 }
 async function _startCamera(videoEl) {
   if (camera) { try { camera.stop(); } catch (_) {} camera = null; }
@@ -267,6 +276,7 @@ export function initBarcodePages() {
     },
     'barcode-camera-start': async () => {
       if (!$('bc-scanner-wrap')) return;
+      if (await tryNativeScan()) return;   // Android APK: Google ML Kit scanner; otherwise fall through to the web camera
       try {
         cameraOn = true; refreshScannerBox();      // draws <video> + reticle
         await _startCamera($('bc-video'));
