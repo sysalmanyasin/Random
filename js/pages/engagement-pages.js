@@ -845,6 +845,7 @@ let varianceSortDesc = true;   // true = biggest impact first
 let varianceSortMode = 'alpha'; // 'impact' | 'alpha' — cycled via toggle-variance-sort; defaults to A-Z
 let varianceFilterMin = null;  // absolute rupee impact, inclusive
 let varianceFilterMax = null;
+let varianceShowAll = false;  // false (default) = variances only; true = every compiled item line, zero-variance included
 
 function _varianceImpact(row) { return (row.countedQty - row.systemQty) * (row.price || 0); }
 
@@ -870,6 +871,7 @@ function resetVarianceControls() {
   varianceSortMode = 'alpha';
   varianceFilterMin = null;
   varianceFilterMax = null;
+  varianceShowAll = false;
 }
 
 // ── Product Search — cross-round lookup within the open engagement ──
@@ -1241,15 +1243,19 @@ function renderCompiledRoundUI(round) {
       : `<div class="card" style="text-align:center; color:var(--grey); font-size:12px; padding:16px;">This round has been compiled. Loading the variance report…</div>`;
   }
   const familyReady = Actions.isFamilyFullyCompiled(rounds, round.roundNumber);
-  const visible = _visibleVariances(compiled.variances);
+  // Default = variances only (as before). Ticking "Show all items" lists every
+  // compiled line (mergedItems ⊇ variances) so zero-variance codes are visible
+  // and editable too. Impact filter/sort apply to whichever list is shown.
+  const sourceRows = varianceShowAll ? (compiled.mergedItems || compiled.variances) : compiled.variances;
+  const visible = _visibleVariances(sourceRows);
   const roundSuggestions = (suggestions || []).filter(s => s.roundId === round.id);
   // Per-item lookup so the variance table itself shows a pending/approved
   // badge right on the row (visible to Deputy AND Main, on any device —
   // see _startSuggestionPollIfNeeded above for the cross-device refresh),
   // not just buried in the Pending Corrections queue below.
   const suggestionByItemKey = _latestOpenSuggestionByItemKey(roundSuggestions);
-  const varianceRows = visible.map(row => Components.varianceRowHTML(row, { canSuggest, canCorrect, suggestion: suggestionByItemKey.get(row.itemKey) })).join('') || '<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--grey);">No variances match this filter.</td></tr>';
-  const filtered = visible.length !== compiled.variances.length;
+  const varianceRows = visible.map(row => Components.varianceRowHTML(row, { canSuggest, canCorrect, suggestion: suggestionByItemKey.get(row.itemKey) })).join('') || '<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--grey);">' + (varianceShowAll ? 'No items match this filter.' : 'No variances match this filter.') + '</td></tr>';
+  const filtered = visible.length !== sourceRows.length;
   const pendingCount = roundSuggestions.filter(s => s.status === 'pending').length;
   const approvedNotYetAppliedCount = roundSuggestions.filter(s => s.status === 'approved').length;
 
@@ -1292,7 +1298,10 @@ function renderCompiledRoundUI(round) {
       <input type="number" id="variance-filter-max" class="search-input" placeholder="Max impact (Rs)" aria-label="Maximum variance impact in Rupees" style="flex:1; min-width:100px;" value="${varianceFilterMax ?? ''}">
       <button class="btn btn-primary" style="font-size:11px; padding:10px;" data-action="apply-variance-filter">Apply</button>
       ${filtered ? '<button class="sort-btn" data-action="clear-variance-filter">Clear filter</button>' : ''}
-      ${filtered ? `<div style="width:100%; font-size:10px; color:var(--grey);">Showing ${visible.length} of ${compiled.variances.length} variance(s)</div>` : ''}
+      <label style="width:100%; display:flex; align-items:center; gap:8px; font-size:12px; color:var(--navy); font-weight:700; cursor:pointer;">
+        <input type="checkbox" data-change-action="toggle-variance-show-all" ${varianceShowAll ? 'checked' : ''}> Show all items (including no variance)
+      </label>
+      ${filtered ? `<div style="width:100%; font-size:10px; color:var(--grey);">Showing ${visible.length} of ${sourceRows.length} ${varianceShowAll ? 'item(s)' : 'variance(s)'}</div>` : ''}
     </div>
     <div class="card" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
       <div style="font-size:11px; font-weight:700; color:var(--navy);">Variance Report — Round ${round.roundNumber}${round.roundSuffix || ''}</div>
@@ -1665,7 +1674,7 @@ export function initEngagementPages() {
       if (!overlay || !content || !openRoundId) return;
       const { compiledRounds, role } = Store.getState();
       const compiled = compiledRounds.filter(c => c.roundId === openRoundId).pop();
-      const row = compiled && compiled.variances.find(v => v.itemKey === el.dataset.itemKey);
+      const row = compiled && (compiled.mergedItems || compiled.variances).find(v => v.itemKey === el.dataset.itemKey);
       if (!compiled || !row) return;
       const liveQty = Actions.liveQtyForRow(row);
       const isMain = role === 'main';
@@ -1693,7 +1702,7 @@ export function initEngagementPages() {
       if (Number.isNaN(suggestedQty)) { Bus.emit('toast', { msg: 'Enter a valid quantity', kind: 'error' }); return; }
       const { compiledRounds } = Store.getState();
       const compiled = compiledRounds.find(c => c.id === content.dataset.compiledRoundId);
-      const row = compiled && compiled.variances.find(v => v.itemKey === el.dataset.itemKey);
+      const row = compiled && (compiled.mergedItems || compiled.variances).find(v => v.itemKey === el.dataset.itemKey);
       if (!compiled || !row) return;
       // data-auto-approve is set by the modal itself only when it was
       // opened with isMain (see 'open-suggest-correction' above) — Main
@@ -1816,6 +1825,7 @@ export function initEngagementPages() {
   };
 
   const changeHandlers = {
+    'toggle-variance-show-all': (el) => { varianceShowAll = !!el.checked; renderRoundWorkspace(); },
     'set-counting-method': async (el) => {
       const r = await Actions.setCountingMethod(el.dataset.engagementId, el.value);
       if (r.ok) Bus.emit('toast', { msg: 'Counting method updated', kind: 'success' });

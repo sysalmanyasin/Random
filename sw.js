@@ -1,4 +1,4 @@
-const CACHE_NAME = "fazal-din-audit-v8.98-android-native-scan";
+const CACHE_NAME = "fazal-din-audit-v8.99-show-all-items";
 
 // App-shell assets we want available offline immediately after install.
 // Includes the complete ES-module graph of js/main.js so a fresh install can
