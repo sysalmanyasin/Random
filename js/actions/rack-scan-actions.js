@@ -79,6 +79,32 @@ async function closeSession(signedOffBy) {
   _changed();
   return { ok: true, synced: !!r.ok };
 }
+// Open a past session (from history) so it can be continued or reviewed.
+async function resumeSession(id) {
+  if (session && session.id === id) return { ok: true, status: session.status };
+  if (!_online()) { Bus.emit('toast', { msg: 'Opening a past rack scan needs a connection', kind: 'error' }); return { ok: false }; }
+  try {
+    const [srow, irows] = await Promise.all([Repo.fetchRackSession(_client(), id), Repo.fetchRackSessionItems(_client(), id)]);
+    const items = new Map();
+    irows.forEach(r => { const it = RackCore.fromDbRow(r); items.set(it.key, it); });
+    const box = Repo.loadRackOutbox();   // anything saved on this phone but not yet synced wins
+    Object.keys(box.items).forEach(k => { if (box.items[k].session_id === id) { const it = RackCore.fromDbRow(box.items[k]); items.set(it.key, it); } });
+    session = { id: srow.id, label: srow.rack_label, status: srow.status, startedAt: srow.started_at,
+      closedAt: srow.closed_at, signedOffBy: srow.signed_off_by, items };
+    logAudit('rack:resumed', { sessionId: id, rack: session.label, items: items.size });
+    _changed();
+    return { ok: true, status: session.status };
+  } catch (e) { Bus.emit('toast', { msg: (e && e.message) || 'Could not open that rack scan', kind: 'error' }); return { ok: false }; }
+}
+
+// A signed-off session can be reopened to add more items; sign-off is cleared and must be repeated.
+function reopenSession() {
+  if (!session || session.status !== 'closed') return false;
+  session.status = 'open'; session.closedAt = null; session.signedOffBy = null;
+  _queueSession(); logAudit('rack:reopened', { sessionId: session.id, rack: session.label });
+  flush(); _changed(); return true;
+}
+
 function discardLocalSession() { session = null; _changed(); }
 
 // ── scan → resolve ──────────────────────────────────────────
@@ -154,7 +180,7 @@ Bus.on('auth:loggedOut', () => { session = null; });
 
 export const RackScanActions = {
   canUseRackScan, rackSession: currentSession, rackItems: sessionItems, rackSummary: summary, rackPending: pendingCount,
-  rackStart: startSession, rackClose: closeSession, rackDiscard: discardLocalSession, rackFlush: flush,
+  rackStart: startSession, rackResume: resumeSession, rackReopen: reopenSession, rackClose: closeSession, rackDiscard: discardLocalSession, rackFlush: flush,
   rackResolveScan: resolveScan, rackSave: saveCount, rackToggleFlag: toggleFlag, rackFlaggedKeys: flaggedKeys,
   rackGetItem: getItem, rackProductForItem: productForItem,
   rackHistory: loadSessionHistory, rackLastVerified: loadLastVerifiedMap, rackExportXLSX: exportSessionXLSX,

@@ -55,3 +55,12 @@ test('export has Summary + Items sheets', () => {
   assert.deepEqual(Object.keys(sheets), ['Summary', 'Items']);
   assert.equal(sheets.Items.length, 2);
 });
+
+test('fromDbRow restores an item (with and without generated columns)', () => {
+  const orig = R.buildItem({ product: P, barcode: '1', counted: 7, entryMode: 'counted' });
+  const row = R.toDbRow(orig, 's1');                      // outbox shape: no diff / variance_value
+  const back = R.fromDbRow(row);
+  assert.equal(back.key, orig.key); assert.equal(back.diff, -3); assert.equal(back.varianceValue, -150);
+  const fromServer = R.fromDbRow({ ...row, system_qty: '10', counted_qty: '7', unit_price: '50', diff: '-3', variance_value: '-150' });
+  assert.equal(fromServer.systemQty, 10); assert.equal(fromServer.varianceValue, -150); assert.equal(fromServer.result, 'variance');
+});

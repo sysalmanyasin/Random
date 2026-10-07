@@ -112,7 +112,7 @@ export function rackSummaryHTML({ session, s, rows, synced, pending }) {
     <div class="bc-row">
       ${closed ? '' : `<button class="bc-btn bc-btn--ok" data-action="rack-finish">Sign off &amp; finish</button>`}
       <button class="bc-btn bc-btn--primary" data-action="rack-export">Export Excel</button></div>
-    ${closed ? `<button class="bc-btn bc-btn--ghost" data-action="rack-new">New rack scan</button>` : `<button class="bc-btn bc-btn--ghost" data-action="rack-back">Back to scanning</button>`}
+    ${closed ? `<button class="bc-btn bc-btn--gold" data-action="rack-reopen">Reopen to continue scanning</button><button class="bc-btn bc-btn--ghost" data-action="rack-new">New rack scan</button>` : `<button class="bc-btn bc-btn--ghost" data-action="rack-back">Back to scanning</button>`}
     <div class="rk-sub">${pending ? pending + ' record(s) waiting to sync' : (synced ? '☁ Synced' : '')}</div></div>`;
 }
 
@@ -126,8 +126,9 @@ export function rackSummaryRowsHTML(items) {
 
 export function rackHistoryHTML(rows) {
   return `<div class="rk-card"><div class="rk-title">Past rack scans</div>
-    ${(rows || []).map(r => `<div class="rk-line"><span class="rk-name">${esc(r.rack_label || 'Rack')}</span>
-      <span class="rk-num">${esc(String(r.started_at).slice(0, 10))} · ${esc(r.status)}${r.signed_off_by ? ' · ' + esc(r.signed_off_by) : ''}</span></div>`).join('') || '<div class="rk-sub">No rack scans yet</div>'}
+    ${(rows || []).map(r => `<button class="rk-res" data-action="rack-resume" data-id="${esc(r.id)}">
+      <b>${esc(r.rack_label || 'Rack')}</b>
+      <span>${esc(String(r.started_at).slice(0, 10))} · ${r.status === 'open' ? '▶ open — tap to continue' : '✔ signed off' + (r.signed_off_by ? ' by ' + esc(r.signed_off_by) : '') + ' — tap to view'}</span></button>`).join('') || '<div class="rk-sub">No rack scans yet</div>'}
     <button class="bc-btn bc-btn--ghost" data-action="rack-back-start">Back</button></div>`;
 }
 

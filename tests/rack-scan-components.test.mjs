@@ -33,3 +33,15 @@ test('product names are escaped everywhere', () => {
 test('non-main users only see the unavailable notice', () => {
   assert.match(C.rackStartHTML({ canUse: false }), /Main Auditor only/);
 });
+
+test('history rows are tappable and say whether to continue or view', () => {
+  const h = C.rackHistoryHTML([{ id: 'a1', rack_label: 'Consumer Rack 2', started_at: '2026-10-07T10:00:00Z', status: 'open' },
+    { id: 'b2', rack_label: 'Rack 3', started_at: '2026-10-06T10:00:00Z', status: 'closed', signed_off_by: 'Salman' }]);
+  assert.match(h, /data-action="rack-resume" data-id="a1"/); assert.match(h, /tap to continue/);
+  assert.match(h, /data-id="b2"/); assert.match(h, /signed off by Salman/);
+});
+test('a signed-off summary offers Reopen to continue', () => {
+  const s = { checked: 0, matched: 0, variance: 0, notInSystem: 0, tapped: 0, typed: 0, flagged: 0, shortValue: 0, excessValue: 0, netValue: 0, accuracy: null };
+  assert.match(C.rackSummaryHTML({ session: { status: 'closed', label: 'R' }, s, rows: '', synced: true, pending: 0 }), /rack-reopen/);
+  assert.doesNotMatch(C.rackSummaryHTML({ session: { status: 'open', label: 'R' }, s, rows: '', synced: true, pending: 0 }), /rack-reopen/);
+});

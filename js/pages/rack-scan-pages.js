@@ -208,6 +208,15 @@ export function initRackScanPages() {
     },
     'rack-export': () => Actions.rackExportXLSX(),
     'rack-new': () => { Actions.rackDiscard(); st.view = 'start'; st.mode = 'idle'; paint(); },
+    'rack-resume': async (el) => {
+      const r = await Actions.rackResume(el.dataset.id); if (!r.ok || !st) return;
+      st.mode = 'idle'; st.last = null; st.msg = ''; st.cur = null; st.queue = null;
+      st.view = r.status === 'open' ? 'scan' : 'summary'; paint();
+    },
+    'rack-reopen': () => {
+      if (!window.confirm('Reopen this rack scan? The sign-off will be cleared and must be repeated.')) return;
+      if (Actions.rackReopen()) { st.view = 'scan'; st.mode = 'idle'; paint(); }
+    },
     'rack-history-open': async () => { st.view = 'history'; st.history = await Actions.rackHistory(); paint(); },
     'rack-back-start': () => { st.view = 'start'; paint(); },
   };

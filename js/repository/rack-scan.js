@@ -29,6 +29,12 @@ async function fetchRackSessions(client, limit) {
   return data || [];
 }
 
+async function fetchRackSession(client, id) {
+  const { data, error } = await client.from('rack_scan_sessions').select('*').eq('id', id).single();
+  if (error) throw error;
+  return data;
+}
+
 async function fetchRackSessionItems(client, sessionId) {
   const { data, error } = await client.from('rack_scan_items').select('*').eq('session_id', sessionId).order('scanned_at', { ascending: true });
   if (error) throw error;
@@ -50,6 +56,6 @@ function loadRackOutbox() { return LS.getJSON(OUTBOX_KEY, { sessions: {}, items:
 function saveRackOutbox(box) { LS.setJSON(OUTBOX_KEY, box); }
 
 export const RackScanRepo = {
-  upsertRackSession, upsertRackItems, fetchRackSessions, fetchRackSessionItems, fetchRackLastVerified,
+  upsertRackSession, upsertRackItems, fetchRackSession, fetchRackSessions, fetchRackSessionItems, fetchRackLastVerified,
   loadRackOutbox, saveRackOutbox,
 };

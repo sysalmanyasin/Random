@@ -101,4 +101,19 @@ export function toDbRow(item, sessionId) {
   };
 }
 
-export const RackCore = { itemKey, classify, mergeCount, buildItem, summarize, exportRows, toDbRow };
+// DB (or outbox) row -> in-memory item. Works with or without the generated columns.
+export function fromDbRow(r) {
+  const sys = num(r.system_qty), cnt = num(r.counted_qty), price = num(r.unit_price);
+  return {
+    key: r.client_event_id,
+    productCode: r.product_code || null, productName: r.product_name || null, company: r.company || null,
+    barcode: r.barcode || null, systemQty: sys, countedQty: cnt, unitPrice: price,
+    diff: r.diff !== undefined && r.diff !== null ? num(r.diff) : round2(cnt - sys),
+    varianceValue: r.variance_value !== undefined && r.variance_value !== null ? num(r.variance_value) : round2((cnt - sys) * price),
+    entryMode: r.entry_mode === 'matched_tap' ? 'matched_tap' : 'counted',
+    result: r.result, flagged: !!r.flagged, recounted: !!r.recounted, note: r.note || null,
+    scannedAt: r.scanned_at,
+  };
+}
+
+export const RackCore = { fromDbRow, itemKey, classify, mergeCount, buildItem, summarize, exportRows, toDbRow };
