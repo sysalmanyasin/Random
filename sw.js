@@ -1,4 +1,4 @@
-const CACHE_NAME = "fazal-din-audit-v8.99-show-all-items";
+const CACHE_NAME = "fazal-din-audit-v9.00-rack-scan";
 
 // App-shell assets we want available offline immediately after install.
 // Includes the complete ES-module graph of js/main.js so a fresh install can
@@ -12,6 +12,7 @@ const STATIC_ASSETS = [
   "./css/app.css",
   "./css/engagement.css",
   "./css/barcode.css",
+  "./css/rack-scan.css",
   "./css/desktop.css",
   "./css/design-upgrade.css",
   "./js/vendor/zxing-library.min.js",
@@ -26,6 +27,7 @@ const STATIC_ASSETS = [
   "./js/store/initial-state.js",
   "./js/store/store.js",
   "./js/repository/barcode.js",
+  "./js/repository/rack-scan.js",
   "./js/repository/db.js",
   "./js/repository/expiry.js",
   "./js/repository/legacy.js",
@@ -36,6 +38,10 @@ const STATIC_ASSETS = [
   "./js/actions/audit-log-actions.js",
   "./js/actions/auth-actions.js",
   "./js/actions/barcode-actions.js",
+  "./js/actions/rack-scan-actions.js",
+  "./js/rack/rack-scan-core.js",
+  "./js/components/rack-scan-components.js",
+  "./js/pages/rack-scan-pages.js",
   "./js/actions/bus.js",
   "./js/actions/calculator-actions.js",
   "./js/actions/compile-actions.js",

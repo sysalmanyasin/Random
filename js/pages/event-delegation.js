@@ -10,6 +10,7 @@ import { initHomeStatsPage } from './home-stats-page.js';
 import { initCalculatorPage, setLastCountInput } from './calculator-pages.js';
 import { initExpiryPages, renderExpiryTab } from './expiry-pages.js';
 import { initBarcodePages } from './barcode-pages.js';
+import { initRackScanPages } from './rack-scan-pages.js';
 import { Components } from '../components.js';
 
 /* ══════════════════════════════════════════════════════════════
@@ -164,11 +165,12 @@ export function initPages() {
   const calculator = initCalculatorPage();
   const expiry = initExpiryPages();
   const barcode = initBarcodePages();
+  const rack = initRackScanPages();
 
-  const clickHandlers = { ...legacy.clickHandlers, ...engagement.clickHandlers, ...sub.clickHandlers, ...auth.clickHandlers, ...staff.clickHandlers, ...inventory.clickHandlers, ...calculator.clickHandlers, ...expiry.clickHandlers, ...barcode.clickHandlers };
-  const inputHandlers = { ...legacy.inputHandlers, ...engagement.inputHandlers, ...sub.inputHandlers, ...auth.inputHandlers, ...staff.inputHandlers, ...inventory.inputHandlers, ...calculator.inputHandlers, ...expiry.inputHandlers, ...barcode.inputHandlers };
-  const changeHandlers = { ...legacy.changeHandlers, ...engagement.changeHandlers, ...sub.changeHandlers, ...auth.changeHandlers, ...staff.changeHandlers, ...inventory.changeHandlers, ...calculator.changeHandlers, ...expiry.changeHandlers, ...barcode.changeHandlers };
-  const keydownHandlers = { ...legacy.keydownHandlers, ...engagement.keydownHandlers, ...sub.keydownHandlers, ...auth.keydownHandlers, ...staff.keydownHandlers, ...inventory.keydownHandlers, ...calculator.keydownHandlers, ...expiry.keydownHandlers, ...barcode.keydownHandlers };
+  const clickHandlers = { ...legacy.clickHandlers, ...engagement.clickHandlers, ...sub.clickHandlers, ...auth.clickHandlers, ...staff.clickHandlers, ...inventory.clickHandlers, ...calculator.clickHandlers, ...expiry.clickHandlers, ...barcode.clickHandlers, ...(rack.clickHandlers || {}) };
+  const inputHandlers = { ...legacy.inputHandlers, ...engagement.inputHandlers, ...sub.inputHandlers, ...auth.inputHandlers, ...staff.inputHandlers, ...inventory.inputHandlers, ...calculator.inputHandlers, ...expiry.inputHandlers, ...barcode.inputHandlers, ...(rack.inputHandlers || {}) };
+  const changeHandlers = { ...legacy.changeHandlers, ...engagement.changeHandlers, ...sub.changeHandlers, ...auth.changeHandlers, ...staff.changeHandlers, ...inventory.changeHandlers, ...calculator.changeHandlers, ...expiry.changeHandlers, ...barcode.changeHandlers, ...(rack.changeHandlers || {}) };
+  const keydownHandlers = { ...legacy.keydownHandlers, ...engagement.keydownHandlers, ...sub.keydownHandlers, ...auth.keydownHandlers, ...staff.keydownHandlers, ...inventory.keydownHandlers, ...calculator.keydownHandlers, ...expiry.keydownHandlers, ...barcode.keydownHandlers, ...(rack.keydownHandlers || {}) };
 
   _setUpDialogFocusManagement(clickHandlers);
 

@@ -27,6 +27,7 @@
 <link rel="stylesheet" href="./css/desktop.css">
 <link rel="stylesheet" href="./css/design-upgrade.css">
 <link rel="stylesheet" href="./css/barcode.css">
+<link rel="stylesheet" href="./css/rack-scan.css">
 
 <!-- Supabase JS -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -111,6 +112,16 @@
         <div class="section-tile-body">
           <div class="section-tile-name">Barcode Center</div>
           <div class="section-tile-desc">Scan · Register · Verify</div>
+        </div>
+        <div class="section-tile-chevron">›</div>
+      </button>
+
+      <!-- Rack Scan tile (Main Auditor only — hidden for other roles by auth-pages) -->
+      <button class="section-tile section-tile--inventory" data-action="rack-open">
+        <div class="section-tile-icon">📦</div>
+        <div class="section-tile-body">
+          <div class="section-tile-name">Rack Scan</div>
+          <div class="section-tile-desc">Scan a rack · Verify stock</div>
         </div>
         <div class="section-tile-chevron">›</div>
       </button>

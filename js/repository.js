@@ -16,6 +16,7 @@ import { LS, SS } from './repository/storage.js';
 import { SupabaseRepo } from './repository/supabase.js';
 import { ExpiryRepo } from './repository/expiry.js';
 import { BarcodeRepo } from './repository/barcode.js';
+import { RackScanRepo } from './repository/rack-scan.js';
 
 export const Repo = {
   // db lifecycle
@@ -42,4 +43,7 @@ export const Repo = {
 
   // Barcode master + offline mirror/outbox
   ...BarcodeRepo,
+
+  // Rack Scan sessions + items (Main Auditor only)
+  ...RackScanRepo,
 };

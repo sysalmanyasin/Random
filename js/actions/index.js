@@ -20,6 +20,7 @@ import { IndividualActions } from './individual-actions.js';
 import { CalculatorActions } from './calculator-actions.js';
 import { ExpiryActions } from './expiry-actions.js';
 import { BarcodeActions } from './barcode-actions.js';
+import { RackScanActions } from './rack-scan-actions.js';
 
 /* ══════════════════════════════════════════════════════════════
    FLOOR 3 — ACTIONS (barrel)
@@ -91,6 +92,7 @@ export const Actions = {
   ...CalculatorActions,
   ...ExpiryActions,
   ...BarcodeActions,
+  ...RackScanActions,
   bootstrap,
   logAudit,
 };
