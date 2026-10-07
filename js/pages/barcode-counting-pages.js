@@ -30,6 +30,7 @@ let videoEl = null;   // ONE <video> node reused across repaints so the camera n
 let overlay = null;
 let st = null; // { state, item, candidates, name, duplicate, message, cameraOn }
 let hooks = { onCounted: () => {} };
+let reopen = BarcodeScanner.createReopenPolicy();
 
 function activeAssignment() {
   const { myAssignments, activeAssignmentId } = Store.getState();
@@ -63,7 +64,13 @@ async function startCameraNow() {
   // Android APK: native ML Kit scanner (no <video> box needed). After a successful read it stays
   // "continuous": the scanner reopens by itself once the item is confirmed/cancelled (see scheduleNext).
   const ns = await session.tryNativeScan();
-  if (ns) { if (st) st.auto = ns === 'ok'; return; }
+  if (ns) {
+    const act = reopen.note(ns);
+    if (st) st.auto = act === 'continue';
+    if (act === 'rest') Bus.emit('toast', { msg: 'Camera rested — tap the camera to continue', kind: 'success' });
+    if (act !== 'fallback') return;
+    Bus.emit('toast', { msg: 'Native scanner struggling — using the web camera', kind: 'error' });
+  }
   st.cameraOn = true; paint();                       // puts the persistent <video> in the box
   try { await session.startCamera(videoEl); }
   catch (err) { st.cameraOn = false; paint(); Bus.emit('toast', { msg: err.message || 'Could not start the camera', kind: 'error' }); }
@@ -74,7 +81,7 @@ async function startCameraNow() {
 function scheduleNext() {
   if (!st || !st.auto || !BarcodeScanner.nativeScannerAvailable()) return;
   clearTimeout(st.nextTimer);
-  st.nextTimer = setTimeout(() => { if (overlay && st && st.auto && st.state === 'scanning') startCameraNow(); }, 900);
+  st.nextTimer = setTimeout(() => { if (overlay && st && st.auto && st.state === 'scanning') startCameraNow(); }, reopen.delayMs);
 }
 
 function msg(kind, title, detail) {
@@ -138,6 +145,7 @@ export function openBarcodeCounting() {
   if (!a || a.status === 'submitted') return;
   overlay = document.createElement('div');
   overlay.id = 'bc-count-overlay';
+  reopen.reset();
   overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', 'Scan to count');
   overlay.style.cssText = 'position:fixed; inset:0; z-index:9000; background:var(--page-bg,#E7ECF2); display:flex; flex-direction:column;';
   (document.getElementById('app') || document.body).appendChild(overlay); // inside #app so the delegated click/input listeners reach it

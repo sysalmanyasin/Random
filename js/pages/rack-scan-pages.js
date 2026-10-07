@@ -16,6 +16,7 @@ const $ = (id) => document.getElementById(id);
 const LARGE_QTY = 100000;
 
 let overlay = null, scanner = null, videoEl = null;
+let reopen = BarcodeScanner.createReopenPolicy();
 let st = null;   // { view, mode, cur, last, msg, cameraOn, auto, readyAt, regQuery, regResults, history, queue }
 
 function esc(s) { return Components.esc(s); }
@@ -65,7 +66,13 @@ function paint() {
 async function startCameraNow() {
   if (!scanner || !st) return;
   const ns = await scanner.tryNativeScan();
-  if (ns) { st.auto = ns === 'ok'; return; }
+  if (ns) {
+    const act = reopen.note(ns);
+    st.auto = act === 'continue';
+    if (act === 'rest') Bus.emit('toast', { msg: 'Camera rested — tap the camera to continue', kind: 'success' });
+    if (act !== 'fallback') return;
+    Bus.emit('toast', { msg: 'Native scanner struggling — using the web camera', kind: 'error' });
+  }
   st.cameraOn = true; paint();
   try { await scanner.startCamera(videoEl); }
   catch (err) { st.cameraOn = false; paint(); Bus.emit('toast', { msg: err.message || 'Could not start the camera', kind: 'error' }); }
@@ -73,7 +80,7 @@ async function startCameraNow() {
 function scheduleNext() {
   if (!st || !st.auto || !BarcodeScanner.nativeScannerAvailable()) return;
   clearTimeout(st.nextTimer);
-  st.nextTimer = setTimeout(() => { if (overlay && st && st.auto && st.view === 'scan' && (st.mode === 'idle' || st.mode === 'message')) startCameraNow(); }, 900);
+  st.nextTimer = setTimeout(() => { if (overlay && st && st.auto && st.view === 'scan' && (st.mode === 'idle' || st.mode === 'message')) startCameraNow(); }, reopen.delayMs);
 }
 
 function msg(kind, title, detail) { return Components.rackMessageHTML(kind, title, detail); }
@@ -143,6 +150,7 @@ function recountNext() {
 function openOverlay() {
   if (overlay) return;
   if (!Actions.canUseRackScan()) { Bus.emit('toast', { msg: 'Rack Scan is for the Main Auditor', kind: 'error' }); return; }
+  reopen.reset();
   overlay = document.createElement('div');
   overlay.id = 'rk-overlay';
   overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', 'Rack Scan');

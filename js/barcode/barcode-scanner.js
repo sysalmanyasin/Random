@@ -458,6 +458,27 @@ async function ensureGoogleModule(P, timeoutMs) {
   });
 }
 
+// Continuous native scanning reopens Google's scanner after every item. Opening/closing the camera
+// that fast, over and over, can leave some phones with a camera that no longer autofocuses. So:
+//  - wait longer before reopening (the previous camera session must be fully released),
+//  - give the camera a rest every REST_AFTER scans (tap once to carry on),
+//  - after 2 failures in a row, use the web camera instead of retrying the native one.
+// note(status) -> 'continue' | 'rest' | 'stop' | 'fallback'
+const NATIVE_REOPEN_MS = 1600;
+function createReopenPolicy(opts) {
+  const o = opts || {}; const restAfter = o.restAfter || 12;
+  let streak = 0, errors = 0;
+  return {
+    delayMs: o.delayMs || NATIVE_REOPEN_MS,
+    note(status) {
+      if (status === 'ok') { errors = 0; streak++; if (streak >= restAfter) { streak = 0; return 'rest'; } return 'continue'; }
+      if (status === 'error') { streak = 0; errors++; return errors >= 2 ? 'fallback' : 'stop'; }
+      streak = 0; errors = 0; return 'stop';   // cancelled / anything else
+    },
+    reset() { streak = 0; errors = 0; },
+  };
+}
+
 // One scan through the native scanner. Resolves { status, code?, error? }:
 //   'ok'          a code was read and handed to the hub
 //   'cancelled'   the user closed the scanner
@@ -502,5 +523,5 @@ function feedback(kind) {
 export const BarcodeScanner = {
   createScanHub, createWedgeDetector, stripTypedScan, attachWedge, startCamera,
   cameraSupported, nativeDetectorSupported, feedback,
-  nativeScannerAvailable, scanNative, createConsensus, isChecksummed, isBadGtin, summarizeCaps, defaultZoom, clampZoom, cameraControls, activeCamera,
+  nativeScannerAvailable, scanNative, createReopenPolicy, createConsensus, isChecksummed, isBadGtin, summarizeCaps, defaultZoom, clampZoom, cameraControls, activeCamera,
 };
