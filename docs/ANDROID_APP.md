@@ -9,7 +9,7 @@ The website, Supabase data, logins and PWA are untouched — the APK is just ano
   in a normal browser (and on iPhone) the existing web camera is used, unchanged.
 - **Barcode Center:** one scan per tap — the result stays on screen.
 - **Counting screen (continuous):** tap the camera once. After each product is read you enter the quantity and CONFIRM
-  (or Cancel); the scanner then **reopens by itself**. Close the scanner (back / ✕) to stop continuous mode. Unknown, invalid or
+  (or Cancel); the **camera stays on** (one session, not reopened per item). Tap **Stop camera** or Done to stop. Unknown, invalid or
   disputed barcodes show their message and pause continuous mode until you tap the camera again, so you can read the warning.
   If the Google scanner can't be used on a phone (no Google Play Services, module download fails), the
   web camera is used automatically.

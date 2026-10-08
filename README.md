@@ -813,22 +813,23 @@ Enter quantity
    ↓
 Confirm / Cancel
    ↓
-Scanner reopens
+Camera is already running
    ↓
 Scan next product
 ```
 
 If native ML Kit scanning cannot be used, the application falls back to the existing web scanner.
 
-### Continuous-scan camera policy
+### Continuous-scan camera policy (persistent camera)
 
-Continuous scanning (barcode counting and Rack Scan) reopens Google's scanner after every item. Opening and closing the camera that quickly, repeatedly, can leave some phones with a camera that stops autofocusing. A small policy (`BarcodeScanner.createReopenPolicy`) therefore:
+Counting and Rack Scan keep **one** camera session open for the whole screen (`BarcodeScanner.startNativeLive`, ML Kit `startScan` / CameraX). The page is see-through only over the scanner box (`[data-live]` rules in `css/barcode.css`). It is never reopened per item — reopening was what left phones without autofocus.
 
-- waits **1.6 s** before reopening, so the previous camera session is fully released;
-- **rests** the camera every **12** consecutive scans ("Camera rested — tap the camera to continue");
-- falls back to the web camera after **two native scanner errors in a row**.
-
-Focus inside Google's scanner UI is outside the app's control. If problems persist, the next step is a single continuous in-app camera session, which would require a new APK.
+- Every camera open, native or web, goes through `cameraGap`: at least **1.5 s** of quiet after the previous close.
+- Backgrounding the app releases the camera; returning restarts it once. A ⟳ button on the scanner resets it by hand.
+- A native camera error is recovered at most **3 times per minute**, then the app switches to the web camera.
+- Web camera: continuous focus is re-asserted every 8 s and after any still-photo attempt.
+- If several different barcodes are in view, the frame is ignored rather than guessing.
+- The Barcode Center keeps the one-scan-per-tap Google scanner (human-paced, also behind `cameraGap`).
 
 ---
 
