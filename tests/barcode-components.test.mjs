@@ -119,3 +119,20 @@ test('every data-action emitted by every screen is a real, rendered name', () =>
   assert.ok(!all.includes('${'), 'unrendered ${ found in generated HTML');
   assert.ok(!all.includes('undefined') && !all.includes('[object Object]'));
 });
+
+test('product picker results show retail price and stock', async () => {
+  const { barcodeProductResultsHTML, barcodeProductPickerHTML } = await import('../js/components/barcode-components.js');
+  const html = barcodeProductResultsHTML([
+    { code: 'A1', name: 'In Stock', company: 'Co', price: 1250.5, qty: 12 },
+    { code: 'A2', name: 'Out', company: 'Co', price: 90, qty: 0 },
+    { code: 'A3', name: 'No data', company: 'Co' },
+  ], 'barcode-register-pick');
+  assert.match(html, /Rs 1,250\.5/);
+  assert.match(html, /Stock: 12/);
+  assert.match(html, /bc-pill--bad">Stock: 0/);
+  assert.match(html, /Rs —/);
+  assert.match(html, /Stock: —/);
+  const picked = barcodeProductPickerHTML({ picked: { code: 'A1', name: 'In Stock', company: 'Co', price: 50, qty: 3 }, clearAction: 'x' });
+  assert.match(picked, /Rs 50/);
+  assert.match(picked, /Stock: 3/);
+});

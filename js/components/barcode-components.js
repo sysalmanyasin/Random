@@ -103,10 +103,25 @@ export function barcodeResultCardHTML(r, { canRegister, canAdminister }) {
   }
 }
 
+// Retail price + system stock chips shown under a product in the
+// register/search pickers. Price comes from the inventory import
+// (p.price = Retail Price), stock from p.qty. Zero/negative stock is
+// flagged red so it's obvious at a glance.
+function productPriceStockHTML(p) {
+  const price = Number(p && p.price);
+  const qty = Number(p && p.qty);
+  const priceTxt = isFinite(price) && price > 0 ? 'Rs ' + price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : 'Rs —';
+  const hasQty = p && p.qty !== undefined && p.qty !== null && isFinite(qty);
+  const stockCls = !hasQty ? 'info' : (qty <= 0 ? 'bad' : 'ok');
+  const stockTxt = hasQty ? 'Stock: ' + qty.toLocaleString() : 'Stock: —';
+  return `<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;"><span class="bc-pill bc-pill--info">${esc(priceTxt)}</span><span class="bc-pill bc-pill--${stockCls}">${esc(stockTxt)}</span></div>`;
+}
+
 export function barcodeProductPickerHTML({ picked, query, results, inputAction, pickAction, clearAction }) {
   if (picked) {
     return `<div class="bc-card" style="margin-top:6px;"><div class="bc-big">${esc(picked.name)}</div>
       <div class="bc-sub">Product Code: ${esc(picked.code)} · ${esc(picked.company || '')}</div>
+      ${productPriceStockHTML(picked)}
       <button class="bc-btn bc-btn--ghost" style="margin-top:10px; min-height:44px;" data-action="${clearAction}">Change product</button></div>`;
   }
   return `<input type="text" id="bc-product-search" class="bc-field" placeholder="🔍 Search product name or code" autocomplete="off" value="${esc(query || '')}" data-input-action="${inputAction}">
@@ -115,7 +130,7 @@ export function barcodeProductPickerHTML({ picked, query, results, inputAction, 
 export function barcodeProductResultsHTML(results, pickAction) {
   if (!results || !results.length) return `<div class="bc-empty">Type to search products</div>`;
   return results.map(p => `<div class="bc-list-row">
-      <div style="flex:1; min-width:0;"><div style="font-weight:800; color:var(--navy); font-size:14px;">${esc(p.name)}</div><div class="bc-sub">${esc(p.code)} · ${esc(p.company || '')}</div></div>
+      <div style="flex:1; min-width:0;"><div style="font-weight:800; color:var(--navy); font-size:14px;">${esc(p.name)}</div><div class="bc-sub">${esc(p.code)} · ${esc(p.company || '')}</div>${productPriceStockHTML(p)}</div>
       <button class="bc-btn bc-btn--primary" style="width:auto; min-height:44px; font-size:14px;" data-action="${pickAction}" data-code="${esc(p.code)}">Pick</button></div>`).join('');
 }
 
