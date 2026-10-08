@@ -29,7 +29,6 @@
 .bc-guide[data-kind="blur"] { background:rgba(30,64,175,.9); }
 .bc-ctl { position:absolute; z-index:3; background:rgba(15,23,42,.65); color:#fff; border:0; border-radius:99px; backdrop-filter:blur(4px); }
 .bc-ctl[hidden] { display:none; }
-.bc-ctl--reset { right:10px; bottom:10px; width:44px; height:44px; font-size:22px; font-weight:900; cursor:pointer; }
 .bc-ctl--torch { right:10px; top:10px; width:44px; height:44px; font-size:20px; cursor:pointer; }
 .bc-ctl--torch[aria-pressed="true"] { background:#F59E0B; }
 .bc-ctl--zoom { left:10px; right:64px; bottom:10px; display:flex; align-items:center; gap:8px; padding:6px 14px; font-weight:900; }
@@ -58,19 +57,3 @@
 .bc-label { font-size:11px; font-weight:800; color:var(--grey); text-transform:uppercase; letter-spacing:.4px; margin:12px 0 4px; }
 .bc-empty { text-align:center; color:var(--grey); font-size:13px; font-weight:700; padding:22px 12px; }
 .bc-flash-ok { animation:bcflash .5s; } @keyframes bcflash { 0%{box-shadow:0 0 0 0 rgba(5,150,105,.7)} 100%{box-shadow:0 0 0 18px rgba(5,150,105,0)} }
-
-/* ── Native live camera (Android APK) ───────────────────────────
-   The camera preview lives BEHIND the WebView. Only while a live scanner box is on screen
-   ([data-live]) is the page made see-through; the box punches a "window" by painting a huge
-   page-coloured shadow around itself. Everything else keeps an opaque look. When the box goes
-   away (quantity card, summary, closing) the :has() rules stop matching and the normal opaque
-   page returns on its own. */
-.bc-scanner[data-live] video { display:none !important; }
-html:has(.bc-scanner[data-live]), html:has(.bc-scanner[data-live]) body, html:has(.bc-scanner[data-live]) #app { background:transparent !important; }
-html:has(.bc-scanner[data-live]) #app > *:not(#bc-count-overlay):not(#rk-overlay) { visibility:hidden; }
-html:has(.bc-scanner[data-live]) #bc-count-overlay, html:has(.bc-scanner[data-live]) #rk-overlay { background:transparent !important; }
-html:has(.bc-scanner[data-live]) .bc-scanner[data-live] { background:transparent; box-shadow:0 0 0 200vmax var(--page-bg); }
-/* everything that is not the box must paint above the box's shadow */
-html:has(.bc-scanner[data-live]) #rk-overlay .rk-body > :not(.bc-scanner),
-html:has(.bc-scanner[data-live]) #bc-count-overlay #bc-count-scanwrap > :not(.bc-scanner),
-html:has(.bc-scanner[data-live]) #bc-count-overlay > div:last-child > :not(#bc-count-scanwrap) { position:relative; z-index:1; }

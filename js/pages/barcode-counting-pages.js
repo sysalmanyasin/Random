@@ -30,6 +30,7 @@ let videoEl = null;   // ONE <video> node reused across repaints so the camera n
 let overlay = null;
 let st = null; // { state, item, candidates, name, duplicate, message, cameraOn }
 let hooks = { onCounted: () => {} };
+let reopen = BarcodeScanner.createReopenPolicy();
 
 function activeAssignment() {
   const { myAssignments, activeAssignmentId } = Store.getState();
@@ -41,12 +42,7 @@ function isRecount(a) { return !!a && (a.items || []).some(it => it.prevVariance
 function counted(a) { const { myCounts } = Store.getState(); return (a.items || []).filter(it => (myCounts || {})[it.itemKey] !== undefined).length; }
 
 function scannerHTML() {
-  const cam = BarcodeScanner.activeCamera();
-  return Components.barcodeScannerBoxHTML({
-    cameraOn: !!(st && st.cameraOn), cameraSupported: BarcodeScanner.cameraSupported(),
-    hint: 'The camera stays on while you count — scan the next product. Hardware scanners work too.',
-    controls: BarcodeScanner.cameraControls(), live: !!(cam && cam.live),
-  });
+  return Components.barcodeScannerBoxHTML({ cameraOn: !!(st && st.cameraOn), cameraSupported: BarcodeScanner.cameraSupported(), hint: BarcodeScanner.nativeScannerAvailable() ? 'Tap to scan. The scanner reopens after each item — close the scanner to stop.' : 'Scan a product — hardware scanners work too.', camPrefix: 'barcode-count', controls: BarcodeScanner.cameraControls() });
 }
 function paint() {
   if (!overlay) return;
@@ -63,13 +59,29 @@ function paint() {
     if (ph && videoEl && ph !== videoEl) { videoEl.id = 'bc-video'; videoEl.style.display = ''; ph.replaceWith(videoEl); }
   }
 }
-// One camera session for the whole counting session. It is started once here and released once when the
-// screen closes (or the app is backgrounded) — never reopened per item.
 async function startCameraNow() {
   if (!session || !st) return;
+  // Android APK: native ML Kit scanner (no <video> box needed). After a successful read it stays
+  // "continuous": the scanner reopens by itself once the item is confirmed/cancelled (see scheduleNext).
+  const ns = await session.tryNativeScan();
+  if (ns) {
+    const act = reopen.note(ns);
+    if (st) st.auto = act === 'continue';
+    if (act === 'rest') Bus.emit('toast', { msg: 'Camera rested — tap the camera to continue', kind: 'success' });
+    if (act !== 'fallback') return;
+    Bus.emit('toast', { msg: 'Native scanner struggling — using the web camera', kind: 'error' });
+  }
   st.cameraOn = true; paint();                       // puts the persistent <video> in the box
   try { await session.startCamera(videoEl); }
-  catch (err) { if (st) { st.cameraOn = false; paint(); } Bus.emit('toast', { msg: err.message || 'Could not start the camera', kind: 'error' }); }
+  catch (err) { st.cameraOn = false; paint(); Bus.emit('toast', { msg: err.message || 'Could not start the camera', kind: 'error' }); }
+}
+
+// Continuous counting in the native app: reopen the scanner a moment after an item is saved/cancelled.
+// Stops as soon as the user closes the scanner, hits Done, or leaves the scanning state.
+function scheduleNext() {
+  if (!st || !st.auto || !BarcodeScanner.nativeScannerAvailable()) return;
+  clearTimeout(st.nextTimer);
+  st.nextTimer = setTimeout(() => { if (overlay && st && st.auto && st.state === 'scanning') startCameraNow(); }, reopen.delayMs);
 }
 
 function msg(kind, title, detail) {
@@ -123,7 +135,8 @@ function confirmCount(itemKey) {
   BarcodeScanner.feedback('saved');
   st.state = 'scanning'; st.item = null; st.duplicate = false; st.readyAt = Date.now() + 1500;
   st.message = msg('matched', '✓ SAVED', `${Components.esc(item.name)} = ${Components.esc(raw)}`);
-  paint();                                       // straight back to scanning (camera is still running)
+  paint();                                       // straight back to scanning
+  scheduleNext();
 }
 
 export function openBarcodeCounting() {
@@ -132,6 +145,7 @@ export function openBarcodeCounting() {
   if (!a || a.status === 'submitted') return;
   overlay = document.createElement('div');
   overlay.id = 'bc-count-overlay';
+  reopen.reset();
   overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', 'Scan to count');
   overlay.style.cssText = 'position:fixed; inset:0; z-index:9000; background:var(--page-bg,#E7ECF2); display:flex; flex-direction:column;';
   (document.getElementById('app') || document.body).appendChild(overlay); // inside #app so the delegated click/input listeners reach it
@@ -141,6 +155,7 @@ export function openBarcodeCounting() {
   paint();
 }
 function close() {
+  if (st) { st.auto = false; clearTimeout(st.nextTimer); }
   if (session) session.close(); session = null; videoEl = null;
   if (overlay) overlay.remove(); overlay = null; st = null;
   hooks.onCounted(null);
@@ -149,18 +164,11 @@ function close() {
 export function initBarcodeCounting(h) {
   hooks = Object.assign(hooks, h || {});
   Bus.on('view:activated', (p) => { if (p !== 'team' && overlay) close(); });
-  // The shared camera started/stopped/was restarted (resume, reset, fallback): redraw the scanner box,
-  // but never while the quantity card is open (that would wipe what is being typed).
-  Bus.on('scanner:camera', (e) => {
-    if (!overlay || !st || (e && e.on === false && e.resuming)) return;
-    if (e && e.on === false) st.cameraOn = false;
-    if (st.state === 'scanning') paint();
-  });
   const clickHandlers = {
     'barcode-count-open': () => openBarcodeCounting(),
     'barcode-count-close': () => close(),
     'barcode-count-confirm': (el) => confirmCount(el.dataset.itemKey),
-    'barcode-count-skip': () => { st.state = 'scanning'; st.item = null; st.message = ''; st.readyAt = Date.now() + 1000; paint(); },
+    'barcode-count-skip': () => { st.state = 'scanning'; st.item = null; st.message = ''; st.readyAt = Date.now() + 1000; paint(); scheduleNext(); },
     'barcode-count-pick': (el) => { const a = activeAssignment(); const it = a && a.items.find(x => x.itemKey === el.dataset.itemKey); if (it) { st.item = it; st.state = 'count'; paint(); } },
     'barcode-count-camera-start': () => startCameraNow(),
     'barcode-count-camera-stop': () => { if (!overlay || !st) return; session.stopCamera(); st.cameraOn = false; paint(); },

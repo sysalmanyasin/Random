@@ -49,15 +49,14 @@ function scannerOverlayHTML(controls) {
         <div class="bc-tap" data-action="barcode-focus" aria-label="Tap to focus"></div>
         <div class="bc-focus-ring"></div>
         <div class="bc-guide" data-bc-guide role="status" aria-live="polite" hidden></div>
-        <button type="button" class="bc-ctl bc-ctl--reset" data-action="barcode-cam-reset" aria-label="Reset camera">⟳</button>
         <button type="button" class="bc-ctl bc-ctl--torch" data-bc-ctl="torch" data-action="barcode-torch" aria-label="Torch" aria-pressed="${c.torchOn ? 'true' : 'false'}" ${c.torch ? '' : 'hidden'}>🔦</button>
         <div class="bc-ctl bc-ctl--zoom" data-bc-ctl="zoom" ${z ? '' : 'hidden'}><span aria-hidden="true">−</span><input type="range" aria-label="Zoom" data-input-action="barcode-zoom" ${z ? `min="${z.min}" max="${z.max}" step="${z.step}" value="${z.value}"` : 'min="1" max="1" step="0.1" value="1"'}><span aria-hidden="true">+</span></div>`;
 }
 
-export function barcodeScannerBoxHTML({ cameraOn, cameraSupported, hint, camPrefix, controls, live }) {
+export function barcodeScannerBoxHTML({ cameraOn, cameraSupported, hint, camPrefix, controls }) {
   const cp = camPrefix || 'barcode';
   return `
-    <div class="bc-scanner" id="bc-scanner-box"${cameraOn && live ? ' data-live="1"' : ''}>
+    <div class="bc-scanner" id="bc-scanner-box">
       <video id="bc-video" playsinline muted ${cameraOn ? '' : 'style="display:none;"'}></video>
       ${cameraOn ? scannerOverlayHTML(controls) : `
         <div class="bc-scanner-idle">

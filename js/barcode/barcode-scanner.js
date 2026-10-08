@@ -166,25 +166,6 @@ function clampZoom(zoom, v) {
 // ITF / Codabar / Code 93 are deliberately NOT listed: they are the usual source of phantom digits read from fragments of other barcodes.
 const NATIVE_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'data_matrix', 'qr_code'];
 
-
-// ── Camera churn guard (pure, unit-tested) ────────────────────
-// Root cause of "camera loses autofocus after a few scans": the camera was being opened and
-// closed again within a second or two, over and over. Android's camera HAL does not always
-// finish releasing the sensor that fast, and the next session comes up without autofocus
-// until the app is closed. Every camera open in this file therefore goes through ONE guard
-// that guarantees a minimum quiet gap after the previous close.
-const CAMERA_MIN_GAP_MS = 1500;
-function createGapGuard(opts) {
-  const o = Object.assign({ gapMs: CAMERA_MIN_GAP_MS, now: () => Date.now(), sleep: (ms) => new Promise(r => setTimeout(r, ms)) }, opts);
-  let closedAt = 0;
-  return {
-    closed() { closedAt = o.now(); },
-    remainingMs() { return closedAt ? Math.max(0, closedAt + o.gapMs - o.now()) : 0; },
-    async wait() { const ms = this.remainingMs(); if (ms > 0) await o.sleep(ms); },
-  };
-}
-const cameraGap = createGapGuard();
-
 // ── Camera adapter (browser only) ─────────────────────────────
 let current = null; // the one running camera: { track, caps, torchOn, zoomValue, videoEl, ... }
 
@@ -199,7 +180,6 @@ async function startCamera(hub, videoEl, opts) {
   const o = opts || {};
   if (!cameraSupported()) throw new Error('Camera not available on this device/browser');
   if (current) { try { current.stop(); } catch (_) {} }
-  await cameraGap.wait();
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({
@@ -325,17 +305,8 @@ async function startCamera(hub, videoEl, opts) {
         if (!v && detector) { const r = await detector.detect(bm); v = r && r[0] ? r[0].rawValue : null; }
         return v;
       } finally { if (bm.close) bm.close(); }
-    } catch (_) { return null; } finally { stillBusy = false; reassertFocus(); }
+    } catch (_) { return null; } finally { stillBusy = false; }
   };
-
-  // takePhoto() and some WebViews silently drop the focus mode back to a one-shot; keep asking for continuous.
-  const reassertFocus = () => {
-    if (stopped || !track) return;
-    if (caps.continuousFocus) applyAdvanced(track, { focusMode: 'continuous' });
-    if (caps.continuousExposure) applyAdvanced(track, { exposureMode: 'continuous' });
-  };
-  const focusTimer = setInterval(reassertFocus, 8000);
-  if (track && track.addEventListener) track.addEventListener('ended', () => { if (!stopped && o.onLost) o.onLost(new Error('The camera stopped')); });
 
   const loop = async () => {
     if (stopped) return;
@@ -372,11 +343,10 @@ async function startCamera(hub, videoEl, opts) {
     torchOn: false,
     zoomValue: caps.zoom ? caps.zoom.value : null,
     stop() {
-      stopped = true; clearTimeout(timer); clearInterval(focusTimer);
+      stopped = true; clearTimeout(timer);
       if (wake && wake.release) { try { wake.release(); } catch (_) {} }
       stream.getTracks().forEach(t => t.stop());
       videoEl.srcObject = null;
-      cameraGap.closed();
       if (current === handle) current = null;
     },
     async setTorch(on, auto) {
@@ -488,109 +458,25 @@ async function ensureGoogleModule(P, timeoutMs) {
   });
 }
 
-// ── Persistent native camera (the fix for the lost-autofocus bug) ──
-// Counting/rack scanning used to open Google's scanner Activity once per item. Instead, startNativeLive()
-// opens ONE CameraX session (ML Kit plugin startScan) that stays open for the whole counting session and
-// is closed exactly once. The WebView is see-through over the scanner box (css/barcode.css, [data-live]).
-//  - never reopened per item  -> no camera churn
-//  - every open goes through cameraGap (min quiet time after any close)
-//  - a plugin error triggers a few spaced-out recoveries, then opts.onFail() so the caller can switch
-//    to the web camera; nothing ever loops tightly.
-const LIVE_RESOLUTION = 2;           // plugin enum: 0=640x480 1=1280x720 2=1920x1080
-const LIVE_MAX_RECOVERIES = 3;       // per RECOVERY_WINDOW_MS
-const LIVE_RECOVERY_WINDOW_MS = 60000;
-
-function nativeLiveAvailable() {
-  const P = nativePlugin();
-  if (!P || typeof P.startScan !== 'function' || typeof P.stopScan !== 'function' || typeof P.addListener !== 'function') return false;
-  try { if (typeof CSS !== 'undefined' && CSS.supports && !CSS.supports('selector(:has(*))')) return false; } catch (_) {}
-  return true;
-}
-
-async function startNativeLive(hub, videoEl, opts) {
-  const P = nativePlugin();
-  if (!nativeLiveAvailable()) throw new Error('Live native camera is not available');
-  const o = opts || {};
-  if (current) { try { current.stop(); } catch (_) {} }
-
-  if (typeof P.checkPermissions === 'function') {
-    let perm = await P.checkPermissions();
-    if (!perm || perm.camera !== 'granted') perm = await P.requestPermissions();
-    if (!perm || perm.camera !== 'granted') throw new Error('Camera permission was denied — allow camera access for the app and try again');
-  }
-
-  const consensus = createConsensus();
-  const handle = { live: true, engine: 'native-live', videoEl, torchOn: false, userTorch: false, zoomValue: 1, caps: { torch: false, zoom: null, continuousFocus: true } };
-  let stopped = false, running = false, busy = Promise.resolve(), recoveries = [], subs = [];
-
-  const onCodes = (ev) => {
-    if (stopped || hub.isPaused()) return;
-    const list = (ev && ev.barcodes) || [];
-    const codes = [...new Set(list.map((b) => String((b && (b.rawValue || b.displayValue)) || '').trim()).filter(Boolean))];
-    if (codes.length > 1) { showGuide(videoEl, 'Several barcodes in view — aim at just one', 'blur'); return; }
-    if (codes.length === 1 && consensus.accept(codes[0])) { showGuide(videoEl, '', 'ok'); if (hub.emit(codes[0], 'camera')) flashHit(videoEl); }
-  };
-
-  const openCamera = async () => {
-    await cameraGap.wait();
-    await P.startScan({ formats: NATIVE_ML_FORMATS, lensFacing: 'BACK', resolution: LIVE_RESOLUTION });
-    running = true;
-    try {
-      if (P.isTorchAvailable) { const t = await P.isTorchAvailable(); handle.caps.torch = !!(t && t.available); }
-      if (P.getMinZoomRatio && P.getMaxZoomRatio && P.setZoomRatio) {
-        const mn = (await P.getMinZoomRatio()).zoomRatio, mx = (await P.getMaxZoomRatio()).zoomRatio;
-        if (mx > mn) {
-          handle.caps.zoom = { min: mn, max: mx, step: 0.1 };
-          const z = clampZoom(handle.caps.zoom, o.zoom || defaultZoom(handle.caps.zoom));
-          await P.setZoomRatio({ zoomRatio: z }); handle.zoomValue = z;
-        }
-      }
-    } catch (_) { /* controls are optional */ }
-  };
-  const closeCamera = async () => {
-    if (!running) return;
-    running = false;
-    try { await P.stopScan(); } catch (_) {}
-    cameraGap.closed();
-  };
-  const serial = (fn) => (busy = busy.then(fn, fn));   // start/stop/recover never overlap
-
-  const recover = (err) => serial(async () => {
-    if (stopped) return;
-    const now = Date.now();
-    recoveries = recoveries.filter((t) => now - t < LIVE_RECOVERY_WINDOW_MS);
-    if (recoveries.length >= LIVE_MAX_RECOVERIES) { stopped = true; await closeCamera(); detach(); if (current === handle) current = null; if (o.onFail) o.onFail(err || new Error('Camera kept failing')); return; }
-    recoveries.push(now);
-    await closeCamera();
-    try { await openCamera(); } catch (e) { stopped = true; detach(); if (current === handle) current = null; if (o.onFail) o.onFail(e); }
-  });
-
-  const detach = () => { subs.forEach((h) => { try { h && h.remove && h.remove(); } catch (_) {} }); subs = []; try { window.removeEventListener('pagehide', onPageHide); } catch (_) {} };
-  const onPageHide = () => { handle.stop(); };
-
-  subs.push(await P.addListener('barcodesScanned', onCodes));
-  subs.push(await P.addListener('scanError', (e) => recover(new Error((e && (e.message || e.errorMessage)) || 'Scanner error'))));
-  try { window.addEventListener('pagehide', onPageHide); } catch (_) {}
-
-  try { await serial(openCamera); }
-  catch (err) { stopped = true; detach(); await closeCamera(); throw new Error('Could not start the camera: ' + String((err && err.message) || err || '')); }
-
-  Object.assign(handle, {
-    stop() { if (stopped) return Promise.resolve(); stopped = true; detach(); if (current === handle) current = null; return serial(closeCamera); },
-    restart() { return recover(); },
-    async setTorch(on, auto) {
-      if (!handle.caps.torch) return false;
-      try { await (on ? P.enableTorch() : P.disableTorch()); handle.torchOn = !!on; if (!auto) handle.userTorch = !!on; return true; } catch (_) { return false; }
+// Continuous native scanning reopens Google's scanner after every item. Opening/closing the camera
+// that fast, over and over, can leave some phones with a camera that no longer autofocuses. So:
+//  - wait longer before reopening (the previous camera session must be fully released),
+//  - give the camera a rest every REST_AFTER scans (tap once to carry on),
+//  - after 2 failures in a row, use the web camera instead of retrying the native one.
+// note(status) -> 'continue' | 'rest' | 'stop' | 'fallback'
+const NATIVE_REOPEN_MS = 1600;
+function createReopenPolicy(opts) {
+  const o = opts || {}; const restAfter = o.restAfter || 12;
+  let streak = 0, errors = 0;
+  return {
+    delayMs: o.delayMs || NATIVE_REOPEN_MS,
+    note(status) {
+      if (status === 'ok') { errors = 0; streak++; if (streak >= restAfter) { streak = 0; return 'rest'; } return 'continue'; }
+      if (status === 'error') { streak = 0; errors++; return errors >= 2 ? 'fallback' : 'stop'; }
+      streak = 0; errors = 0; return 'stop';   // cancelled / anything else
     },
-    async setZoom(v) {
-      if (!handle.caps.zoom) return false;
-      const z = clampZoom(handle.caps.zoom, v);
-      try { await P.setZoomRatio({ zoomRatio: z }); handle.zoomValue = z; return true; } catch (_) { return false; }
-    },
-    async refocus() { showFocusRing(videoEl); return true; },   // CameraX keeps continuous autofocus on by itself
-  });
-  current = handle;
-  return handle;
+    reset() { streak = 0; errors = 0; },
+  };
 }
 
 // One scan through the native scanner. Resolves { status, code?, error? }:
@@ -605,9 +491,7 @@ async function scanNative(hub, opts) {
   try {
     if (P.isSupported) { const sup = await P.isSupported(); if (sup && sup.supported === false) return { status: 'unavailable' }; }
     try { await ensureGoogleModule(P, o.moduleTimeoutMs); } catch (e) { return { status: 'unavailable', error: e && e.message }; }
-    await cameraGap.wait();
-    let res;
-    try { res = await P.scan({ formats: NATIVE_ML_FORMATS, autoZoom: true }); } finally { cameraGap.closed(); }
+    const res = await P.scan({ formats: NATIVE_ML_FORMATS, autoZoom: true });
     const b = res && res.barcodes && res.barcodes[0];
     const code = b && (b.rawValue || b.displayValue);
     if (!code) return { status: 'cancelled' };
@@ -639,5 +523,5 @@ function feedback(kind) {
 export const BarcodeScanner = {
   createScanHub, createWedgeDetector, stripTypedScan, attachWedge, startCamera,
   cameraSupported, nativeDetectorSupported, feedback,
-  nativeScannerAvailable, nativeLiveAvailable, startNativeLive, scanNative, createGapGuard, createConsensus, isChecksummed, isBadGtin, summarizeCaps, defaultZoom, clampZoom, cameraControls, activeCamera,
+  nativeScannerAvailable, scanNative, createReopenPolicy, createConsensus, isChecksummed, isBadGtin, summarizeCaps, defaultZoom, clampZoom, cameraControls, activeCamera,
 };

@@ -1,4 +1,4 @@
-const CACHE_NAME = "fazal-din-audit-v9.02-barcode-price-stock";
+const CACHE_NAME = "fazal-din-audit-v9.03-google-scanner";
 
 // App-shell assets we want available offline immediately after install.
 // Includes the complete ES-module graph of js/main.js so a fresh install can
