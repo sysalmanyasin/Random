@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BarcodeScanner as B } from '../js/barcode/barcode-scanner.js';
 
-test('waits at least 1.5s before reopening the native scanner', () => {
-  assert.ok(B.createReopenPolicy().delayMs >= 1500);
+test('waits at least 2s before reopening the native scanner', () => {
+  assert.ok(B.createReopenPolicy().delayMs >= 2000);
 });
 test('continues after a good read and rests after the limit', () => {
   const p = B.createReopenPolicy({ restAfter: 3 });

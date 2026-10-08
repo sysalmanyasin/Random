@@ -464,9 +464,9 @@ async function ensureGoogleModule(P, timeoutMs) {
 //  - give the camera a rest every REST_AFTER scans (tap once to carry on),
 //  - after 2 failures in a row, use the web camera instead of retrying the native one.
 // note(status) -> 'continue' | 'rest' | 'stop' | 'fallback'
-const NATIVE_REOPEN_MS = 1600;
+const NATIVE_REOPEN_MS = 2200;
 function createReopenPolicy(opts) {
-  const o = opts || {}; const restAfter = o.restAfter || 12;
+  const o = opts || {}; const restAfter = o.restAfter || 8;
   let streak = 0, errors = 0;
   return {
     delayMs: o.delayMs || NATIVE_REOPEN_MS,
