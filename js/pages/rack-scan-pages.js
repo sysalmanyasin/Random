@@ -16,16 +16,16 @@ const $ = (id) => document.getElementById(id);
 const LARGE_QTY = 100000;
 
 let overlay = null, scanner = null, videoEl = null;
-let reopen = BarcodeScanner.createReopenPolicy();
 let st = null;   // { view, mode, cur, last, msg, cameraOn, auto, readyAt, regQuery, regResults, history, queue }
 
 function esc(s) { return Components.esc(s); }
 
 function scannerBox() {
+  const cam = BarcodeScanner.activeCamera();
   return Components.barcodeScannerBoxHTML({
     cameraOn: !!st.cameraOn, cameraSupported: BarcodeScanner.cameraSupported(), camPrefix: 'rack',
-    hint: BarcodeScanner.nativeScannerAvailable() ? 'Tap to scan. The scanner reopens after each item — close the scanner to stop.' : 'Scan the next product — hardware scanners work too.',
-    controls: BarcodeScanner.cameraControls(),
+    hint: 'The camera stays on while you scan — scan the next product. Hardware scanners work too.',
+    controls: BarcodeScanner.cameraControls(), live: !!(cam && cam.live),
   });
 }
 
@@ -63,29 +63,17 @@ function paint() {
   }
 }
 
+// One camera session for the whole rack session: started once, released once (close / background).
 async function startCameraNow() {
   if (!scanner || !st) return;
-  const ns = await scanner.tryNativeScan();
-  if (ns) {
-    const act = reopen.note(ns);
-    st.auto = act === 'continue';
-    if (act === 'rest') Bus.emit('toast', { msg: 'Camera rested — tap the camera to continue', kind: 'success' });
-    if (act !== 'fallback') return;
-    Bus.emit('toast', { msg: 'Native scanner struggling — using the web camera', kind: 'error' });
-  }
   st.cameraOn = true; paint();
   try { await scanner.startCamera(videoEl); }
-  catch (err) { st.cameraOn = false; paint(); Bus.emit('toast', { msg: err.message || 'Could not start the camera', kind: 'error' }); }
-}
-function scheduleNext() {
-  if (!st || !st.auto || !BarcodeScanner.nativeScannerAvailable()) return;
-  clearTimeout(st.nextTimer);
-  st.nextTimer = setTimeout(() => { if (overlay && st && st.auto && st.view === 'scan' && (st.mode === 'idle' || st.mode === 'message')) startCameraNow(); }, reopen.delayMs);
+  catch (err) { if (st) { st.cameraOn = false; paint(); } Bus.emit('toast', { msg: err.message || 'Could not start the camera', kind: 'error' }); }
 }
 
 function msg(kind, title, detail) { return Components.rackMessageHTML(kind, title, detail); }
 function openCount(cur) { st.cur = cur; st.mode = 'count'; st.msg = ''; paint(); }
-function toIdle(message, delay) { st.mode = message ? 'message' : 'idle'; st.msg = message || ''; st.cur = null; st.readyAt = Date.now() + (delay || 1000); paint(); scheduleNext(); }
+function toIdle(message, delay) { st.mode = message ? 'message' : 'idle'; st.msg = message || ''; st.cur = null; st.readyAt = Date.now() + (delay || 1000); paint(); }
 
 async function onScan({ raw, source }) {
   if (!overlay || !st || st.view !== 'scan') return;
@@ -150,7 +138,6 @@ function recountNext() {
 function openOverlay() {
   if (overlay) return;
   if (!Actions.canUseRackScan()) { Bus.emit('toast', { msg: 'Rack Scan is for the Main Auditor', kind: 'error' }); return; }
-  reopen.reset();
   overlay = document.createElement('div');
   overlay.id = 'rk-overlay';
   overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', 'Rack Scan');
@@ -162,7 +149,6 @@ function openOverlay() {
   paint();
 }
 function closeOverlay() {
-  if (st) { st.auto = false; clearTimeout(st.nextTimer); }
   if (scanner) scanner.close(); scanner = null; videoEl = null;
   if (overlay) overlay.remove(); overlay = null; st = null;
 }
@@ -175,12 +161,18 @@ function startSession() {
 
 export function initRackScanPages() {
   Bus.on('rack:changed', () => { if (overlay && st && st.view === 'summary') paint(); });
+  // Shared camera started/stopped/restarted: redraw the scanner box (never over the quantity / register cards).
+  Bus.on('scanner:camera', (e) => {
+    if (!overlay || !st || (e && e.on === false && e.resuming)) return;
+    if (e && e.on === false) st.cameraOn = false;
+    if (st.view === 'scan' && (st.mode === 'idle' || st.mode === 'message' || st.mode === 'result')) paint();
+  });
   const clickHandlers = {
     'rack-open': () => openOverlay(),
     'rack-close': () => closeOverlay(),
     'rack-start': () => startSession(),
     'rack-camera-start': () => startCameraNow(),
-    'rack-camera-stop': () => { if (!overlay || !st) return; scanner.stopCamera(); st.cameraOn = false; st.auto = false; paint(); },
+    'rack-camera-stop': () => { if (!overlay || !st) return; scanner.stopCamera(); st.cameraOn = false; paint(); },
     'rack-match': () => matchTap(),
     'rack-confirm': (el) => confirm(el.dataset.dup === 'add' ? 'add' : 'replace'),
     'rack-skip': () => toIdle('', 1000),

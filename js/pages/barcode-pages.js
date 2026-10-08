@@ -45,7 +45,7 @@ function ensureWedge() {
    needs an explicit user tap (browser rule). */
 export function openScannerSession(onScan) {
   ensureWedge();
-  externalSession = true;
+  externalSession = true; liveFailed = false; resumeCamera = false;
   consumer = onScan;
   hub.onScan((s) => { if (consumer) consumer(s); });
   hub.resume();
@@ -53,7 +53,7 @@ export function openScannerSession(onScan) {
     async startCamera(videoEl) { await _startCamera(videoEl); },
     tryNativeScan,
     stopCamera: _stopCamera,
-    close() { _stopCamera(); consumer = null; externalSession = false; hub.pause(); },
+    close() { resumeCamera = false; _stopCamera(); consumer = null; externalSession = false; hub.pause(); },
   };
 }
 // Native (Android APK) scan. Returns 'ok' | 'cancelled' | 'error' when handled natively,
@@ -65,14 +65,64 @@ async function tryNativeScan() {
   if (r.status === 'error') Bus.emit('toast', { msg: r.error || 'Scanner failed', kind: 'error' });
   return r.status;
 }
+// Camera lifecycle. Counting/rack screens (externalSession) use ONE persistent native camera when the
+// APK provides it; everything else uses the web camera. Whatever happens, the camera is never reopened
+// in a tight loop — see cameraGap in barcode-scanner.js.
+let lastVideoEl = null;       // the <video> the current/last camera was started on
+let resumeCamera = false;     // camera was running when the app went to the background
+let liveFailed = false;       // native live camera failed this session -> stay on the web camera
+const camEvent = (detail) => Bus.emit('scanner:camera', detail);
+
 async function _startCamera(videoEl) {
   if (camera) { try { camera.stop(); } catch (_) {} camera = null; }
-  camera = await BarcodeScanner.startCamera(hub, videoEl);
-  cameraOn = true;
+  lastVideoEl = videoEl;
+  if (externalSession && !liveFailed && BarcodeScanner.nativeLiveAvailable()) {
+    try {
+      camera = await BarcodeScanner.startNativeLive(hub, videoEl, { onFail: onLiveFail });
+      cameraOn = true; camEvent({ on: true }); return;
+    } catch (err) {
+      if (/permission/i.test(err && err.message)) throw err;
+      liveFailed = true;   // fall through to the web camera
+      Bus.emit('toast', { msg: 'Native camera unavailable — using the web camera', kind: 'error' });
+    }
+  }
+  camera = await BarcodeScanner.startCamera(hub, videoEl, { onLost: onWebCameraLost });
+  cameraOn = true; camEvent({ on: true });
 }
-function _stopCamera() {
+function _stopCamera(opts) {
+  const had = !!camera;
   if (camera) { try { camera.stop(); } catch (_) {} }
   camera = null; cameraOn = false;
+  if (had) camEvent({ on: false, resuming: !!(opts && opts.resuming) });
+}
+async function onLiveFail(err) {
+  camera = null; cameraOn = false; liveFailed = true;
+  Bus.emit('toast', { msg: 'Camera had a problem — switching to the web camera', kind: 'error' });
+  if (!externalSession || !lastVideoEl) return camEvent({ on: false });
+  try { await _startCamera(lastVideoEl); } catch (e) { camEvent({ on: false }); Bus.emit('toast', { msg: (e && e.message) || 'Could not start the camera', kind: 'error' }); }
+}
+function onWebCameraLost() {
+  camera = null; cameraOn = false; camEvent({ on: false });
+  Bus.emit('toast', { msg: 'The camera stopped — tap the camera to start it again', kind: 'error' });
+}
+// Release the camera when the app is backgrounded (Android would anyway) and bring it back,
+// cleanly and once, when the person returns.
+async function onVisibility() {
+  if (document.hidden) {
+    resumeCamera = !!(externalSession && camera);
+    _stopCamera({ resuming: resumeCamera });
+    if (pageActive()) refreshScannerBox();
+  } else if (resumeCamera && externalSession && lastVideoEl) {
+    resumeCamera = false;
+    try { await _startCamera(lastVideoEl); }
+    catch (err) { camEvent({ on: false }); Bus.emit('toast', { msg: (err && err.message) || 'Could not restart the camera', kind: 'error' }); }
+  }
+}
+async function resetCamera() {
+  if (!externalSession || !lastVideoEl) return;
+  _stopCamera({ resuming: true });
+  try { await _startCamera(lastVideoEl); Bus.emit('toast', { msg: 'Camera reset', kind: 'success' }); }
+  catch (err) { camEvent({ on: false }); Bus.emit('toast', { msg: (err && err.message) || 'Could not restart the camera', kind: 'error' }); }
 }
 
 /* ── Rendering ──────────────────────────────────────────────── */
@@ -256,7 +306,7 @@ export function initBarcodePages() {
     renderNav(); renderStatus();
     if (['master', 'queue', 'conflicts'].includes(ui.view)) renderBody();
   });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) { _stopCamera(); if (pageActive()) refreshScannerBox(); } });
+  document.addEventListener('visibilitychange', onVisibility);
 
   const clickHandlers = {
     'barcode-set-subview': (el) => setView(el.dataset.subview),
@@ -287,6 +337,7 @@ export function initBarcodePages() {
       }
     },
     'barcode-camera-stop': () => { _stopCamera(); refreshScannerBox(); },
+    'barcode-cam-reset': () => resetCamera(),
     // Shared by the Barcode Center and the counting overlay (handler maps are merged globally).
     'barcode-focus': () => { const c = BarcodeScanner.activeCamera(); if (c) c.refocus(); },
     'barcode-torch': async (el) => {
