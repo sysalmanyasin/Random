@@ -1014,7 +1014,7 @@ function _combinedVarianceReportBodyHTML(roundsWithCompiled, meta) {
   const duplicateCount = new Set(combinedRows.filter(r => r.isDuplicate).map(r => r.dupKey)).size;
 
   const header = _pdfHeader({
-    branchName: meta.branchName, title: 'Combined Variance Report — All Rounds', subtitle: meta.engagementName,
+    branchName: meta.branchName, title: 'Combined Variance Report — ' + (meta.scopeLabel || 'All Rounds'), subtitle: meta.engagementName,
     rightLines: [
       `<strong>Generated:</strong> ${esc(new Date().toLocaleString('en-PK'))}`,
       `<strong>Main Auditor:</strong> ${esc(meta.mainAuditorName || '—')}`,
@@ -1142,6 +1142,33 @@ function _auditTrailBodyHTML(auditLog, meta) {
 //    nothing to preview yet (e.g. Final Audit before the engagement is
 //    locked to Final, or Variance before any round is compiled). ──
 let reportOverviewKey = null;
+// Combined Variance Report: which compiled rounds are included. null =
+// all (default each time the popup is opened); otherwise a Set of round ids.
+let combinedSelectedRoundIds = null;
+function _combinedRoundLabel(round) {
+  return 'Round ' + round.roundNumber + (round.roundSuffix || '');
+}
+function _combinedRoundSelectorHTML(allRWC, selectedIds) {
+  const esc = Components.esc;
+  const chips = allRWC.map(({ round }) => {
+    const on = selectedIds.has(round.id);
+    return `<label style="display:inline-flex; align-items:center; gap:6px; padding:6px 10px; margin:0 6px 6px 0; border-radius:999px; font-size:12px; font-weight:700; cursor:pointer; border:1.5px solid ${on ? 'var(--navy)' : '#CBD5E1'}; background:${on ? 'var(--navy)' : '#fff'}; color:${on ? '#fff' : 'var(--navy)'};">
+      <input type="checkbox" data-change-action="toggle-combined-round" data-round-id="${esc(round.id)}" ${on ? 'checked' : ''} style="accent-color:#F59E0B;">
+      ${esc(_combinedRoundLabel(round))}
+    </label>`;
+  }).join('');
+  return `
+    <div style="margin-bottom:10px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span style="font-size:11px; font-weight:800; color:var(--grey); letter-spacing:.05em;">ROUNDS TO INCLUDE (${selectedIds.size} of ${allRWC.length})</span>
+        <span>
+          <button class="sort-btn" style="padding:3px 8px; font-size:11px;" data-action="combined-rounds-all">All</button>
+          <button class="sort-btn" style="padding:3px 8px; font-size:11px;" data-action="combined-rounds-none">None</button>
+        </span>
+      </div>
+      <div>${chips}</div>
+    </div>`;
+}
 function _buildReportOverview(key) {
   const meta = _reportMeta();
   const { finalSnapshots, rounds, compiledRounds, engagements, submissions, assignments, auditLog, currentEngagementId } = Store.getState();
@@ -1170,10 +1197,21 @@ function _buildReportOverview(key) {
       .map(round => ({ round, compiled: compiledRounds.filter(c => c.roundId === round.id).pop() }))
       .filter(rc => rc.compiled);
     if (roundsWithCompiled.length === 0) return { title: 'Combined Variance Report', empty: 'Compile at least one round first — there\'s nothing to report on yet.' };
+    const validIds = new Set(roundsWithCompiled.map(rc => rc.round.id));
+    const selectedIds = combinedSelectedRoundIds
+      ? new Set([...combinedSelectedRoundIds].filter(id => validIds.has(id)))
+      : new Set(validIds);
+    const selectorHTML = _combinedRoundSelectorHTML(roundsWithCompiled, selectedIds);
+    const picked = roundsWithCompiled.filter(rc => selectedIds.has(rc.round.id));
+    if (picked.length === 0) return { title: 'Combined Variance Report', selectorHTML, empty: 'Select at least one round above to build the report.' };
+    const allPicked = picked.length === roundsWithCompiled.length;
+    const scopeLabel = allPicked ? 'All Rounds' : picked.map(rc => _combinedRoundLabel(rc.round)).join(', ');
+    const metaScoped = { ...meta, scopeLabel };
     return {
-      title: 'Combined Variance Report — All Rounds',
-      bodyHTML: _combinedVarianceReportBodyHTML(roundsWithCompiled, meta),
-      exportFn: () => Actions.exportCombinedVarianceReportXLSX(roundsWithCompiled, meta),
+      title: 'Combined Variance Report — ' + (allPicked ? 'All Rounds' : picked.length + ' of ' + roundsWithCompiled.length + ' Rounds'),
+      selectorHTML,
+      bodyHTML: _combinedVarianceReportBodyHTML(picked, metaScoped),
+      exportFn: () => Actions.exportCombinedVarianceReportXLSX(picked, metaScoped),
     };
   }
   if (key === 'round-history') {
@@ -1198,8 +1236,8 @@ function renderReportOverview() {
   const built = _buildReportOverview(reportOverviewKey);
   if (!built) { content.innerHTML = Components.reportOverviewEmptyHTML('Report', 'Open an engagement first.'); return; }
   content.innerHTML = built.empty
-    ? Components.reportOverviewEmptyHTML(built.title, built.empty)
-    : Components.reportOverviewShellHTML(built.title, built.bodyHTML);
+    ? Components.reportOverviewEmptyHTML(built.title, built.empty, built.selectorHTML)
+    : Components.reportOverviewShellHTML(built.title, built.bodyHTML, built.selectorHTML);
 }
 
 // ── §Compilation Engine + §Difference Engine (compiled round) ──
@@ -1800,6 +1838,7 @@ export function initEngagementPages() {
     // page); Print/Export live inside the popup itself.
     'open-report-overview': (el) => {
       reportOverviewKey = el.dataset.report;
+      combinedSelectedRoundIds = null; // default: all rounds
       renderReportOverview();
       const overlay = $('report-overview-overlay');
       if (overlay) overlay.style.display = 'flex';
@@ -1814,6 +1853,8 @@ export function initEngagementPages() {
         canvas.addEventListener('scroll', dismiss, { passive: true });
       }
     },
+    'combined-rounds-all': () => { combinedSelectedRoundIds = null; renderReportOverview(); },
+    'combined-rounds-none': () => { combinedSelectedRoundIds = new Set(); renderReportOverview(); },
     'close-report-overview': () => {
       const overlay = $('report-overview-overlay');
       if (overlay) overlay.style.display = 'none';
@@ -1832,6 +1873,16 @@ export function initEngagementPages() {
   };
 
   const changeHandlers = {
+    'toggle-combined-round': (el) => {
+      const { rounds, compiledRounds, currentEngagementId } = Store.getState();
+      if (!combinedSelectedRoundIds) {
+        combinedSelectedRoundIds = new Set(rounds
+          .filter(r => r.engagementId === currentEngagementId && compiledRounds.some(c => c.roundId === r.id))
+          .map(r => r.id));
+      }
+      if (el.checked) combinedSelectedRoundIds.add(el.dataset.roundId); else combinedSelectedRoundIds.delete(el.dataset.roundId);
+      renderReportOverview();
+    },
     'toggle-variance-show-all': (el) => { varianceShowAll = !!el.checked; renderRoundWorkspace(); },
     'set-counting-method': async (el) => {
       const r = await Actions.setCountingMethod(el.dataset.engagementId, el.value);

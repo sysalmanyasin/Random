@@ -177,7 +177,7 @@ function buildCombinedVarianceReportRows(roundsWithCompiled) {
 function exportCombinedVarianceReportXLSX(roundsWithCompiled, meta) {
   meta = meta || {};
   const combinedRows = buildCombinedVarianceReportRows(roundsWithCompiled);
-  const rows = [['Combined Variance Report — All Rounds' + (meta.engagementName ? ' — ' + meta.engagementName : '')]];
+  const rows = [['Combined Variance Report — ' + (meta.scopeLabel || 'All Rounds') + (meta.engagementName ? ' — ' + meta.engagementName : '')]];
   rows.push(['Generated', new Date().toLocaleString('en-PK')]);
   if (meta.mainAuditorName) rows.push(['Main Auditor', meta.mainAuditorName]);
   if (meta.branchName) rows.push(['Branch', meta.branchName]);
@@ -195,7 +195,7 @@ function exportCombinedVarianceReportXLSX(roundsWithCompiled, meta) {
   const duplicateCount = new Set(combinedRows.filter(r => r.isDuplicate).map(r => r.dupKey)).size;
   if (duplicateCount > 0) rows.splice(4, 0, ['Note', duplicateCount + ' product(s) appear in more than one round (recounted) — grouped together below, flagged "Yes" in the Duplicate column.']);
 
-  _downloadWorkbook({ 'Combined Variance — All Rounds': rows }, 'CombinedVarianceReport_' + (meta.engagementName || 'Engagement').replace(/\s+/g, '_') + '.xlsx');
+  _downloadWorkbook({ [meta.scopeLabel && meta.scopeLabel !== 'All Rounds' ? 'Combined Variance' : 'Combined Variance — All Rounds']: rows }, 'CombinedVarianceReport_' + (meta.engagementName || 'Engagement').replace(/\s+/g, '_') + '.xlsx');
   logAudit('report:combinedVarianceExported', { roundCount: roundsWithCompiled.length });
   Bus.emit('toast', { msg: 'Combined Variance Report exported', kind: 'success' });
 }

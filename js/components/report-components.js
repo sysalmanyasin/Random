@@ -27,8 +27,8 @@ const REPORT_INFO = [
     description: 'Isolates <strong>every SKU where the physical count differed from the system quantity</strong> across the entire compiled engagement. Shows the variance delta, unit cost, and rupee impact per line item — plus a cumulative financial exposure total at the bottom. Use this to <strong>prioritise follow-up action</strong>: which shortages need explanation, which overs need investigation, and which items are candidates for a recount before finalising.',
   },
   {
-    key: 'combined-variance', icon: '🧮', title: 'Combined Variance Report — All Rounds (.xlsx)',
-    description: 'The Variance Report above shows the <strong>latest round only</strong>. This one lists every variance line from <strong>every compiled round in the engagement</strong>, one flat sheet — each row shows which round it came from and who counted it (e.g. "Round 2 — Salman Yasin"). If the same product shows up in more than one round (e.g. it was recounted), those rows are <strong>flagged as duplicates and grouped together</strong> so you can see the count history for that item at a glance instead of hunting across separate round reports.',
+    key: 'combined-variance', icon: '🧮', title: 'Combined Variance Report — Pick Rounds (.xlsx)',
+    description: 'The Variance Report above shows the <strong>latest round only</strong>. This one lets you <strong>tick which compiled rounds to include</strong> (all of them by default) and lists every variance line from those rounds, one flat sheet — each row shows which round it came from and who counted it (e.g. "Round 2 — Salman Yasin"). If the same product shows up in more than one round (e.g. it was recounted), those rows are <strong>flagged as duplicates and grouped together</strong> so you can see the count history for that item at a glance instead of hunting across separate round reports.',
   },
   {
     key: 'round-history', icon: '📋', title: 'Round History (.xlsx)',
@@ -78,12 +78,13 @@ export function reportButtonsHTML() {
 // which row they're looking at, and (2) a fading edge + one-time hint
 // signal there's more to see, instead of the table just cutting off
 // with no affordance (the original bug this fixes).
-export function reportOverviewShellHTML(title, bodyHTML) {
+export function reportOverviewShellHTML(title, bodyHTML, headerHTML) {
   return `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
       <h3 class="modal-title">${esc(title)}</h3>
       <button class="sort-btn" data-action="close-report-overview" style="padding:4px 10px;">✕</button>
     </div>
+    ${headerHTML || ''}
     <div class="pdf-table-scroll-hint">👉 Swipe the table sideways for more columns</div>
     <div id="report-overview-canvas" class="pdf-table-scroll" style="max-height:56vh; overflow:auto; border:1px solid #E2E8F0; border-radius:10px; padding:16px; background:#fff;">${bodyHTML}</div>
     <div style="display:flex; gap:8px; margin-top:12px;">
@@ -95,11 +96,12 @@ export function reportOverviewShellHTML(title, bodyHTML) {
 // Shown instead of the shell above when the underlying data doesn't exist
 // yet (e.g. Final Audit Report before the engagement is locked to Final) —
 // no Print/Export buttons, since there's nothing to preview or export.
-export function reportOverviewEmptyHTML(title, message) {
+export function reportOverviewEmptyHTML(title, message, headerHTML) {
   return `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
       <h3 class="modal-title">${esc(title)}</h3>
       <button class="sort-btn" data-action="close-report-overview" style="padding:4px 10px;">✕</button>
     </div>
+    ${headerHTML || ''}
     <div style="padding:28px 0; text-align:center; color:var(--grey); font-size:13px;">${esc(message)}</div>`;
 }

@@ -1,4 +1,4 @@
-const CACHE_NAME = "fazal-din-audit-v9.05-reopen-closed";
+const CACHE_NAME = "fazal-din-audit-v9.06-combined-round-picker";
 
 // App-shell assets we want available offline immediately after install.
 // Includes the complete ES-module graph of js/main.js so a fresh install can
