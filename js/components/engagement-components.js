@@ -7,7 +7,7 @@ import { esc } from './dom-utils.js';
 
 const STATUS_BADGE = { open: 'val-green', archived: 'val-grey', closed: 'val-navy' };
 
-export function engagementCard(engagement) {
+export function engagementCard(engagement, opts = {}) {
   const card = document.createElement('div');
   card.className = 'company-card';
   card.dataset.action = 'open-engagement';
@@ -23,6 +23,9 @@ export function engagementCard(engagement) {
     </div>
     <div class="company-card-badges">
       <span class="val-badge ${badgeCls}" style="font-size:10px;">${esc(engagement.status)}</span>
+      ${opts.canReopen && engagement.status === 'closed'
+        ? `<button class="btn" style="font-size:10px; padding:4px 8px; margin-top:6px; background:var(--light); color:var(--navy);" data-action="team-reopen-engagement" data-engagement-id="${esc(engagement.id)}">↩️ Reopen</button>`
+        : ''}
     </div>`;
   return card;
 }

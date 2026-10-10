@@ -283,8 +283,9 @@ function refreshEngagementCards() {
     const closedHolder = document.createElement('div');
     closedHolder.style.cssText = 'margin-top:8px;';
 
+    const canReopen = Store.getState().role === 'main';
     closed.forEach(e => {
-      closedHolder.appendChild(Components.engagementCard(e));
+      closedHolder.appendChild(Components.engagementCard(e, { canReopen }));
     });
 
     details.appendChild(summary);
@@ -387,7 +388,9 @@ function renderEngagementDetailHTML(engagement) {
   return `
     <button class="sort-btn" data-action="team-back-to-list" style="margin-bottom:10px;">← All Engagements</button>
     ${Components.engagementHeaderHTML(engagement)}
-    ${canManage ? `<button class="btn" style="width:100%; font-size:11px; padding:8px; margin:10px 0; background:var(--light); color:var(--text);" data-action="team-archive-engagement" data-engagement-id="${engagement.id}">${engagement.status === 'archived' ? '↩️ Reopen Engagement' : '🗄️ Archive (keeps everything, hides from the open list)'}</button>` : ''}
+    ${canManage ? (engagement.status === 'closed'
+      ? `<button class="btn btn-primary" style="width:100%; font-size:12px; padding:10px; margin:10px 0;" data-action="team-reopen-engagement" data-engagement-id="${engagement.id}">↩️ Reopen Engagement</button>`
+      : `<button class="btn" style="width:100%; font-size:11px; padding:8px; margin:10px 0; background:var(--light); color:var(--text);" data-action="team-archive-engagement" data-engagement-id="${engagement.id}">${engagement.status === 'archived' ? '↩️ Reopen Engagement' : '🗄️ Archive (keeps everything, hides from the open list)'}</button>`) : ''}
 
     <div class="section-nav-card" style="margin-bottom:10px;">
       <div class="section-sub-tabs">
@@ -441,7 +444,7 @@ function renderEngagementDetailHTML(engagement) {
     ${engagementDangerZoneOpen ? `
       <div style="border:1.5px solid var(--red-bg); border-radius:12px; padding:10px; margin-top:8px; background:var(--red-bg);">
         <div style="font-size:11px; color:var(--red-ink); margin-bottom:10px;">These actions are rare, hard to reverse, and separate from day-to-day workflow on purpose.</div>
-        <button class="btn btn-danger" style="width:100%; font-size:11px; padding:8px; margin-bottom:8px;" data-action="team-close-engagement" data-engagement-id="${engagement.id}">Close Permanently</button>
+        ${engagement.status === 'closed' ? '' : `<button class="btn btn-danger" style="width:100%; font-size:11px; padding:8px; margin-bottom:8px;" data-action="team-close-engagement" data-engagement-id="${engagement.id}">Close Permanently</button>`}
         <button class="btn btn-danger" style="width:100%; font-size:11px; padding:8px; background:#7a1212;" data-action="team-delete-engagement" data-engagement-id="${engagement.id}">🗑️ Delete Engagement Forever</button>
       </div>
     ` : ''}` : ''}
@@ -1448,6 +1451,10 @@ export function initEngagementPages() {
       const eng = engagements.find(e => e.id === el.dataset.engagementId);
       if (eng && eng.status === 'archived') await Actions.reopenEngagement(eng.id); else await Actions.archiveEngagement(el.dataset.engagementId);
       renderTeamTab();
+    },
+    'team-reopen-engagement': async (el) => {
+      await Actions.reopenEngagement(el.dataset.engagementId);
+      if (currentSubView === 'list') refreshEngagementCards(); else renderTeamTab();
     },
     'team-close-engagement': async (el) => { await Actions.closeEngagementPermanently(el.dataset.engagementId); renderTeamTab(); },
     'team-delete-engagement': async (el) => {

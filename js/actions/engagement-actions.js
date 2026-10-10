@@ -85,7 +85,11 @@ function closeEngagementView() {
 }
 
 function archiveEngagement(engagementId) { return setEngagementStatus(engagementId, 'archived'); }
-function reopenEngagement(engagementId) { return setEngagementStatus(engagementId, 'open'); }
+function reopenEngagement(engagementId) {
+  const eng = Store.getState().engagements.find(e => e.id === engagementId);
+  if (eng && eng.status === 'closed' && !confirm('Reopen "' + eng.name + '"? It will become active again and staff can resume counting/submitting against it.')) return;
+  return setEngagementStatus(engagementId, 'open');
+}
 function closeEngagementPermanently(engagementId) {
   if (!confirm('Close this engagement? It will be marked closed but kept for audit trail purposes.')) return;
   return setEngagementStatus(engagementId, 'closed');
