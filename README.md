@@ -52,7 +52,6 @@ The system is designed to make stock discrepancies progressively easier to inves
 - Excel reporting
 - Barcode registration, verification and conflict management
 - Advanced camera barcode scanning, with an offline barcode cache and scan outbox
-- **Rack Scan** — scan whatever is on a rack, any company, and verify it against system stock one item at a time (Main Auditor)
 - Near-expiry stock tracking
 - Supabase Authentication and PostgreSQL Row Level Security
 - Capacitor Android application with Google ML Kit native barcode scanning, with a camera-friendly continuous-scan policy
@@ -72,7 +71,6 @@ The system is designed to make stock discrepancies progressively easier to inves
 | Staff Management | Manage staff accounts, roles, PINs, blocking and access expiry. |
 | Barcode Center | Register, verify, search, audit and resolve product barcodes. |
 | Barcode Counting | Use Manual, Barcode or Hybrid counting within an audit. |
-| Rack Scan | Main Auditor scans a physical rack item by item against system stock, with no engagement or template. Sessions can be resumed, reopened and exported. |
 | Expiry Tracking | Maintain a shared near-expiry stock register with monthly rack/staff assignment. |
 | Reports | Generate Excel audit, variance, history, submission, inventory and audit-trail reports. |
 | Verify Stock | Legacy single-user stock verification workflow retained for compatibility. |
@@ -243,7 +241,7 @@ The original count remains recoverable. An audit system should preserve evidence
 
 | Role | Access |
 |---|---|
-| Main Auditor (`main`) | Full access to inventory, engagements, rounds, assignments, compilation, snapshots, staff, reports, settings, barcode administration, Rack Scan and audit logs. |
+| Main Auditor (`main`) | Full access to inventory, engagements, rounds, assignments, compilation, snapshots, staff, reports, settings, barcode administration and audit logs. |
 | Deputy Auditor (`dep`) | Read access to team-audit information, plus the ability to propose variance corrections and perform permitted barcode registration/verification/conflict reporting. |
 | Sub-Auditor (`sub`) | Own assignments, Individual Audits, counting, shared expiry workflows and permitted barcode scanning. Barcode administration remains restricted. |
 
@@ -462,78 +460,6 @@ Scan online  OR  Scan offline
 
 ---
 
-## 14a. Rack Scan
-
-Rack Scan is a continuous, physical-first verification mode for the **Main Auditor**. Instead of choosing a company, template or engagement, the auditor stands at a rack, scans whatever is on it and verifies each item against system stock immediately.
-
-```
-Rack Scan tile
-     ↓
-Start (optional rack name)
-     ↓
-Scan barcode  ──►  system balance shown at once
-     ↓
-✓ Matches   OR   type the physical count
-     ↓
-✅ Match  /  ❌ Variance (difference + rupee value)
-     ↓
-Scan next item
-```
-
-### Behaviour
-
-| Situation | What happens |
-|---|---|
-| Item matches system stock | One tap on **✓ Matches**, or type the count. The scanner moves on automatically. |
-| Variance | Shows the difference and its rupee value, then offers **Recount now** or **Flag for later**. |
-| Same item scanned twice | Asks **Add to count** or **Replace**. There is only ever one row per product per session. |
-| Barcode known but product not in inventory | Logged as **found on shelf, not in system**. It is never dropped. |
-| Unknown barcode | Search the product by name and **register** the barcode (existing Barcode Center flow), or log it as not in system. |
-| Flagged items | **Recount flagged (n)** walks through them in one pass before finishing. |
-
-Typed counts and **✓ Matches** taps are recorded separately (`entry_mode`), so a report always shows how many items were genuinely counted by hand.
-
-### Sessions
-
-- A live strip shows items checked, matched, variances, not-in-system and net rupee value.
-- **Finish / summary** shows shortage, excess, accuracy (matches ÷ items that exist in the system), a variance list, an Excel export (`Summary` + `Items` sheets) and a **sign-off** with the auditor's name.
-- **Past rack scans** lists earlier sessions. Tap an **open** session to continue scanning where you stopped; tap a **signed-off** session to review or export it. A signed-off session can be **reopened** (sign-off is cleared and must be repeated).
-- Closing the Rack Scan screen keeps the current session in memory. Reopening continues it. A full app reload starts fresh, but every saved item is already in Supabase and can be resumed from **Past rack scans**.
-- Each verification also records a `last verified` time per product (`rack_scan_last_verified` view), so products not checked in 30 / 60 / 90 days can later be found without planning an audit.
-
-### Scanning and identification
-
-Rack Scan reuses the existing identification layer: Google ML Kit in the Android app, the web camera/ZXing elsewhere, hardware (USB/Bluetooth) scanners and manual entry all feed the same scan hub, and barcodes resolve through the existing Barcode Master. Rack Scan adds one thing: resolution is against the **whole inventory** (`Store.products`), not an assignment's item list.
-
-### Offline
-
-Every verification is written to a local outbox (`rackScanOutbox`, via the repository's `LS` helper) before any network call, then synced with idempotent upserts keyed by `(session_id, client_event_id)`. Scanning keeps working with no signal. Opening a past session needs a connection; unsynced local items are merged into it.
-
-### Data and security
-
-| Table / view | Purpose |
-|---|---|
-| `rack_scan_sessions` | One row per rack scan: label, status (`open`/`closed`), start/close time, sign-off name. |
-| `rack_scan_items` | One row per product per session: system qty, counted qty, generated `diff` and `variance_value`, result (`match`/`variance`/`not_in_system`), entry mode, flagged, recounted. |
-| `rack_scan_last_verified` | Latest verification per product (security-invoker view). |
-
-Row Level Security allows **Main Auditor only** (`is_main_auditor()`) on both tables. Schema: `supabase/rack-scan-schema.sql` (re-runnable).
-
-### Implementation
-
-| Floor | File |
-|---|---|
-| Pure logic | `js/rack/rack-scan-core.js` — classification, add/replace, summary, export rows, DB row mapping |
-| 1 Repository | `js/repository/rack-scan.js` |
-| 3 Actions | `js/actions/rack-scan-actions.js` |
-| 4 Components | `js/components/rack-scan-components.js` |
-| 5 Pages | `js/pages/rack-scan-pages.js` (full-screen overlay opened from the home tile) |
-| Styles | `css/rack-scan.css` |
-
-The home tile is hidden for Sub-Auditors and Deputies, and the database refuses their requests regardless.
-
----
-
 ## 15. Expiry Tracking
 
 The Expiry module maintains a shared near-expiry stock register.
@@ -564,7 +490,6 @@ The system generates Excel workbooks (`.xlsx`) covering the major audit stages:
 - Submission History
 - Audit Trail
 - Inventory Report
-- Rack Scan Report (`Summary` + `Items`, per session)
 
 The Variance Report has a **Show all items** checkbox that also lists zero-variance lines (editable). The default remains variances only.
 
@@ -623,7 +548,6 @@ The web application follows a five-layer ("five-floor") architecture:
 ├── css/
 │   ├── app.css
 │   ├── barcode.css
-│   ├── rack-scan.css
 │   ├── desktop.css
 │   ├── design-upgrade.css
 │   └── engagement.css
@@ -639,7 +563,6 @@ The web application follows a five-layer ("five-floor") architecture:
 │   │
 │   ├── actions/            # incl. index.js, bus.js, item-key.js
 │   ├── barcode/
-│   ├── rack/               # Rack Scan pure logic
 │   ├── components/         # incl. index.js, dom-utils.js
 │   ├── pages/
 │   ├── repository/
@@ -649,7 +572,6 @@ The web application follows a five-layer ("five-floor") architecture:
 ├── supabase/
 │   ├── schema.sql
 │   ├── barcode-schema.sql
-│   ├── rack-scan-schema.sql
 │   └── admin-actions/
 │       └── index.ts
 │
@@ -686,7 +608,6 @@ The shared backend stores and controls:
 - Templates
 - Expiry data
 - Barcode data
-- Rack Scan sessions and items
 - Shared inventory (`inventory_products`)
 
 ### IndexedDB
@@ -700,7 +621,7 @@ Local/offline data:
 
 ### localStorage
 
-Lightweight local preferences and settings, plus the Rack Scan outbox (`rackScanOutbox`) for unsynced rack verifications.
+Lightweight local preferences and settings.
 
 ### Dropbox
 
@@ -721,7 +642,6 @@ Authorization is enforced at the database/backend level rather than relying only
 - **Access expiry** — staff access can have an expiration timestamp, checked server-side.
 - **Assignment protection** — Sub-Auditors cannot modify protected assignment configuration or ownership fields.
 - **Engagement protection** — database functions prevent counting/submission activity against inappropriate engagement states.
-- **Rack Scan protection** — Rack Scan tables are readable and writable by the Main Auditor only; Sub-Auditors and Deputies are refused by RLS.
 - **Barcode protection** — barcode administration uses protected (security-definer) database operations and role checks.
 - **Service-role key** — remains exclusively inside the privileged `admin-actions` Edge Function and must never be shipped to the browser.
 - **Audit logging** — important operations are recorded in the audit log. Offline-capable logging can queue events locally and synchronize them when connectivity returns.
@@ -737,10 +657,6 @@ Run `supabase/schema.sql` in the target Supabase project's SQL Editor. The schem
 ### Barcode schema
 
 After the main schema, run `supabase/barcode-schema.sql`. It creates the barcode subsystem's tables, policies and functions.
-
-### Rack Scan schema
-
-Run `supabase/rack-scan-schema.sql` (after the main schema, because it uses `is_main_auditor()`). It is re-runnable and creates `rack_scan_sessions`, `rack_scan_items`, the `rack_scan_last_verified` view and the Main-Auditor-only policies.
 
 ### Admin Edge Function
 
@@ -822,7 +738,7 @@ If native ML Kit scanning cannot be used, the application falls back to the exis
 
 ### Continuous-scan camera policy (persistent camera)
 
-Counting and Rack Scan keep **one** camera session open for the whole screen (`BarcodeScanner.startNativeLive`, ML Kit `startScan` / CameraX). The page is see-through only over the scanner box (`[data-live]` rules in `css/barcode.css`). It is never reopened per item — reopening was what left phones without autofocus.
+Counting keeps **one** camera session open for the whole screen (`BarcodeScanner.startNativeLive`, ML Kit `startScan` / CameraX). The page is see-through only over the scanner box (`[data-live]` rules in `css/barcode.css`). It is never reopened per item — reopening was what left phones without autofocus.
 
 - Every camera open, native or web, goes through `cameraGap`: at least **1.5 s** of quiet after the previous close.
 - Backgrounding the app releases the camera; returning restarts it once. A ⟳ button on the scanner resets it by hand.
@@ -957,9 +873,8 @@ This runs `node --test tests/*.test.mjs`.
 
 ## 31. Test Suite
 
-The repository currently contains 25 Node test files covering:
+The repository currently contains 23 Node test files covering:
 
-- Rack Scan logic (match/variance, add vs replace, not-in-system, summary, export, DB row mapping) and Rack Scan components (escaping, Add/Replace, resume history, reopen)
 - Native scanner reopen/rest/fallback policy
 - Barcode components, lookup, service and validation
 - Native barcode integration
@@ -1064,9 +979,6 @@ The system is already a substantial production-oriented internal audit platform.
 
 ### Medium priority
 
-- Rack Scan: system balance is only as fresh as the last inventory sync; a live POS balance (or subtracting sales since sync) would remove false variances on busy racks
-- Rack Scan: opening past sessions needs a connection; a full offline session cache is not built
-- Rack Scan: per-product "not verified in N days" is recorded (`rack_scan_last_verified`) but has no dashboard yet
 - Native scanner focus: a single continuous in-app camera session would avoid repeated open/close of Google's scanner (needs a new APK)
 - Multi-branch audit management
 - Scheduled and recurring audits / reusable assignment templates
@@ -1147,8 +1059,6 @@ Individual Auditing
 Offline Counting
       +
 Barcode Intelligence
-      +
-Rack Scan Verification
       +
 Expiry Tracking
       +

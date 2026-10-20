@@ -12,7 +12,6 @@ import * as StaffC from './staff-components.js';
 import * as InventoryC from './inventory-components.js';
 import * as ExpiryC from './expiry-components.js';
 import * as BarcodeC from './barcode-components.js';
-import * as RackScanC from './rack-scan-components.js';
 
 /* ══════════════════════════════════════════════════════════════
    FLOOR 4 — COMPONENTS (barrel)
@@ -35,5 +34,4 @@ export const Components = {
   ...InventoryC,
   ...ExpiryC,
   ...BarcodeC,
-  ...RackScanC,
 };
