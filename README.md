@@ -251,6 +251,8 @@ Authentication uses **Phone + PIN**. The application maps the phone number to an
 <phone-digits>@staff.internal
 ```
 
+Staff PINs are exactly **4 digits**. Supabase Auth rejects passwords shorter than 6 characters, so the app stores the Auth password as the PIN plus a fixed `00` suffix (e.g. PIN `1945` → password `194500`) — see `pinToAuthPassword()` in `js/repository/supabase.js`. Login tries the padded password first and falls back to the bare PIN for older accounts that haven't had their PIN reset yet.
+
 There is no separate client-side "admin mode". Authorization is not based only on the UI: Supabase RLS and server-side functions enforce access at the database/backend layer.
 
 ---
@@ -676,7 +678,7 @@ For a fresh Supabase project:
 
 1. Create a Supabase Auth user.
 2. Use the internal email format `<phone-digits>@staff.internal`.
-3. Set the password to the selected PIN.
+3. Set the password to the selected 4-digit PIN followed by `00` (e.g. PIN `1945` → password `194500`).
 4. Confirm the account.
 5. Create the corresponding `staff` record.
 6. Set `role = main`.

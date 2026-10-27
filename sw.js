@@ -1,4 +1,4 @@
-const CACHE_NAME = "fazal-din-audit-v9.07-remove-rack-scan";
+const CACHE_NAME = "fazal-din-audit-v9.08-pin-4digit-fix";
 
 // App-shell assets we want available offline immediately after install.
 // Includes the complete ES-module graph of js/main.js so a fresh install can

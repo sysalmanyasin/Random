@@ -32,10 +32,13 @@ function reorderStaff(orderedStaffIds) {
 
 async function createStaffMember(name, phone, pin, role) {
   const { sbClient } = Store.getState();
+  pin = String(pin || '').trim();
   if (!name || !phone || !pin) { Bus.emit('toast', { msg: 'Name, phone, and PIN are all required', kind: 'error' }); return null; }
-  if (!/^\d{4,8}$/.test(pin)) { Bus.emit('toast', { msg: 'PIN must be 4-8 digits', kind: 'error' }); return null; }
+  if (!Repo.isValidStaffPin(pin)) { Bus.emit('toast', { msg: 'PIN must be exactly 4 digits', kind: 'error' }); return null; }
   try {
-    const result = await Repo.callAdminAction(sbClient, 'createStaff', { name, phone, pin, role: role === 'main' ? 'main' : 'sub' });
+    // The Edge Function takes the Auth *password*, which is the PIN padded to
+    // Supabase's 6-char minimum (see repository/supabase.js).
+    const result = await Repo.callAdminAction(sbClient, 'createStaff', { name, phone, pin: Repo.pinToAuthPassword(pin), role: role === 'main' ? 'main' : 'sub' });
     logAudit('staff:created', { staffId: result.staffId, name, role });
     Bus.emit('toast', { msg: name + ' can now log in', kind: 'success' });
     await loadStaffRoster();
@@ -48,9 +51,10 @@ async function createStaffMember(name, phone, pin, role) {
 
 async function resetStaffPin(staffId, newPin) {
   const { sbClient } = Store.getState();
-  if (!/^\d{4,8}$/.test(newPin)) { Bus.emit('toast', { msg: 'PIN must be 4-8 digits', kind: 'error' }); return false; }
+  newPin = String(newPin || '').trim();
+  if (!Repo.isValidStaffPin(newPin)) { Bus.emit('toast', { msg: 'PIN must be exactly 4 digits', kind: 'error' }); return false; }
   try {
-    await Repo.callAdminAction(sbClient, 'resetPin', { staffId, newPin });
+    await Repo.callAdminAction(sbClient, 'resetPin', { staffId, newPin: Repo.pinToAuthPassword(newPin) });
     logAudit('staff:pinReset', { staffId });
     Bus.emit('toast', { msg: 'PIN updated', kind: 'success' });
     return true;

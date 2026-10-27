@@ -40,7 +40,7 @@ export function staffCardHTML(staffMember, appUrl, expanded) {
         </div>
         <div class="staff-card-details" style="${expanded ? '' : 'display:none;'}">
           <div style="display:flex; gap:6px; margin-bottom:6px;">
-            <input type="text" class="settings-input staff-pin-input" placeholder="New PIN" aria-label="New PIN for ${esc(staffMember.name)}" style="margin:0; flex:1; font-size:12px; padding:8px;" data-staff-id="${id}">
+            <input type="text" class="settings-input staff-pin-input" placeholder="New 4-digit PIN" inputmode="numeric" maxlength="4" pattern="[0-9]*" aria-label="New PIN for ${esc(staffMember.name)}" style="margin:0; flex:1; font-size:12px; padding:8px;" data-staff-id="${id}">
             <button class="btn btn-primary" style="font-size:11px; padding:8px 10px;" data-action="staff-reset-pin" data-staff-id="${id}">Set PIN</button>
           </div>
           ${isMain ? '' : `
@@ -69,8 +69,8 @@ export function addStaffFormHTML() {
       <input type="text" id="new-staff-name-input" class="settings-input" placeholder="Staff member's name">
       <label class="settings-label" for="new-staff-phone-input">Phone (with country code)</label>
       <input type="tel" id="new-staff-phone-input" class="settings-input" placeholder="923001234567">
-      <label class="settings-label" for="new-staff-pin-input">PIN (4-8 digits)</label>
-      <input type="text" id="new-staff-pin-input" class="settings-input" placeholder="e.g. 4821" inputmode="numeric">
+      <label class="settings-label" for="new-staff-pin-input">PIN (4 digits)</label>
+      <input type="text" id="new-staff-pin-input" class="settings-input" placeholder="e.g. 4821" inputmode="numeric" maxlength="4" pattern="[0-9]*">
       <button class="btn btn-primary btn-block" data-action="staff-create">Create Login</button>
     </div>`;
 }

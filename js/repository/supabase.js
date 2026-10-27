@@ -20,8 +20,32 @@ function _phoneToInternalEmail(phone) {
 }
 
 // ── Auth ──
+// Staff PINs are exactly 4 digits, but Supabase Auth refuses any password
+// shorter than 6 characters ("Password should be at least 6 characters"),
+// so a raw 4-digit PIN can no longer be set as the Auth password. The PIN
+// the person sees/types stays 4 digits; what we hand to Supabase Auth is the
+// PIN plus a fixed 2-digit suffix. The suffix is digits-only on purpose: the
+// deployed admin-actions Edge Function validates /^\d{4,8}$/ and passes the
+// value straight through as the password, so this works with it unchanged.
+// (It adds no secrecy — the PIN is still the only secret — it only meets the
+// length rule.)
+const STAFF_PIN_AUTH_SUFFIX = '00';
+function isValidStaffPin(pin) { return /^\d{4}$/.test(String(pin)); }
+function pinToAuthPassword(pin) { return String(pin) + STAFF_PIN_AUTH_SUFFIX; }
+
 async function signInWithPhonePin(client, phone, pin) {
-  return client.auth.signInWithPassword({ email: _phoneToInternalEmail(phone), password: pin });
+  const email = _phoneToInternalEmail(phone);
+  if (isValidStaffPin(pin)) {
+    const res = await client.auth.signInWithPassword({ email, password: pinToAuthPassword(pin) });
+    if (!res.error) return res;
+    // Fall back to the raw PIN ONLY for "wrong credentials" — accounts created
+    // before the 6-char rule still have the bare 4-digit PIN as their password
+    // until their PIN is next reset. Blocked / rate-limited / network errors
+    // are returned as-is rather than retried.
+    const wrongCreds = res.error.code === 'invalid_credentials' || /invalid login credentials/i.test(res.error.message || '');
+    if (!wrongCreds) return res;
+  }
+  return client.auth.signInWithPassword({ email, password: pin });
 }
 async function signOut(client) { return client.auth.signOut(); }
 async function getSession(client) { const { data } = await client.auth.getSession(); return data.session; }
@@ -554,7 +578,7 @@ async function applyRoundCorrection(client, roundId, itemKey, correction) {
 }
 
 export const SupabaseRepo = {
-  buildSupabaseClient, signInWithPhonePin, signOut, getSession, onAuthStateChange, callAdminAction,
+  buildSupabaseClient, isValidStaffPin, pinToAuthPassword, signInWithPhonePin, signOut, getSession, onAuthStateChange, callAdminAction,
   fetchMyStaffProfile, fetchAllStaff, setStaffAccessExpiry,
   insertEngagement, setEngagementCountingMethod, updateEngagementStatus, updateEngagementScope, deleteEngagement, fetchEngagements,
   insertRound, updateRound, deleteRound, fetchRoundsByEngagement, fetchRoundById, fetchOpenRoundsAcrossEngagements,
