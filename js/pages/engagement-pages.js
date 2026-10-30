@@ -23,23 +23,34 @@ const $ = (id) => document.getElementById(id);
 let individualExpandedStaff = new Set(); // auditor names currently expanded
 let individualSelectedRounds = new Set(); // roundIds picked for recompile
 
+let _individualRenderToken = 0;
 async function renderIndividualDashboard() {
   const holder = $('individual-tab-root');
   if (!holder) return;
-  holder.innerHTML = '<div class="card" style="text-align:center; padding:24px; color:var(--grey);">Loading…</div>';
+  const token = ++_individualRenderToken;
+  // Only show the "Loading…" placeholder when there's nothing on screen
+  // yet; on a re-render keep the previous content until fresh data lands.
+  if (!holder.firstElementChild) {
+    holder.innerHTML = '<div class="card" style="text-align:center; padding:24px; color:var(--grey);">Loading…</div>';
+  }
+  try {
+    const engagement = await Actions.getOrCreateCurrentIndividualEngagement();
+    if (token !== _individualRenderToken) return;
+    if (!engagement) { holder.innerHTML = '<div class="card">Could not load Individual Assignments.</div>'; return; }
 
-  const engagement = await Actions.getOrCreateCurrentIndividualEngagement();
-  if (!engagement) { holder.innerHTML = '<div class="card">Could not load Individual Assignments.</div>'; return; }
-
-  // loadIndividualDashboardData (individual-actions.js) now also syncs
-  // this fetch into the global Store — see that function for why: the
-  // Reports tab's _buildReportOverview reads Store.getState() directly,
-  // and Individual Assignments rounds are auto-compiled via a
-  // security-definer RPC that never went through compileRound()'s
-  // Store.setState, so Reports never saw them as compiled even though
-  // this dashboard (which fetches fresh from the DB) always did.
-  const { rounds, assignments, compiledRounds } = await Actions.loadIndividualDashboardData(engagement);
-  holder.innerHTML = _renderIndividualDashboardBody(engagement, rounds, assignments, compiledRounds);
+    // loadIndividualDashboardData also syncs this fetch into the global
+    // Store (Reports reads it from there) — see individual-actions.js.
+    const { rounds, assignments, compiledRounds } = await Actions.loadIndividualDashboardData(engagement);
+    if (token !== _individualRenderToken || !holder.isConnected) return;
+    holder.innerHTML = _renderIndividualDashboardBody(engagement, rounds, assignments, compiledRounds);
+  } catch (err) {
+    console.error('[Individual] render failed:', err);
+    if (token !== _individualRenderToken) return;
+    // Don't wipe a good previous render because of a transient failure.
+    if (!holder.querySelector('.movable-row, .card:not([data-loading])') || holder.textContent.trim() === 'Loading…') {
+      holder.innerHTML = '<div class="card" style="text-align:center; padding:24px; color:var(--grey);">Could not load — check your connection and switch tabs to retry.</div>';
+    }
+  }
 }
 
 function _renderIndividualDashboardBody(engagement, rounds, assignments, compiledRounds) {
@@ -483,79 +494,92 @@ function refreshSubRoundSection() {
   if (showSubRoundPicker) renderSubRoundCompanyPicker(engagement);
 }
 
+// Latest-wins token: every call to refreshRoundList bumps this, and an
+// older in-flight call that finds it stale discards its result instead of
+// painting over (or duplicating) the newer one.
+let _roundListRenderToken = 0;
+
+function _paintRoundCards(holder, sorted, ctx) {
+  // Build everything off-DOM, then swap in ONE step — the holder is never
+  // visibly empty between the old cards and the new ones.
+  const frag = document.createDocumentFragment();
+  if (sorted.length === 0) {
+    frag.appendChild(Components.noRoundsEmptyState());
+  } else {
+    const latest = sorted[sorted.length - 1];
+    const { individualSummary, auditorProgressMap, compiledRounds, pendingApprovalsByRoundId, currentRole } = ctx;
+    // Newest-first for display; `sorted` stays ascending for the summaries.
+    sorted.slice().reverse().forEach(r => frag.appendChild(Components.roundCard(
+      r,
+      r.id === latest.id,
+      individualSummary ? individualSummary.get(r.id) : null,
+      _roundNetVariance(r, compiledRounds),
+      auditorProgressMap.get(r.id) || null,
+      currentRole === 'main',
+      currentRole === 'main' ? (pendingApprovalsByRoundId.get(r.id) || 0) : 0
+    )));
+  }
+  holder.replaceChildren(frag);
+}
+
 async function refreshRoundList() {
   const holder = $('round-list-holder');
   if (!holder) return;
-  const { rounds, engagements, currentEngagementId } = Store.getState();
+  const token = ++_roundListRenderToken;
+  const isCurrent = () => token === _roundListRenderToken && holder.isConnected;
+
+  const { rounds, engagements, currentEngagementId, role: currentRole } = Store.getState();
   const sorted = rounds.slice().sort((a, b) => a.roundNumber - b.roundNumber);
-  holder.innerHTML = '';
-  if (sorted.length === 0) { holder.appendChild(Components.noRoundsEmptyState()); return; }
-  const latest = sorted[sorted.length - 1];
+  const baseCtx = {
+    individualSummary: null,
+    auditorProgressMap: new Map(),
+    compiledRounds: Store.getState().compiledRounds || [],
+    pendingApprovalsByRoundId: new Map(),
+    currentRole,
+  };
 
-  // Individual Assignments pool: each round is one auditor's self-pick,
-  // so enrich every round card with who picked it, which company(ies),
-  // and their top companies by counted value — see
-  // IndividualActions.summarizeIndividualRounds.
+  // PHASE 1 — instant paint from what the Store already holds. Never
+  // blank the list while waiting on the network: if cards are already on
+  // screen they stay put until phase 2 swaps them atomically; if the
+  // holder is empty (first load) the cached rounds appear immediately.
+  if (sorted.length === 0 || !holder.firstElementChild) {
+    _paintRoundCards(holder, sorted, baseCtx);
+  }
+  if (sorted.length === 0) { refreshDashboard(); return; }
+
+  // PHASE 2 — enrich with fetched data. Any failure keeps the phase-1 /
+  // previous render on screen instead of leaving the list empty.
   const engagement = engagements.find(e => e.id === currentEngagementId);
-  let individualSummary = null;
-  let auditorProgressMap = new Map();
-  if (engagement && engagement.scope && engagement.scope.type === 'individual') {
-    // Uses the same read-only loader as the grouped-by-staff view
-    // (Actions.loadIndividualDashboardData) rather than
-    // loadAssignmentsForRound, since that one overwrites Store's
-    // shared `assignments` (used by the currently-open round's
-    // workspace) as a side effect — this is a display-only summary.
-    const { assignments } = await Actions.loadIndividualDashboardData(engagement);
-    individualSummary = Actions.summarizeIndividualRounds(sorted, assignments);
-    // Reuse that same per-engagement assignments fetch for the Auditor
-    // Progress lens instead of a second round-by-round fetch below.
-    auditorProgressMap = Actions.roundAuditorProgressFromAssignments(sorted, assignments);
-  } else if (currentEngagementId) {
-    // Regular (non-individual) engagements only get compiledRounds
-    // populated in Store when a round's workspace is opened (see
-    // openRound → loadCompiledRoundsForEngagement below). Without this,
-    // round cards on the plain engagement-detail screen would show no
-    // net variance until someone drilled into a round this session.
-    await Actions.loadCompiledRoundsForEngagement(currentEngagementId);
-    // Same gap applies to per-round assignment submission counts —
-    // fetch each round's assignments (read-only, doesn't touch
-    // Store's shared `assignments` key) for the Auditor Progress lens.
-    auditorProgressMap = await Actions.loadRoundAuditorProgress(sorted);
+  const ctx = Object.assign({}, baseCtx);
+  try {
+    if (engagement && engagement.scope && engagement.scope.type === 'individual') {
+      // Read-only loader (doesn't overwrite Store's shared `assignments`).
+      const { assignments } = await Actions.loadIndividualDashboardData(engagement);
+      ctx.individualSummary = Actions.summarizeIndividualRounds(sorted, assignments);
+      ctx.auditorProgressMap = Actions.roundAuditorProgressFromAssignments(sorted, assignments);
+    } else if (currentEngagementId) {
+      await Actions.loadCompiledRoundsForEngagement(currentEngagementId);
+      ctx.auditorProgressMap = await Actions.loadRoundAuditorProgress(sorted);
+    }
+    // Read compiledRounds AFTER the loads above — they merge into Store.
+    ctx.compiledRounds = Store.getState().compiledRounds || [];
+
+    if (currentEngagementId) {
+      const suggestions = await Actions.loadSuggestionsForEngagement(currentEngagementId);
+      ctx.pendingApprovalsByRoundId = suggestions.reduce((map, s) => {
+        if (s.status === 'pending') map.set(s.roundId, (map.get(s.roundId) || 0) + 1);
+        return map;
+      }, new Map());
+    }
+  } catch (err) {
+    console.error('[Rounds] enrichment failed — keeping current list on screen:', err);
+    return;
   }
 
-  // Read compiledRounds AFTER the branches above, not before — both
-  // paths fetch and merge compiled records into Store as a side
-  // effect, so grabbing compiledRounds any earlier (e.g. in the same
-  // destructure as `rounds` at the top) would hand every round card a
-  // stale/empty list and net variance would silently never render.
-  const { compiledRounds } = Store.getState();
-
-  const { role: currentRole } = Store.getState();
-  // Engagement-wide suggestions fetch, so a round card can flag "N
-  // pending approval(s)" for ANY round in the list — not just whichever
-  // one happens to be open. Cheap single read, and only Main/Deputy
-  // ever reach this list (a plain Sub-Auditor has their own page).
-  let pendingApprovalsByRoundId = new Map();
-  if (currentEngagementId) {
-    const suggestions = await Actions.loadSuggestionsForEngagement(currentEngagementId);
-    pendingApprovalsByRoundId = suggestions.reduce((map, s) => {
-      if (s.status === 'pending') map.set(s.roundId, (map.get(s.roundId) || 0) + 1);
-      return map;
-    }, new Map());
-  }
-  // Render newest-first while keeping `sorted` (ascending) as the
-  // shared ordering used above for latest-round detection and the
-  // individual/auditor-progress summaries, which expect ascending order.
-  const displayOrder = sorted.slice().reverse();
-  displayOrder.forEach(r => holder.appendChild(Components.roundCard(
-    r,
-    r.id === latest.id,
-    individualSummary ? individualSummary.get(r.id) : null,
-    _roundNetVariance(r, compiledRounds),
-    auditorProgressMap.get(r.id) || null,
-    currentRole === 'main',
-    currentRole === 'main' ? (pendingApprovalsByRoundId.get(r.id) || 0) : 0
-  )));
+  if (!isCurrent()) return; // a newer refresh (or a re-render) superseded us
+  // Use the freshest rounds in case they changed during the awaits.
+  const freshSorted = Store.getState().rounds.slice().sort((a, b) => a.roundNumber - b.roundNumber);
+  _paintRoundCards(holder, freshSorted, ctx);
   refreshDashboard();
 }
 
