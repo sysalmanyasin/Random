@@ -60,6 +60,6 @@ jobs:
         run: |
           gh release delete android-latest --yes --cleanup-tag || true
           gh release create android-latest PharmacyAuditHub.apk \
-            --title "Pharmacy Audit Hub — Android app" \
+            --title "Dua Audit Hub — Android app" \
             --notes "Install on an Android phone (allow 'Install unknown apps' once). The app loads the live site, so web updates arrive automatically — you only reinstall when this APK is rebuilt." \
             --target "${{ github.sha }}"

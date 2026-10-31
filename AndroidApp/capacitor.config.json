@@ -1,6 +1,6 @@
 {
   "appId": "com.duapharma.audithub",
-  "appName": "Pharmacy Audit Hub",
+  "appName": "Dua Audit Hub",
   "webDir": "www",
   "server": {
     "url": "https://random.duapharma.com",

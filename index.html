@@ -4,17 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light">
-<title>Fazal Din's Pharma Plus — Audit Hub</title>
+<title>Dua Audit Hub — Fazal Din's Pharma Plus</title>
 
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#1B3A6B">
-<meta name="application-name" content="PharmaAudit">
+<meta name="application-name" content="Dua Audit Hub">
 <meta name="description" content="Inventory Variance and Random Stock Audit Engine for Fazal Din's Pharma Plus">
 
 <!-- Apple PWA -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="PharmaAudit">
+<meta name="apple-mobile-web-app-title" content="Dua Audit Hub">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 
 <!-- Favicons -->
@@ -45,9 +45,9 @@
 
   <!-- ── PWA Install Banner ─────────────────────────────────── -->
   <div id="pwa-install-banner" role="region" aria-label="Install app">
-    <div class="pwa-icon" aria-hidden="true">💊</div>
+    <div class="pwa-icon" aria-hidden="true"><img src="./icons/icon-192.png" alt="" width="40" height="40"></div>
     <div class="pwa-text">
-      <div class="pwa-title">Install PharmaAudit</div>
+      <div class="pwa-title">Install Dua Audit Hub</div>
       <div class="pwa-sub">Add to home screen for offline access</div>
     </div>
     <button class="pwa-btn" data-action="pwa-install">Install</button>
@@ -63,7 +63,7 @@
   <header class="header">
     <div class="header-brand-wrap">
       <div class="header-sub">Fazal Din's Pharma Plus</div>
-      <div class="header-title">Pharmacy Audit Hub</div>
+      <div class="header-title">Dua Audit Hub</div>
       <div class="header-loc"><span aria-hidden="true">📍</span> <span id="header-branch-label">Bahria Town Branch</span></div>
     </div>
   </header>
@@ -83,7 +83,7 @@
 
       <!-- Inventory tile -->
       <button class="section-tile section-tile--inventory" data-action="navigate" data-view="inventory">
-        <div class="section-tile-icon">📦</div>
+        <div class="section-tile-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/></svg></div>
         <div class="section-tile-body">
           <div class="section-tile-name">Inventory</div>
           <div class="section-tile-desc">Products · Templates · Launch</div>
@@ -94,7 +94,7 @@
 
       <!-- Team Audit tile -->
       <button class="section-tile section-tile--team" data-action="navigate" data-view="team">
-        <div class="section-tile-icon">👥</div>
+        <div class="section-tile-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.4"/><path d="M17 14c2.5 0 4.5 2 4.5 4.5"/></svg></div>
         <div class="section-tile-body">
           <div class="section-tile-name">Team Audit
             <span class="section-tile-badge" id="home-badge-team" hidden></span>
@@ -106,8 +106,8 @@
       </button>
 
       <!-- Barcode Center tile -->
-      <button class="section-tile section-tile--inventory" data-action="navigate" data-view="barcode">
-        <div class="section-tile-icon">📷</div>
+      <button class="section-tile section-tile--barcode" data-action="navigate" data-view="barcode">
+        <div class="section-tile-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M8 9v6M11.5 9v6M15 9v6"/></svg></div>
         <div class="section-tile-body">
           <div class="section-tile-name">Barcode Center</div>
           <div class="section-tile-desc">Scan · Register · Verify</div>
@@ -117,7 +117,7 @@
 
       <!-- Sync & Tools tile -->
       <button class="section-tile section-tile--sync" data-action="navigate" data-view="import">
-        <div class="section-tile-icon">⚙️</div>
+        <div class="section-tile-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 8a8 8 0 0 0-14.5-2M4 4v4h4"/><path d="M4 16a8 8 0 0 0 14.5 2M20 20v-4h-4"/></svg></div>
         <div class="section-tile-body">
           <div class="section-tile-name">Sync &amp; Tools</div>
           <div class="section-tile-desc">Dropbox · Upload · Settings</div>

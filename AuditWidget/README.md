@@ -32,7 +32,7 @@ Supabase project the main PWA uses.
 2. **Install it** on the Main Auditor's phone (enable "install unknown
    apps" for whichever app you download it through).
 3. **Open the app once**, log in with the Main Auditor's phone + PIN.
-4. **Long-press the home screen → Widgets → Audit Rounds Widget**, drag it
+4. **Long-press the home screen → Widgets → Dua Audit Rounds**, drag it
    onto the home screen.
 
 That's it — no separate config screen; the widget reads the session the

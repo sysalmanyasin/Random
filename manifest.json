@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Fazal Din Pharmacy Audit Hub",
-  "short_name": "PharmaAudit",
-  "description": "Inventory Variance and Random Stock Audit Engine for Fazal Din's Pharma Plus",
+  "name": "Dua Audit Hub",
+  "short_name": "Dua Audit Hub",
+  "description": "Inventory variance and random stock audit engine for Fazal Din's Pharma Plus, by DuaPharma",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
@@ -10,7 +10,10 @@
   "theme_color": "#0F1F3D",
   "orientation": "portrait-primary",
   "lang": "en",
-  "categories": ["business", "productivity"],
+  "categories": [
+    "business",
+    "productivity"
+  ],
   "icons": [
     {
       "src": "icons/icon-192.png",
@@ -35,23 +38,51 @@
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon-monochrome-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "monochrome"
     }
   ],
   "screenshots": [],
   "shortcuts": [
     {
-      "name": "Start Audit",
-      "short_name": "Audit",
-      "description": "Go directly to the Verify Stock tab",
-      "url": "./index.html#audit",
-      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+      "name": "Team Audit",
+      "short_name": "Team",
+      "description": "Engagements, rounds and staff",
+      "url": "./index.html?view=team",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
     {
-      "name": "History Ledger",
-      "short_name": "History",
-      "description": "View past audit records",
-      "url": "./index.html#history",
-      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+      "name": "Scan Barcode",
+      "short_name": "Scan",
+      "description": "Open the Barcode Center",
+      "url": "./index.html?view=barcode",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Inventory",
+      "short_name": "Inventory",
+      "description": "Products, templates and launch",
+      "url": "./index.html?view=inventory",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }

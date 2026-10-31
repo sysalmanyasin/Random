@@ -21,12 +21,13 @@ export function supabaseConfigScreenHTML() {
 export function loginScreenHTML() {
   return `
     <div class="card" style="text-align:center; padding:32px 20px;">
-      <span style="font-size:40px;">🔐</span>
-      <div style="font-weight:800; color:var(--navy); margin-top:10px; font-size:16px;">Team Audit Login</div>
-      <div style="font-size:12px; color:var(--grey); margin:4px 0 16px;">Enter your phone number and PIN.</div>
+      <img src="./icons/icon-192.png" alt="" width="56" height="56" style="border-radius:14px;">
+      <div style="font-weight:800; color:var(--navy); margin-top:10px; font-size:16px;">Dua Audit Hub</div>
+      <div style="font-size:12px; color:var(--grey); margin:4px 0 16px;">Team Audit login: enter your phone number and PIN.</div>
       <input type="tel" id="login-phone-input" class="settings-input" placeholder="Phone number" inputmode="tel" aria-label="Phone number">
       <input type="password" id="login-pin-input" class="settings-input" placeholder="PIN" inputmode="numeric" style="text-align:center; letter-spacing:4px;" aria-label="PIN">
       <button class="btn btn-primary btn-block" data-action="submit-login">Log In</button>
+      <img src="./icons/duapharma-wordmark-light.svg" alt="DuaPharma" height="13" style="display:block; height:13px; width:auto; margin:20px auto 0; opacity:0.85;">
     </div>`;
 }
 

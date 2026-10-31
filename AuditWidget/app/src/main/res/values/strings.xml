@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Audit Rounds Widget</string>
+    <string name="app_name">Dua Audit Rounds</string>
     <string name="widget_title">Individual Assignments — Open Rounds</string>
     <string name="login_phone_hint">Phone (e.g. 923001234567)</string>
     <string name="login_pin_hint">PIN</string>

@@ -29,7 +29,7 @@ uninstall first. (To keep one signing key, add a release keystore as repository 
 
 ## Offline
 The app loads the site from the network. If the phone is offline at launch it shows a local
-"Can't reach Pharmacy Audit Hub — Retry" page. Once loaded, the site's service worker keeps working as in Chrome.
+"Can't reach Dua Audit Hub — Retry" page. Once loaded, the site's service worker keeps working as in Chrome.
 
 ## Local build (optional)
 ```

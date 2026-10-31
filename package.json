@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "brand": "node scripts/build-brand.mjs",
+    "brand:check": "node scripts/build-brand.mjs --check",
+    "brand:png": "node scripts/build-brand.mjs --png"
   }
 }

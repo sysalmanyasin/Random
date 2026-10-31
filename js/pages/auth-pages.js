@@ -12,6 +12,17 @@ import { Components } from '../components.js';
 
 const $ = (id) => document.getElementById(id);
 
+// Home-screen shortcuts (manifest.json) launch as ./index.html?view=<page>. The view is applied once, after sign-in,
+// through the normal navigation path so the role restrictions in executeViewNavigation still apply.
+const LAUNCH_VIEWS = new Set(['team', 'barcode', 'inventory', 'expiry', 'individual', 'staff']);
+let launchViewHandled = false;
+function applyLaunchView() {
+  if (launchViewHandled || typeof window === 'undefined' || !window.location) return;
+  launchViewHandled = true;
+  const view = new URLSearchParams(window.location.search).get('view');
+  if (view && LAUNCH_VIEWS.has(view)) Bus.emit('nav:goto', view);
+}
+
 export function renderAuthRoot() {
   const authRoot = $('auth-root');
   const appShell = $('app-shell-below-auth');
@@ -45,6 +56,7 @@ export function renderAuthRoot() {
   // Team Audit instead of the generic home screen — removes the window
   // where the wrong tiles could even be tapped before any redirect happens.
   if (role === 'sub' || role === 'dep') Bus.emit('nav:goto', 'team');
+  applyLaunchView();
 }
 
 Bus.on('auth:needsConfig', renderAuthRoot);

@@ -113,12 +113,16 @@
   .section-tile--inventory { background: linear-gradient(135deg, #1B3A6B 0%, #2563EB 100%); }
   .section-tile--team    { background: linear-gradient(135deg, #065F46 0%, #059669 100%); }
   .section-tile--sync    { background: linear-gradient(135deg, #92400E 0%, #D97706 100%); }
+  /* Barcode Center carries the app's own crimson (the Dua Audit Hub launcher-icon colour) so it no longer
+     looks like a second Inventory tile. */
+  .section-tile--barcode { background: linear-gradient(135deg, #6B1F2D 0%, #B23A4E 100%); }
 
   .section-tile-icon {
     width: 52px; height: 52px; border-radius: 14px;
     background: rgba(255,255,255,0.18); display: flex; align-items: center;
     justify-content: center; font-size: 24px; flex-shrink: 0;
   }
+  .section-tile-icon svg { width: 26px; height: 26px; fill: none; stroke: #ffffff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .section-tile-body { flex: 1; min-width: 0; }
   .section-tile-name {
     font-size: 16px; font-weight: 800; color: #ffffff; line-height: 1.2;
@@ -528,8 +532,9 @@
   #pwa-install-banner.visible { display: flex; }
   #pwa-install-banner .pwa-icon {
     width: 40px; height: 40px; border-radius: 10px; background: var(--gold);
-    display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 20px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 20px; overflow: hidden;
   }
+  #pwa-install-banner .pwa-icon img { width: 100%; height: 100%; display: block; }
   #pwa-install-banner .pwa-text { flex: 1; }
   #pwa-install-banner .pwa-title { font-size: 13px; font-weight: 800; color: var(--white); }
   #pwa-install-banner .pwa-sub   { font-size: 11px; color: rgba(255,255,255,0.65); margin-top: 2px; }
