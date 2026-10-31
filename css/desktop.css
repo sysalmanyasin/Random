@@ -52,7 +52,7 @@
     padding: 22px 20px 0;
     box-shadow: none;
     z-index: 120;
-    background: linear-gradient(165deg, var(--navy) 0%, #0A1322 100%);
+    background: linear-gradient(165deg, var(--navy) 0%, #142E56 100%);
   }
   .header-brand-wrap { padding-bottom: 18px; border-bottom: 1px solid rgba(255,255,255,0.12); width: 100%; }
   .header-title { font-size: 17px; }
@@ -66,7 +66,7 @@
     width: var(--sidebar-w);
     max-width: none;
     height: calc(100vh - 132px);
-    background: linear-gradient(180deg, var(--navy) 0%, #0B1527 100%);
+    background: linear-gradient(180deg, var(--navy) 0%, #16305A 100%);
     border-top: none;
     flex-direction: column;
     gap: 3px;
@@ -160,7 +160,7 @@
      bar, so this selector never collides with the logged-in state. */
   #auth-root:has(> .card) {
     min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    padding: 40px; background: radial-gradient(circle at 20% 15%, #12363F 0%, var(--navy) 55%, #0A1322 100%);
+    padding: 40px; background: radial-gradient(circle at 20% 15%, #24417a 0%, var(--navy) 55%, #0F2547 100%);
   }
   #auth-root:has(> .card) > .card {
     max-width: var(--form-w); width: 100%;

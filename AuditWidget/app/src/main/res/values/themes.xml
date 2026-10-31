@@ -3,6 +3,6 @@
     <style name="Theme.AuditWidget" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="colorPrimary">@color/navy</item>
         <item name="colorPrimaryDark">@color/navy_dark</item>
-        <item name="colorAccent">@color/teal_dark</item>
+        <item name="colorAccent">@color/navy</item>
     </style>
 </resources>

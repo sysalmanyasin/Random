@@ -1,15 +1,9 @@
   /* ── Structural System Base ─────────────────────────────── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
-    /* DuaPharma brand: --brand-* are the exact identity colours (decoration, large surfaces).
-       --navy2 is the AA-safe Intelligence Teal used for focus rings/pressed states (white text 4.8:1). */
-    --brand-navy: #101B2D;
-    --brand-teal: #18A999;
-    --brand-amber:#F2B84B;
-    --brand-slate:#465166;
-    --navy:       #101B2D;
-    --navy2:      #0E8074;
-    --gold:       #F2B84B;
+    --navy:       #1B3A6B;
+    --navy2:      #2151A0;
+    --gold:       #F59E0B;
     --gold-bg:    #FFFBEB;
     /* Text-safe darker variants: --gold and --green fail WCAG AA
        (2.15:1 and 3.77:1 against white) when used as text color rather
@@ -40,7 +34,7 @@
     --font-scale: 100%;
 
     /* Section accent colours */
-    --c-random:   #101B2D;
+    --c-random:   #1B3A6B;
     --c-team:     #059669;
     --c-reports:  #6D28D9;
     --c-sync:     #D97706;
@@ -116,7 +110,7 @@
   }
   .section-tile:active { transform: scale(0.975); box-shadow: 0 2px 6px rgba(0,0,0,0.10); }
 
-  .section-tile--inventory { background: linear-gradient(135deg, #101B2D 0%, #0E8074 100%); }
+  .section-tile--inventory { background: linear-gradient(135deg, #1B3A6B 0%, #2563EB 100%); }
   .section-tile--team    { background: linear-gradient(135deg, #065F46 0%, #059669 100%); }
   .section-tile--sync    { background: linear-gradient(135deg, #92400E 0%, #D97706 100%); }
 
@@ -363,19 +357,19 @@
   }
   .pdf-meta-box {
     display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
-    margin-bottom: 30px; border-bottom: 2px solid #101B2D; padding-bottom: 15px;
+    margin-bottom: 30px; border-bottom: 2px solid #1B3A6B; padding-bottom: 15px;
   }
-  .pdf-brand-title { font-size: 24px; font-weight: 800; color: #101B2D; text-transform: uppercase; }
+  .pdf-brand-title { font-size: 24px; font-weight: 800; color: #1B3A6B; text-transform: uppercase; }
   .pdf-summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 25px; }
   .pdf-stat-card {
     background: #F8FAFC; border: 1px solid #E2E8F0; padding: 12px;
     border-radius: 8px; text-align: center;
   }
-  .pdf-stat-val { font-size: 18px; font-weight: 700; color: #101B2D; }
+  .pdf-stat-val { font-size: 18px; font-weight: 700; color: #1B3A6B; }
   .pdf-stat-lbl { font-size: 10px; text-transform: uppercase; color: #64748B; font-weight: 600; margin-top: 2px; }
   .pdf-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
   .pdf-table th {
-    background: #101B2D; color: #ffffff; text-transform: uppercase;
+    background: #1B3A6B; color: #ffffff; text-transform: uppercase;
     font-size: 10px; font-weight: 700; padding: 10px; text-align: left; letter-spacing: 0.5px;
   }
   .pdf-table td { padding: 10px; border-bottom: 1px solid #E2E8F0; font-size: 12px; }
@@ -396,7 +390,7 @@
     position: sticky; left: 0; z-index: 1;
     background: #ffffff; box-shadow: 2px 0 4px rgba(0,0,0,0.06);
   }
-  .pdf-table-scroll .pdf-table th:first-child { background: #101B2D; z-index: 2; }
+  .pdf-table-scroll .pdf-table th:first-child { background: #1B3A6B; z-index: 2; }
   .pdf-table-scroll .pdf-table tr:nth-child(even) td:first-child { background: #F8FAFC; }
 
   @media print {

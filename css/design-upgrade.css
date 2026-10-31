@@ -168,7 +168,7 @@ html, body {
    the pattern near it. ────────────────────────────────────────── */
 :root {
   --pat-mint: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56'%3E%3Cg fill='none' stroke='%23047857' stroke-width='2' stroke-linecap='round' opacity='0.14'%3E%3Cpath d='M28 16v24M16 28h24'/%3E%3C/g%3E%3C/svg%3E");
-  --pat-navy: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56'%3E%3Cg fill='none' stroke='%23101B2D' stroke-width='2' stroke-linecap='round' opacity='0.13'%3E%3Cpath d='M28 16v24M16 28h24'/%3E%3C/g%3E%3C/svg%3E");
+  --pat-navy: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56'%3E%3Cg fill='none' stroke='%231B3A6B' stroke-width='2' stroke-linecap='round' opacity='0.13'%3E%3Cpath d='M28 16v24M16 28h24'/%3E%3C/g%3E%3C/svg%3E");
   --pat-gold: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56'%3E%3Cg fill='none' stroke='%23B45309' stroke-width='2' stroke-linecap='round' opacity='0.14'%3E%3Cpath d='M28 16v24M16 28h24'/%3E%3C/g%3E%3C/svg%3E");
   --pat-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56'%3E%3Cg fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' opacity='0.09'%3E%3Cpath d='M28 16v24M16 28h24'/%3E%3C/g%3E%3C/svg%3E");
 }
@@ -196,7 +196,7 @@ html, body {
   }
   #page-inventory.active {
     background-image:
-      linear-gradient(180deg, rgba(236,246,245,0.55) 0%, rgba(236,246,245,0) 300px),
+      linear-gradient(180deg, rgba(238,243,252,0.55) 0%, rgba(238,243,252,0) 300px),
       var(--pat-navy);
   }
   #page-import.active {
@@ -219,10 +219,10 @@ html, body {
      gradient (a bare background-image here would replace that
      gradient outright rather than sit on top of it). */
   .header {
-    background-image: var(--pat-dark), linear-gradient(165deg, var(--navy) 0%, #0A1322 100%);
+    background-image: var(--pat-dark), linear-gradient(165deg, var(--navy) 0%, #142E56 100%);
   }
   .tabbar {
-    background-image: var(--pat-dark), linear-gradient(180deg, var(--navy) 0%, #0B1527 100%);
+    background-image: var(--pat-dark), linear-gradient(180deg, var(--navy) 0%, #16305A 100%);
   }
 
   /* Same pattern on the (dark) auth/login screen, in the light-ink
@@ -231,7 +231,7 @@ html, body {
      gradient it extends only applies here (see desktop.css). */
   #auth-root:has(> .card) {
     background-image:
-      radial-gradient(circle at 20% 15%, #12363F 0%, var(--navy) 55%, #0A1322 100%),
+      radial-gradient(circle at 20% 15%, #24417a 0%, var(--navy) 55%, #0F2547 100%),
       var(--pat-dark);
   }
 }

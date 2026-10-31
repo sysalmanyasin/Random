@@ -1,4 +1,4 @@
-const CACHE_NAME = "fazal-din-audit-v9.10-duapharma-brand";
+const CACHE_NAME = "fazal-din-audit-v9.09-render-race-fix";
 
 // App-shell assets we want available offline immediately after install.
 // Includes the complete ES-module graph of js/main.js so a fresh install can
@@ -95,8 +95,7 @@ const STATIC_ASSETS = [
   "./icons/icon-512.png",
   "./icons/icon-192-maskable.png",
   "./icons/icon-512-maskable.png",
-  "./icons/apple-touch-icon.png",
-  "./icons/icon.svg"
+  "./icons/apple-touch-icon.png"
 ];
 
 // External CDN assets (cached separately so failures don't block install)

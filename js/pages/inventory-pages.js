@@ -262,7 +262,7 @@ function generateInventoryReport() {
       </div>
     </div>
     <div class="pdf-summary-grid">
-      <div class="pdf-stat-card" style="border-top:4px solid #101B2D;"><div class="pdf-stat-val">${rows.length.toLocaleString()}</div><div class="pdf-stat-lbl">SKUs</div></div>
+      <div class="pdf-stat-card" style="border-top:4px solid #1B3A6B;"><div class="pdf-stat-val">${rows.length.toLocaleString()}</div><div class="pdf-stat-lbl">SKUs</div></div>
       <div class="pdf-stat-card" style="border-top:4px solid #059669;"><div class="pdf-stat-val">${totalQty.toLocaleString()}</div><div class="pdf-stat-lbl">Total Units</div></div>
       <div class="pdf-stat-card" style="border-top:4px solid #F59E0B; grid-column: span 2;"><div class="pdf-stat-val">Rs ${totalValue.toLocaleString()}</div><div class="pdf-stat-lbl">Total Retail Value</div></div>
     </div>
