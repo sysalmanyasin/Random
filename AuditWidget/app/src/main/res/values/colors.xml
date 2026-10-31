@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="navy">#1E3A5F</color>
-    <color name="navy_dark">#16304F</color>
+    <color name="navy">#101B2D</color>
+    <color name="navy_dark">#0A1322</color>
+    <color name="teal">#18A999</color>
+    <color name="teal_dark">#0E8074</color>
+    <color name="amber">#F2B84B</color>
     <color name="white">#FFFFFF</color>
-    <color name="text_primary">#1B2430</color>
-    <color name="text_secondary">#6B7280</color>
+    <color name="text_primary">#101B2D</color>
+    <color name="text_secondary">#465166</color>
     <color name="badge_draft">#9CA3AF</color>
     <color name="badge_locked">#6366F1</color>
     <color name="badge_counting">#D97706</color>

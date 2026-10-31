@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- DuaPharma brand: Primary Navy / Intelligence Teal (AA-safe) / Insight Amber -->
+    <color name="colorPrimary">#101B2D</color>
+    <color name="colorPrimaryDark">#0A1322</color>
+    <color name="colorAccent">#0E8074</color>
+    <color name="brand_teal">#18A999</color>
+    <color name="brand_amber">#F2B84B</color>
+</resources>

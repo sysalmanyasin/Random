@@ -859,6 +859,12 @@ For the complete PWA experience, serve the application over HTTPS.
 
 ---
 
+### Brand identity
+
+The app carries the **DuaPharma** identity (the product name, package ID and workflows are unchanged). Colours: Primary Navy `#101B2D`, Intelligence Teal `#18A999`, Insight Amber `#F2B84B`, Slate `#465166`, White `#FFFFFF`. In CSS, `--brand-*` hold the exact colours; `--navy` is the brand navy and `--navy2` is the AA-safe teal (`#0E8074`) used for focus rings and pressed states. Do not put white text on `#18A999` (2.9:1). Semantic colours (success green, warning/gold ink, error red, status badges) are intentionally not brand colours.
+
+The logo (a pharmacy cross with a rising data curve ending in an amber point) lives in `icons/icon.svg`; the PNG icons, maskable icons, favicons, Android launcher PNGs/vectors (`AndroidApp`, `AuditWidget`) and splash screens are exported from it. After changing shipped icons or CSS, bump `CACHE_NAME` in `sw.js`.
+
 ## 30. Development
 
 The web application deliberately has no frontend bundler or framework build step. It uses native ES modules.

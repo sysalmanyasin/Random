@@ -13,7 +13,7 @@ const STATUS_OPTIONS = ['Near Expiry', 'Sold', 'Returned to Warehouse', 'Discard
 const STATUS_STYLE = {
   'Near Expiry': { bg: '#FFF3D6', ink: '#8A6D00' },
   'Sold': { bg: '#ECFDF5', ink: '#059669' },
-  'Returned to Warehouse': { bg: '#EAF2FF', ink: '#1B3A6B' },
+  'Returned to Warehouse': { bg: '#EAF2FF', ink: '#101B2D' },
   'Discarded': { bg: '#FEE2E2', ink: '#B42318' },
 };
 function statusBadgeHTML(status) {

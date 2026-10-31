@@ -1009,7 +1009,7 @@ function _varianceReportBodyHTML(round, compiled, meta) {
     ],
   });
   const stats = _pdfStatGrid([
-    { val: varianceRows.length.toLocaleString(), label: 'Variances', color: '#1B3A6B' },
+    { val: varianceRows.length.toLocaleString(), label: 'Variances', color: '#101B2D' },
     { val: (totalQtyVar > 0 ? '+' : '') + totalQtyVar.toLocaleString(), label: 'Net Qty Variance', color: '#D97706' },
     { val: 'Rs ' + totalValueVar.toLocaleString(), label: 'Net Value Variance', color: '#DC2626', span: 2 },
   ]);
@@ -1046,7 +1046,7 @@ function _combinedVarianceReportBodyHTML(roundsWithCompiled, meta) {
     ],
   });
   const stats = _pdfStatGrid([
-    { val: combinedRows.length.toLocaleString(), label: 'Variance Lines', color: '#1B3A6B' },
+    { val: combinedRows.length.toLocaleString(), label: 'Variance Lines', color: '#101B2D' },
     { val: duplicateCount.toLocaleString(), label: 'Duplicate Products', color: '#D97706' },
     { val: 'Rs ' + totalValueVar.toLocaleString(), label: 'Net Value Variance', color: '#DC2626', span: 2 },
   ]);
@@ -1076,7 +1076,7 @@ function _finalAuditReportBodyHTML(snap, meta) {
     ],
   });
   const stats = _pdfStatGrid([
-    { val: snap.report.totalCompanies, label: 'Companies', color: '#1B3A6B' },
+    { val: snap.report.totalCompanies, label: 'Companies', color: '#101B2D' },
     { val: snap.report.totalItems.toLocaleString(), label: 'Items In Scope', color: '#059669' },
     { val: 'Rs ' + Number(snap.report.totalVarianceValue).toLocaleString(), label: 'Net Variance Value', color: '#D97706', span: 2 },
   ]);
@@ -1096,8 +1096,8 @@ function _finalAuditReportBodyHTML(snap, meta) {
   const cappedNote = snap.finalInventory.length > _FINAL_AUDIT_PREVIEW_CAP
     ? `<div style="font-size:10px; color:#64748B; margin:4px 0 10px;">Showing first ${_FINAL_AUDIT_PREVIEW_CAP.toLocaleString()} of ${snap.finalInventory.length.toLocaleString()} SKUs — the full list is included in the exported Excel file.</div>` : '';
   return header + stats
-    + `<div style="font-weight:700; color:#1B3A6B; margin:14px 0 6px; font-size:12px;">Round Summary</div>` + roundsTable
-    + `<div style="font-weight:700; color:#1B3A6B; margin:14px 0 6px; font-size:12px;">Final Inventory (${snap.finalInventory.length.toLocaleString()} SKUs)</div>` + cappedNote + invTable;
+    + `<div style="font-weight:700; color:#101B2D; margin:14px 0 6px; font-size:12px;">Round Summary</div>` + roundsTable
+    + `<div style="font-weight:700; color:#101B2D; margin:14px 0 6px; font-size:12px;">Final Inventory (${snap.finalInventory.length.toLocaleString()} SKUs)</div>` + cappedNote + invTable;
 }
 
 // ── Round History body ──
