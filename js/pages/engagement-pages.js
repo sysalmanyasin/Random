@@ -1259,9 +1259,19 @@ function renderReportOverview() {
   if (!content || !reportOverviewKey) return;
   const built = _buildReportOverview(reportOverviewKey);
   if (!built) { content.innerHTML = Components.reportOverviewEmptyHTML('Report', 'Open an engagement first.'); return; }
+  // Keep the round-chip list and table where the reader left them — every
+  // chip toggle re-renders the whole popup.
+  const prevSel = $('report-overview-selector');
+  const prevCanvas = $('report-overview-canvas');
+  const selTop = prevSel ? prevSel.scrollTop : 0;
+  const canvasTop = prevCanvas ? prevCanvas.scrollTop : 0;
   content.innerHTML = built.empty
     ? Components.reportOverviewEmptyHTML(built.title, built.empty, built.selectorHTML)
     : Components.reportOverviewShellHTML(built.title, built.bodyHTML, built.selectorHTML);
+  const newSel = $('report-overview-selector');
+  const newCanvas = $('report-overview-canvas');
+  if (newSel) newSel.scrollTop = selTop;
+  if (newCanvas) newCanvas.scrollTop = canvasTop;
 }
 
 // ── §Compilation Engine + §Difference Engine (compiled round) ──

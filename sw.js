@@ -1,4 +1,4 @@
-const CACHE_NAME = "fazal-din-audit-v9.10-dua-brand";
+const CACHE_NAME = "fazal-din-audit-v9.11-report-export-fix";
 
 // App-shell assets we want available offline immediately after install.
 // Includes the complete ES-module graph of js/main.js so a fresh install can

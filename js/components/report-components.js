@@ -80,14 +80,14 @@ export function reportButtonsHTML() {
 // with no affordance (the original bug this fixes).
 export function reportOverviewShellHTML(title, bodyHTML, headerHTML) {
   return `
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-shrink:0;">
       <h3 class="modal-title">${esc(title)}</h3>
       <button class="sort-btn" data-action="close-report-overview" style="padding:4px 10px;">✕</button>
     </div>
-    ${headerHTML || ''}
-    <div class="pdf-table-scroll-hint">👉 Swipe the table sideways for more columns</div>
-    <div id="report-overview-canvas" class="pdf-table-scroll" style="max-height:56vh; overflow:auto; border:1px solid #E2E8F0; border-radius:10px; padding:16px; background:#fff;">${bodyHTML}</div>
-    <div style="display:flex; gap:8px; margin-top:12px;">
+    ${headerHTML ? '<div id="report-overview-selector" style="flex-shrink:0; max-height:22vh; overflow:auto;">' + headerHTML + '</div>' : ''}
+    <div class="pdf-table-scroll-hint" style="flex-shrink:0;">👉 Swipe the table sideways for more columns</div>
+    <div id="report-overview-canvas" class="pdf-table-scroll" style="flex:1 1 auto; min-height:140px; overflow:auto; border:1px solid #E2E8F0; border-radius:10px; padding:16px; background:#fff;">${bodyHTML}</div>
+    <div style="display:flex; gap:8px; margin-top:12px; flex-shrink:0;">
       <button class="btn btn-primary" style="flex:1;" data-action="print-report-overview">🖨️ Print PDF</button>
       <button class="btn" style="flex:1; background:var(--green-ink); color:white;" data-action="export-report-overview">📊 Export xlsx</button>
     </div>`;
@@ -102,6 +102,6 @@ export function reportOverviewEmptyHTML(title, message, headerHTML) {
       <h3 class="modal-title">${esc(title)}</h3>
       <button class="sort-btn" data-action="close-report-overview" style="padding:4px 10px;">✕</button>
     </div>
-    ${headerHTML || ''}
+    ${headerHTML ? '<div id="report-overview-selector" style="max-height:40vh; overflow:auto;">' + headerHTML + '</div>' : ''}
     <div style="padding:28px 0; text-align:center; color:var(--grey); font-size:13px;">${esc(message)}</div>`;
 }

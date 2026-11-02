@@ -14,10 +14,12 @@ const _fmtDuration = DashboardActions.formatDuration;
    timestamp per submission, carried on every Submission record).
    ══════════════════════════════════════════════════════════════ */
 
-function _downloadWorkbook(rowsBySheet, filename) {
+// `colWidths` (optional) maps sheet name -> array of character widths.
+function _downloadWorkbook(rowsBySheet, filename, colWidths) {
   const wb = XLSX.utils.book_new();
   Object.keys(rowsBySheet).forEach(sheetName => {
     const ws = XLSX.utils.aoa_to_sheet(rowsBySheet[sheetName]);
+    if (colWidths && colWidths[sheetName]) ws['!cols'] = colWidths[sheetName].map(wch => ({ wch }));
     XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
   });
   XLSX.writeFile(wb, filename);
@@ -195,7 +197,15 @@ function exportCombinedVarianceReportXLSX(roundsWithCompiled, meta) {
   const duplicateCount = new Set(combinedRows.filter(r => r.isDuplicate).map(r => r.dupKey)).size;
   if (duplicateCount > 0) rows.splice(4, 0, ['Note', duplicateCount + ' product(s) appear in more than one round (recounted) — grouped together below, flagged "Yes" in the Duplicate column.']);
 
-  _downloadWorkbook({ [meta.scopeLabel && meta.scopeLabel !== 'All Rounds' ? 'Combined Variance' : 'Combined Variance — All Rounds']: rows }, 'CombinedVarianceReport_' + (meta.engagementName || 'Engagement').replace(/\s+/g, '_') + '.xlsx');
+  const isAll = !meta.scopeLabel || meta.scopeLabel === 'All Rounds';
+  const sheetName = isAll ? 'Combined Variance — All Rounds' : 'Combined Variance';
+  // Subset exports get a round-range suffix so they never overwrite / get
+  // confused with the all-rounds file (46 rounds would make a huge name,
+  // so it's a count + first/last round rather than a full list).
+  const nums = roundsWithCompiled.map(({ round }) => round.roundNumber + (round.roundSuffix || ''));
+  const suffix = isAll ? '' : '_' + nums.length + 'Rounds_R' + nums[0] + (nums.length > 1 ? '-R' + nums[nums.length - 1] : '');
+  const widths = { [sheetName]: [14, 38, 22, 14, 14, 14, 10, 18, 30, 16, 22, 20, 22] };
+  _downloadWorkbook({ [sheetName]: rows }, 'CombinedVarianceReport_' + (meta.engagementName || 'Engagement').replace(/\s+/g, '_') + suffix + '.xlsx', widths);
   logAudit('report:combinedVarianceExported', { roundCount: roundsWithCompiled.length });
   Bus.emit('toast', { msg: 'Combined Variance Report exported', kind: 'success' });
 }
