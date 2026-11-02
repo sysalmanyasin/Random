@@ -1,4 +1,4 @@
-const CACHE_NAME = "fazal-din-audit-v9.11-report-export-fix";
+const CACHE_NAME = "fazal-din-audit-v9.12-xlsx-styled";
 
 // App-shell assets we want available offline immediately after install.
 // Includes the complete ES-module graph of js/main.js so a fresh install can
@@ -14,6 +14,7 @@ const STATIC_ASSETS = [
   "./css/barcode.css",
   "./css/desktop.css",
   "./css/design-upgrade.css",
+  "./js/vendor/xlsx-js-style.min.js",
   "./js/vendor/zxing-library.min.js",
   "./js/vendor/zxing-wasm-reader.iife.js",
   "./js/vendor/zxing_reader.wasm",
@@ -101,7 +102,6 @@ const STATIC_ASSETS = [
 
 // External CDN assets (cached separately so failures don't block install)
 const CDN_ASSETS = [
-  "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"
 ];
 

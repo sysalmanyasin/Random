@@ -25,6 +25,71 @@ function _downloadWorkbook(rowsBySheet, filename, colWidths) {
   XLSX.writeFile(wb, filename);
 }
 
+
+// ── Excel styling (needs the vendored xlsx-js-style build; on plain SheetJS
+// these `s` fields are simply ignored, so the file still opens fine). ──
+const _XL = {
+  navy: '1B3A6B', amber: 'FFF4D6', grey: 'F1F5F9', red: 'B91C1C', green: '15803D',
+  thin: { style: 'thin', color: { rgb: 'CBD5E1' } },
+};
+function _cellRef(r, c) { return XLSX.utils.encode_cell({ r, c }); }
+// opts: { headerRow, firstDataRow, lastDataRow, totalRow, titleRow, moneyCols[], qtyCols[], varianceCols[], dupCol }
+function _styleTable(ws, rows, opts) {
+  if (!XLSX.utils.encode_cell) return;
+  const ncols = rows[opts.headerRow].length;
+  const border = { top: _XL.thin, bottom: _XL.thin, left: _XL.thin, right: _XL.thin };
+  const set = (r, c, style, fmt) => {
+    const ref = _cellRef(r, c);
+    if (!ws[ref]) ws[ref] = { t: 's', v: '' };
+    if (fmt && ws[ref].t === 'n') ws[ref].z = fmt;
+    ws[ref].s = Object.assign({}, ws[ref].s || {}, style);
+  };
+  if (opts.titleRow !== undefined) set(opts.titleRow, 0, { font: { bold: true, sz: 14, color: { rgb: _XL.navy } } });
+  for (let c = 0; c < ncols; c++) {
+    set(opts.headerRow, c, {
+      font: { bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { patternType: 'solid', fgColor: { rgb: _XL.navy } },
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      border,
+    });
+  }
+  for (let r = opts.firstDataRow; r <= opts.lastDataRow; r++) {
+    const isDup = opts.dupCol !== undefined && rows[r][opts.dupCol] === 'Yes';
+    for (let c = 0; c < ncols; c++) {
+      const st = { border };
+      if (isDup) st.fill = { patternType: 'solid', fgColor: { rgb: _XL.amber } };
+      else if ((r - opts.firstDataRow) % 2 === 1) st.fill = { patternType: 'solid', fgColor: { rgb: _XL.grey } };
+      const isMoney = (opts.moneyCols || []).includes(c);
+      const isVar = (opts.varianceCols || []).includes(c);
+      if (isVar && typeof rows[r][c] === 'number') {
+        if (rows[r][c] < 0) st.font = { bold: true, color: { rgb: _XL.red } };
+        else if (rows[r][c] > 0) st.font = { bold: true, color: { rgb: _XL.green } };
+      }
+      set(r, c, st, isMoney ? '#,##0.00' : ((opts.qtyCols || []).includes(c) ? '#,##0' : undefined));
+    }
+  }
+  if (opts.totalRow !== undefined) {
+    for (let c = 0; c < ncols; c++) {
+      const isMoney = (opts.moneyCols || []).includes(c);
+      set(opts.totalRow, c, {
+        font: { bold: true },
+        fill: { patternType: 'solid', fgColor: { rgb: 'E2E8F0' } },
+        border: { top: { style: 'medium', color: { rgb: _XL.navy } }, bottom: _XL.thin },
+      }, isMoney ? '#,##0.00' : '#,##0');
+    }
+  }
+  // Filter dropdowns on the header (panes can't be frozen by this library).
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: opts.headerRow, c: 0 }, e: { r: opts.lastDataRow, c: ncols - 1 } }) };
+  ws['!rows'] = ws['!rows'] || [];
+  ws['!rows'][opts.headerRow] = { hpt: 32 };
+}
+function _uniqueSheetName(name, used) {
+  let base = name.replace(/[\\\/?*\[\]:]/g, '-').slice(0, 31), n = base, i = 2;
+  while (used.has(n.toLowerCase())) { const suf = ' (' + i++ + ')'; n = base.slice(0, 31 - suf.length) + suf; }
+  used.add(n.toLowerCase());
+  return n;
+}
+
 // Barcode(s) registered for a product code — shown as the LAST column of the
 // existing reports so no existing column moves.
 function _barcodeCell(code) {
@@ -176,38 +241,102 @@ function buildCombinedVarianceReportRows(roundsWithCompiled) {
   );
 }
 
+const _COMBINED_HEAD = ['Product Code', 'Product Name', 'Company', 'Unit Price (Rs)', 'System Quantity', 'Physical Quantity', 'Variance', 'Variance Amount (Rs)', 'Round', 'Duplicate (recounted item)', 'Verified', 'Cross-Round Conflict', 'Barcode(s)'];
+const _COMBINED_WIDTHS = [14, 38, 22, 14, 14, 14, 11, 18, 30, 16, 22, 20, 22];
+const _COMBINED_STYLE = { moneyCols: [3, 7], qtyCols: [4, 5, 6], varianceCols: [6, 7], dupCol: 9 };
+
+function _combinedLine(r) {
+  return [r.code, r.name, r.company, r.price, r.systemQty, r.countedQty, r.variance, r.valueVariance, r.roundAndAuditor, r.isDuplicate ? 'Yes' : '', r.verified, r.conflictMarker, _barcodeCell(r.code)];
+}
+
+// Builds one styled table sheet: title block + header + lines + grand total.
+function _combinedSheet(titleRows, lines) {
+  const rows = titleRows.map(r => r.slice());
+  rows.push([]);
+  const headerRow = rows.length;
+  rows.push(_COMBINED_HEAD);
+  const firstDataRow = rows.length;
+  let qtyVar = 0, valVar = 0;
+  lines.forEach(r => { rows.push(_combinedLine(r)); qtyVar += r.variance; valVar += r.valueVariance; });
+  const lastDataRow = rows.length - 1;
+  rows.push(['GRAND TOTAL', '', '', '', '', '', qtyVar, Number(valVar.toFixed(2))]);
+  const totalRow = rows.length - 1;
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = _COMBINED_WIDTHS.map(wch => ({ wch }));
+  if (lines.length > 0) _styleTable(ws, rows, Object.assign({ titleRow: 0, headerRow, firstDataRow, lastDataRow, totalRow }, _COMBINED_STYLE));
+  return { rows, ws };
+}
+
+// Workbook layout:
+//   1. "Summary"   — one line per included round (lines, qty, value) + totals
+//   2. "Combined"  — every included round flattened (the original single sheet)
+//   3. one sheet per round ("Round 3", "Round 3A"…), same columns, sorted A-Z
 function exportCombinedVarianceReportXLSX(roundsWithCompiled, meta) {
   meta = meta || {};
   const combinedRows = buildCombinedVarianceReportRows(roundsWithCompiled);
-  const rows = [['Combined Variance Report — ' + (meta.scopeLabel || 'All Rounds') + (meta.engagementName ? ' — ' + meta.engagementName : '')]];
-  rows.push(['Generated', new Date().toLocaleString('en-PK')]);
-  if (meta.mainAuditorName) rows.push(['Main Auditor', meta.mainAuditorName]);
-  if (meta.branchName) rows.push(['Branch', meta.branchName]);
-  rows.push([]);
-  rows.push(['Product Code', 'Product Name', 'Company', 'Unit Price (Rs)', 'System Quantity', 'Physical Quantity', 'Variance', 'Variance Amount (Rs)', 'Round', 'Duplicate (recounted item)', 'Verified', 'Cross-Round Conflict', 'Barcode(s)']);
-  let grandQtyVar = 0, grandValueVar = 0;
-  combinedRows.forEach(r => {
-    rows.push([r.code, r.name, r.company, r.price, r.systemQty, r.countedQty, r.variance, r.valueVariance, r.roundAndAuditor, r.isDuplicate ? 'Yes' : '', r.verified, r.conflictMarker, _barcodeCell(r.code)]);
-    grandQtyVar += r.variance;
-    grandValueVar += r.valueVariance;
-  });
-  rows.push([]);
-  rows.push(['GRAND TOTAL', '', '', '', '', '', grandQtyVar, Number(grandValueVar.toFixed(2))]);
+  const isAll = !meta.scopeLabel || meta.scopeLabel === 'All Rounds';
+  const heading = 'Combined Variance Report — ' + (meta.scopeLabel || 'All Rounds') + (meta.engagementName ? ' — ' + meta.engagementName : '');
+  const info = [];
+  info.push(['Generated', new Date().toLocaleString('en-PK')]);
+  if (meta.mainAuditorName) info.push(['Main Auditor', meta.mainAuditorName]);
+  if (meta.branchName) info.push(['Branch', meta.branchName]);
 
   const duplicateCount = new Set(combinedRows.filter(r => r.isDuplicate).map(r => r.dupKey)).size;
-  if (duplicateCount > 0) rows.splice(4, 0, ['Note', duplicateCount + ' product(s) appear in more than one round (recounted) — grouped together below, flagged "Yes" in the Duplicate column.']);
+  const dupNote = duplicateCount > 0 ? [['Note', duplicateCount + ' product(s) appear in more than one round (recounted) — grouped together below, flagged "Yes" in the Duplicate column and shaded amber.']] : [];
 
-  const isAll = !meta.scopeLabel || meta.scopeLabel === 'All Rounds';
-  const sheetName = isAll ? 'Combined Variance — All Rounds' : 'Combined Variance';
+  const used = new Set();
+  const sheets = {};          // name -> worksheet (already built)
+  const order = [];
+
+  // ── Summary ──
+  const sumName = _uniqueSheetName('Summary', used);
+  const sumRows = [[heading]].concat(info, [[]]);
+  const sumHeader = sumRows.length;
+  sumRows.push(['Round', 'Variance Lines', 'Qty Variance', 'Value Variance (Rs)', 'Recounted Lines', 'Sheet']);
+  const sumFirst = sumRows.length;
+  const perRound = roundsWithCompiled.map(({ round }) => {
+    const label = 'Round ' + round.roundNumber + (round.roundSuffix || '');
+    const lines = combinedRows.filter(r => r.roundLabel === label).sort((a, b) => a.name.localeCompare(b.name));
+    return { label, lines };
+  });
+  let totLines = 0, totQty = 0, totVal = 0, totDup = 0;
+  perRound.forEach(({ label, lines }) => {
+    const q = lines.reduce((s, r) => s + r.variance, 0);
+    const v = Number(lines.reduce((s, r) => s + r.valueVariance, 0).toFixed(2));
+    const d = lines.filter(r => r.isDuplicate).length;
+    totLines += lines.length; totQty += q; totVal += v; totDup += d;
+    sumRows.push([label, lines.length, q, v, d, label]);
+  });
+  const sumLast = sumRows.length - 1;
+  sumRows.push(['TOTAL (lines counted per round)', totLines, totQty, Number(totVal.toFixed(2)), totDup, '']);
+  const sumWs = XLSX.utils.aoa_to_sheet(sumRows);
+  sumWs['!cols'] = [34, 16, 16, 20, 16, 14].map(wch => ({ wch }));
+  if (perRound.length > 0) _styleTable(sumWs, sumRows, { titleRow: 0, headerRow: sumHeader, firstDataRow: sumFirst, lastDataRow: sumLast, totalRow: sumRows.length - 1, moneyCols: [3], qtyCols: [1, 2, 4], varianceCols: [2, 3] });
+  sheets[sumName] = sumWs; order.push(sumName);
+
+  // ── Combined (all included rounds on one sheet) ──
+  const combName = _uniqueSheetName(isAll ? 'Combined — All Rounds' : 'Combined', used);
+  const combined = _combinedSheet([[heading]].concat(info, dupNote), combinedRows);
+  sheets[combName] = combined.ws; order.push(combName);
+
+  // ── One sheet per round ──
+  perRound.forEach(({ label, lines }, i) => {
+    const name = _uniqueSheetName(label, used);
+    const sub = _combinedSheet([[label + ' — Variance Report' + (meta.engagementName ? ' — ' + meta.engagementName : '')]].concat(info), lines);
+    sheets[name] = sub.ws; order.push(name);
+  });
+
+  const wb = XLSX.utils.book_new();
+  order.forEach(n => XLSX.utils.book_append_sheet(wb, sheets[n], n));
+
   // Subset exports get a round-range suffix so they never overwrite / get
-  // confused with the all-rounds file (46 rounds would make a huge name,
-  // so it's a count + first/last round rather than a full list).
+  // confused with the all-rounds file (a count + first/last round rather
+  // than a full list, which would be huge for 46 rounds).
   const nums = roundsWithCompiled.map(({ round }) => round.roundNumber + (round.roundSuffix || ''));
   const suffix = isAll ? '' : '_' + nums.length + 'Rounds_R' + nums[0] + (nums.length > 1 ? '-R' + nums[nums.length - 1] : '');
-  const widths = { [sheetName]: [14, 38, 22, 14, 14, 14, 10, 18, 30, 16, 22, 20, 22] };
-  _downloadWorkbook({ [sheetName]: rows }, 'CombinedVarianceReport_' + (meta.engagementName || 'Engagement').replace(/\s+/g, '_') + suffix + '.xlsx', widths);
+  XLSX.writeFile(wb, 'CombinedVarianceReport_' + (meta.engagementName || 'Engagement').replace(/\s+/g, '_') + suffix + '.xlsx');
   logAudit('report:combinedVarianceExported', { roundCount: roundsWithCompiled.length });
-  Bus.emit('toast', { msg: 'Combined Variance Report exported', kind: 'success' });
+  Bus.emit('toast', { msg: 'Combined Variance Report exported (' + order.length + ' sheets)', kind: 'success' });
 }
 
 // ── Product Search — "where did we ever count this?" ──────────
