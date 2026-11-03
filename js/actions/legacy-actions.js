@@ -26,6 +26,13 @@ export const LegacyActions = (() => {
   const DEFAULT_BRANCH_NAME = 'Bahria Town Branch';
   const DEFAULT_PIN = '1218';
   const INVENTORY_LAST_SYNCED_KEY = 'inventory_last_synced_at';
+  // (2026-11 egress cleanup) Records which server sync the on-device
+  // inventory copy (IndexedDB) was downloaded from: { syncedAt: epochMs,
+  // count }. Only written right after a real fetch from Supabase and
+  // cleared whenever the copy is replaced from any other source (CSV
+  // import, backup restore) — so "marker matches the server's latest
+  // sync" really does mean "this device already holds that exact data".
+  const INVENTORY_CACHE_MARKER_KEY = 'inventory_cache_marker';
   const PWA_DISMISSED_KEY = 'pwa_install_dismissed';
 
   function getBranchName() { return Repo.LS.get(SETTINGS_BRANCH_KEY, DEFAULT_BRANCH_NAME); }
@@ -115,6 +122,7 @@ export const LegacyActions = (() => {
     const products = rawRows.map(mapNormalizedSchema).filter(m => m.name);
     Store.setState({ products });
     Repo.saveProducts(products);
+    _clearInventoryCacheMarker(); // local copy no longer mirrors the server's
     Bus.emit('products:changed', products);
     Bus.emit('toast', { msg: `Loaded ${products.length.toLocaleString()} items successfully`, kind: 'success' });
     Bus.emit('csv:imported', { count: products.length });
@@ -128,6 +136,14 @@ export const LegacyActions = (() => {
   // just reads the shared inventory_products table and can ask for a
   // fresh pull on demand. Any logged-in staff member (Main or Sub,
   // provided their access hasn't expired) can trigger a sync now.
+  function _markInventoryCache(syncedAtMs, count) {
+    if (!Number.isFinite(syncedAtMs) || !count) return;
+    try { Repo.LS.setJSON(INVENTORY_CACHE_MARKER_KEY, { syncedAt: syncedAtMs, count }); } catch (_) { /* best-effort */ }
+  }
+  function _clearInventoryCacheMarker() {
+    try { Repo.LS.remove(INVENTORY_CACHE_MARKER_KEY); } catch (_) { /* best-effort */ }
+  }
+
   function _setLastSyncedLocal(ts) {
     Repo.LS.set(INVENTORY_LAST_SYNCED_KEY, String(ts));
     Store.setState({ inventoryLastSyncedAt: ts });
@@ -139,13 +155,30 @@ export const LegacyActions = (() => {
     const { sbClient } = Store.getState();
     if (!sbClient) return;
     try {
-      const products = await Repo.fetchInventoryProducts(sbClient);
-      if (products.length > 0) {
-        Store.setState({ products });
-        Repo.saveProducts(products); // keep an offline-usable local cache too
-        Bus.emit('products:changed', products);
+      // 1-row probe first (2026-11 egress cleanup). Every login used to
+      // re-download all ~6 pages of inventory_products even when the
+      // Dropbox sync hadn't moved since this device last pulled it. If
+      // the on-device copy is provably from the server's latest sync,
+      // keep it. Any doubt (probe failed, no marker, count mismatch,
+      // empty cache) falls through to the original full fetch.
+      let latest = null, probeError = null;
+      try { latest = await Repo.fetchLatestInventorySync(sbClient); } catch (err) { probeError = err; }
+      const latestMs = latest ? new Date(latest.syncedAt).getTime() : NaN;
+      const marker = Repo.LS.getJSON(INVENTORY_CACHE_MARKER_KEY, null);
+      const held = Store.getState().products || [];
+      const cacheIsCurrent = !!(marker && Number.isFinite(latestMs) && marker.syncedAt === latestMs
+        && held.length > 0 && held.length === marker.count);
+
+      if (!cacheIsCurrent) {
+        const products = await Repo.fetchInventoryProducts(sbClient);
+        if (products.length > 0) {
+          Store.setState({ products });
+          Repo.saveProducts(products); // keep an offline-usable local cache too
+          Bus.emit('products:changed', products);
+          _markInventoryCache(latestMs, products.length);
+        }
       }
-      const latest = await Repo.fetchLatestInventorySync(sbClient);
+      if (probeError) throw probeError; // same failure surface as before: products loaded, sync-log read failed
       if (latest) {
         _setLastSyncedLocal(new Date(latest.syncedAt).getTime());
         Bus.emit('cloud:state', { state: 'synced', text: '✓ Synced' });
@@ -178,6 +211,7 @@ export const LegacyActions = (() => {
       Bus.emit('products:changed', products);
       const fetchedAt = result.syncedAt ? new Date(result.syncedAt).getTime() : Date.now();
       _setLastSyncedLocal(fetchedAt);
+      if (result.syncedAt) _markInventoryCache(fetchedAt, products.length); // only when the server's own sync time is known
       const count = result.count ?? products.length;
       Bus.emit('dbxInventoryFetch:success', { count, fetchedAt });
       Bus.emit('cloud:state', { state: 'synced', text: '✓ Synced' });
@@ -268,6 +302,7 @@ export const LegacyActions = (() => {
     if (Array.isArray(parsed.products)) {
       Store.setState({ products: parsed.products });
       Repo.saveProducts(parsed.products);
+      _clearInventoryCacheMarker(); // local copy no longer mirrors the server's
       Bus.emit('products:changed', parsed.products);
     }
     if (parsed.branchName) {

@@ -2,7 +2,7 @@ import { Repo } from '../repository.js';
 import { Store } from '../store.js';
 import { Bus } from './bus.js';
 import { LegacyActions } from './legacy-actions.js';
-import { logAudit, loadAuditLogList, retryQueuedAuditLog } from './audit-log-actions.js';
+import { logAudit, loadAuditLogList, ensureFullAuditLog, retryQueuedAuditLog, AUDIT_LOG_LOGIN_LIMIT } from './audit-log-actions.js';
 import { AuthActions } from './auth-actions.js';
 import { StaffActions } from './staff-actions.js';
 import { EngagementActions } from './engagement-actions.js';
@@ -45,7 +45,7 @@ Bus.on('auth:loggedIn', async (profile) => {
   if (profile.role === 'main') {
     await EngagementActions.loadEngagementsList();
     await StaffActions.loadStaffRoster();
-    await loadAuditLogList();
+    await loadAuditLogList({ limit: AUDIT_LOG_LOGIN_LIMIT });
     await CountingActions.loadMyAssignments(); // picks up any self-assigned work too
   } else if (profile.role === 'dep') {
     // Deputy Auditor: same view of engagements/rounds as Main, but no
@@ -93,6 +93,7 @@ export const Actions = {
   ...BarcodeActions,
   bootstrap,
   logAudit,
+  ensureFullAuditLog,
 };
 
 export { Bus };

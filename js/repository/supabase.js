@@ -278,6 +278,31 @@ async function fetchAssignmentProgressByRound(client, roundId) {
   if (error) throw error;
   return data || [];
 }
+// Batched status-only fetch for several rounds at once — used by the
+// Rounds list's progress counts (dashboard-actions.js
+// loadRoundAuditorProgress), which only needs "how many assignments per
+// round, and how many are submitted". Previously that was one
+// select('*') per round (dragging along each assignment's static
+// items/companies/live_snapshot payload) every 15s. Pages with .range()
+// so an engagement with >1000 assignments is never silently truncated.
+// (2026-11 egress cleanup.)
+async function fetchAssignmentStatusesByRounds(client, roundIds) {
+  if (!roundIds || roundIds.length === 0) return [];
+  const PAGE_SIZE = 1000;
+  let all = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await client
+      .from('assignments')
+      .select('id, round_id, status')
+      .in('round_id', roundIds)
+      .order('id', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    all = all.concat(data || []);
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return all;
+}
 // Single fresh row, bypassing the Store's cache — used for the Main
 // Auditor's "tap the progress bar" live-snapshot popup, which is
 // explicitly a manual refresh/re-fetch rather than a live subscription.
@@ -416,10 +441,19 @@ async function insertAuditLogEntry(client, entry) {
   const { error } = await client.from('audit_log').insert({ actor: entry.actor, role: entry.role, action: entry.action, details: entry.details });
   if (error) throw error; // caller decides whether to swallow (offline) or surface
 }
-async function fetchAuditLog(client) {
-  const { data, error } = await client.from('audit_log').select('*').order('ts', { ascending: true });
+// opts.limit — return only the newest N entries (still ordered oldest →
+// newest, same as the unlimited call). Used for the login-time load so
+// the ever-growing audit_log isn't re-downloaded in full on every Main
+// login (2026-11 egress cleanup). Without opts the behavior is exactly
+// as before (used by the final snapshot, and the Audit Trail report).
+async function fetchAuditLog(client, opts) {
+  const limit = opts && opts.limit > 0 ? opts.limit : 0;
+  let q = client.from('audit_log').select('*');
+  q = limit ? q.order('ts', { ascending: false }).limit(limit) : q.order('ts', { ascending: true });
+  const { data, error } = await q;
   if (error) throw error;
-  return (data || []).map(row => ({ id: row.id, actor: row.actor, role: row.role, action: row.action, details: row.details, ts: row.ts }));
+  const rows = limit ? (data || []).slice().reverse() : (data || []);
+  return rows.map(row => ({ id: row.id, actor: row.actor, role: row.role, action: row.action, details: row.details, ts: row.ts }));
 }
 
 // ── Audit Templates (Inventory tab — saved product-code lists) ──
@@ -582,7 +616,7 @@ export const SupabaseRepo = {
   fetchMyStaffProfile, fetchAllStaff, setStaffAccessExpiry,
   insertEngagement, setEngagementCountingMethod, updateEngagementStatus, updateEngagementScope, deleteEngagement, fetchEngagements,
   insertRound, updateRound, deleteRound, fetchRoundsByEngagement, fetchRoundById, fetchOpenRoundsAcrossEngagements,
-  insertAssignments, updateAssignment, fetchAssignmentsByRound, fetchAssignmentProgressByRound, fetchAssignmentById, fetchMyAssignments,
+  insertAssignments, updateAssignment, fetchAssignmentsByRound, fetchAssignmentProgressByRound, fetchAssignmentStatusesByRounds, fetchAssignmentById, fetchMyAssignments,
   upsertSubmission, fetchSubmissionsByRound, fetchMySubmission,
   insertCompiledRound, fetchCompiledRoundsByRound, updateCompiledRoundConflicts, compileIndividualRoundRPC,
   insertVarianceSuggestion, fetchSuggestionsByRound, fetchSuggestionsByEngagement, updateSuggestionStatus, applyRoundCorrection,

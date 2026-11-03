@@ -7,6 +7,6 @@ export const Bus = (() => {
   const handlers = {};
   return {
     on(evt, fn) { (handlers[evt] = handlers[evt] || []).push(fn); },
-    emit(evt, payload) { (handlers[evt] || []).forEach(fn => fn(payload)); },
+    emit(evt, payload, meta) { (handlers[evt] || []).forEach(fn => fn(payload, meta)); },
   };
 })();

@@ -53,13 +53,30 @@ async function retryQueuedAuditLog() {
   _writeQueue(stillPending);
 }
 
-async function loadAuditLogList() {
+// Login loads only the newest entries (2026-11 egress cleanup); the full
+// trail is fetched on demand by ensureFullAuditLog() when something
+// actually needs all of it (the Audit Trail report).
+const AUDIT_LOG_LOGIN_LIMIT = 500;
+let _auditLogIsFull = false;
+
+async function loadAuditLogList(opts) {
   const { sbClient } = Store.getState();
   if (!sbClient) return [];
-  const auditLog = await Repo.fetchAuditLog(sbClient);
+  const limit = opts && opts.limit ? opts.limit : 0;
+  let auditLog = await Repo.fetchAuditLog(sbClient, limit ? { limit } : undefined);
+  // On-demand reload mid-session: keep entries still waiting in the offline
+  // retry queue so they don't vanish from the trail while unsent.
+  if (opts && opts.keepQueued) auditLog = auditLog.concat(_readQueue());
+  _auditLogIsFull = !limit;
   Store.setState({ auditLog });
   Bus.emit('auditLog:changed', auditLog);
   return auditLog;
 }
 
-export { logAudit, loadAuditLogList, retryQueuedAuditLog };
+// Idempotent: a no-op once the full log is already in Store this session.
+async function ensureFullAuditLog() {
+  if (_auditLogIsFull) return Store.getState().auditLog;
+  return loadAuditLogList({ keepQueued: true });
+}
+
+export { logAudit, loadAuditLogList, ensureFullAuditLog, retryQueuedAuditLog, AUDIT_LOG_LOGIN_LIMIT };

@@ -69,9 +69,20 @@ async function suggestVarianceEdit(compiledRound, row, suggestedQty, reason, aut
   }
 }
 
-async function loadSuggestionsForRound(roundId) {
+// opts.onlyIfChanged — used by the 15s poll in engagement-pages.js. When
+// the fetched list is identical to what Store already holds for this
+// round, skip the Store write and the 'suggestions:changed' emit: that
+// event re-renders the workspace AND triggers a full refreshRoundList()
+// (progress + engagement-wide suggestions fetches), which made every
+// idle poll tick cost a second round-list refresh. (2026-11 egress
+// cleanup.) Default behavior (no opts) is unchanged.
+async function loadSuggestionsForRound(roundId, opts) {
   const { sbClient } = Store.getState();
   const suggestions = await Repo.fetchSuggestionsByRound(sbClient, roundId);
+  if (opts && opts.onlyIfChanged) {
+    const current = (Store.getState().suggestions || []).filter(s => s.roundId === roundId);
+    if (JSON.stringify(current) === JSON.stringify(suggestions)) return suggestions;
+  }
   Store.setState({ suggestions });
   Bus.emit('suggestions:changed', suggestions);
   return suggestions;

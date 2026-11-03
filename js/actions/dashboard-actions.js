@@ -203,13 +203,19 @@ function formatDuration(totalSeconds) {
 // submitMyCount), so no separate submissions fetch is needed.
 async function loadRoundAuditorProgress(rounds) {
   const { sbClient } = Store.getState();
-  const entries = await Promise.all(rounds.map(async (round) => {
-    const raw = await Repo.fetchAssignmentsByRound(sbClient, round.id);
-    const active = raw.filter(a => a.status !== 'revoked');
-    const submitted = active.filter(a => a.status === 'submitted').length;
-    return [round.id, { submitted, total: active.length }];
-  }));
-  return new Map(entries);
+  // One batched, status-only request for every round (was: one
+  // select('*') per round, re-downloading each assignment's static
+  // items/companies/live_snapshot just to count submitted vs total).
+  // Result shape is unchanged. (2026-11 egress cleanup.)
+  const rows = await Repo.fetchAssignmentStatusesByRounds(sbClient, rounds.map(r => r.id));
+  const map = new Map(rounds.map(r => [r.id, { submitted: 0, total: 0 }]));
+  rows.forEach((a) => {
+    const entry = map.get(a.round_id);
+    if (!entry || a.status === 'revoked') return;
+    entry.total += 1;
+    if (a.status === 'submitted') entry.submitted += 1;
+  });
+  return map;
 }
 
 // Same shape, but built from an already-fetched assignments list

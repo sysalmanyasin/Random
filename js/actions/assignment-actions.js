@@ -38,7 +38,11 @@ async function refreshAssignmentProgressForRound(roundId) {
     return { ...a, status: p.status, progressCount: p.progress_count || 0, liveSnapshot: p.live_snapshot || {} };
   });
   Store.setState({ assignments: updated });
-  Bus.emit('assignments:changed', updated);
+  // progressOnly: the page's assignments:changed listener skips its
+  // loadMyAssignments() re-fetch for this 15s poll — that call
+  // re-downloads the Main Auditor's own full assignment rows (with
+  // items) and nothing about them changed. (2026-11 egress cleanup.)
+  Bus.emit('assignments:changed', updated, { progressOnly: true });
   return updated;
 }
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = "fazal-din-audit-v9.12-xlsx-styled";
+const CACHE_NAME = "fazal-din-audit-v9.13-egress";
 
 // App-shell assets we want available offline immediately after install.
 // Includes the complete ES-module graph of js/main.js so a fresh install can

@@ -606,8 +606,22 @@ Bus.on('round:deleted', ({ roundId }) => {
   if (currentSubView === 'detail') refreshSubRoundSection();
 });
 
+// (2026-11 egress cleanup) The three 15s polls below used to keep
+// firing while the tab/app was in the background, downloading data
+// nobody was looking at. They now skip ticks while hidden, and run one
+// catch-up tick as soon as the tab is visible again so the screen is
+// never stale for longer than it was before.
+function _tabHidden() { return typeof document !== 'undefined' && document.hidden === true; }
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    [_progressTick, _suggestionTick, _roundListTick].forEach(tick => { if (tick) tick(); });
+  });
+}
+
 let _progressPollTimer = null;
-function _stopProgressPoll() { clearInterval(_progressPollTimer); _progressPollTimer = null; }
+let _progressTick = null;
+function _stopProgressPoll() { clearInterval(_progressPollTimer); _progressPollTimer = null; _progressTick = null; }
 function _startProgressPollIfNeeded(round) {
   _stopProgressPoll();
   if (!round || (round.state !== 'locked' && round.state !== 'counting')) return;
@@ -618,11 +632,13 @@ function _startProgressPollIfNeeded(round) {
   // 15s the way loadAssignmentsForRound did. Only runs while this exact
   // round's workspace is on screen, and stops the moment the Main
   // Auditor navigates away.
-  _progressPollTimer = setInterval(async () => {
+  _progressTick = async () => {
     if (!openRoundId || openRoundId !== round.id) { _stopProgressPoll(); return; }
+    if (_tabHidden()) return; // no polling in a background tab (2026-11 egress cleanup)
     await Actions.refreshAssignmentProgressForRound(round.id);
     refreshAssignmentCards();
-  }, 15000);
+  };
+  _progressPollTimer = setInterval(_progressTick, 15000);
 }
 
 // Cross-device visibility for Suggest Correction: a Deputy filing a
@@ -635,14 +651,19 @@ function _startProgressPollIfNeeded(round) {
 // that fetch happening while the compiled round view is on screen, for
 // BOTH 'main' and 'dep' (a plain Sub never reaches this view at all).
 let _suggestionPollTimer = null;
-function _stopSuggestionPoll() { clearInterval(_suggestionPollTimer); _suggestionPollTimer = null; }
+let _suggestionTick = null;
+function _stopSuggestionPoll() { clearInterval(_suggestionPollTimer); _suggestionPollTimer = null; _suggestionTick = null; }
 function _startSuggestionPollIfNeeded(round) {
   _stopSuggestionPoll();
   if (!round || round.state !== 'compiled') return;
-  _suggestionPollTimer = setInterval(async () => {
+  _suggestionTick = async () => {
     if (!openRoundId || openRoundId !== round.id) { _stopSuggestionPoll(); return; }
-    await Actions.loadSuggestionsForRound(round.id);
-  }, 15000);
+    if (_tabHidden()) return;
+    // onlyIfChanged: an unchanged poll result must not fire
+    // 'suggestions:changed' (which would also run refreshRoundList).
+    await Actions.loadSuggestionsForRound(round.id, { onlyIfChanged: true });
+  };
+  _suggestionPollTimer = setInterval(_suggestionTick, 15000);
 }
 
 // Rounds list (round cards) poll — separate from
@@ -652,14 +673,17 @@ function _startSuggestionPollIfNeeded(round) {
 // since the round list sits above the workspace and is always visible
 // there (see round-list-holder in renderEngagementDetailHTML).
 let _roundListPollTimer = null;
-function _stopRoundListPoll() { clearInterval(_roundListPollTimer); _roundListPollTimer = null; }
+let _roundListTick = null;
+function _stopRoundListPoll() { clearInterval(_roundListPollTimer); _roundListPollTimer = null; _roundListTick = null; }
 function _startRoundListPollIfNeeded(engagementId) {
   _stopRoundListPoll();
   if (!engagementId) return;
-  _roundListPollTimer = setInterval(() => {
+  _roundListTick = () => {
     if (currentSubView !== 'detail' || Store.getState().currentEngagementId !== engagementId) { _stopRoundListPoll(); return; }
+    if (_tabHidden()) return;
     refreshRoundList();
-  }, 15000);
+  };
+  _roundListPollTimer = setInterval(_roundListTick, 15000);
 }
 
 async function openRound(roundId) {
@@ -793,13 +817,15 @@ function refreshAssignmentCards() {
   if (roundAssignments.length === 0) { holder.appendChild(Components.noAssignmentsEmptyState()); return; }
   roundAssignments.forEach(a => holder.appendChild(Components.assignmentCard(a, roundAssignments, round?.state, assignmentGroupByCompany, role !== 'main')));
 }
-Bus.on('assignments:changed', () => {
+Bus.on('assignments:changed', (_list, meta) => {
   if (openRoundId) refreshAssignmentCards();
   pendingSplitPreview = null;
   pendingSplitStaffList = null;
   renderSplitPreview();
   const { role } = Store.getState();
-  if (role === 'main') Actions.loadMyAssignments();
+  // Skipped for the 15s progress poll (meta.progressOnly) — see
+  // assignment-actions.js refreshAssignmentProgressForRound.
+  if (role === 'main' && !(meta && meta.progressOnly)) Actions.loadMyAssignments();
   refreshDashboard(); // re-render company coverage whenever assignment data changes (including on refresh)
 });
 
@@ -1870,9 +1896,15 @@ export function initEngagementPages() {
     // Reports tab — Overview popup replaces immediate download. Tapping
     // "Overview" opens a branded preview (identical markup to the printed
     // page); Print/Export live inside the popup itself.
-    'open-report-overview': (el) => {
+    'open-report-overview': async (el) => {
       reportOverviewKey = el.dataset.report;
       combinedSelectedRoundIds = null; // default: all rounds
+      // Login only loads the newest audit_log entries; this report shows
+      // the whole trail, so fetch the rest now (once per session).
+      if (reportOverviewKey === 'audit-trail') {
+        try { await Actions.ensureFullAuditLog(); }
+        catch (err) { Bus.emit('toast', { msg: 'Could not load the full audit trail — showing recent entries only', kind: 'error' }); }
+      }
       renderReportOverview();
       const overlay = $('report-overview-overlay');
       if (overlay) overlay.style.display = 'flex';
